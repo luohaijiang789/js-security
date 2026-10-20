@@ -1,16 +1,18 @@
 # Baxia 公开 SDK 静态核查
 
+> 项目作用：为前端 JS 请求注入、直传与远程配置调查提供指定版本的静态样本证据。正文事实与哈希保留；业务站实际触发、接收后路径和 EO 判断仍需[双侧调查及下游取证](../../../deliverables/项目Checklist.md)。Baxia 不代表全部排查对象。
+
 > 核查时间：2026-10-15。只下载并阅读公开 CDN 的 JavaScript，**未执行脚本、未连接目标业务页面、未验证实际网络发送或服务端落地位置**。下述脚本来自公开地址的当前响应；不同站点、版本和灰度配置可能走不同分支。样本彼此关联的线索不等于它们在同一页面一定同时运行。
 
 ## 1. 样本与完整性
 
 | 样本 | 公开来源 | 本地副本 | SHA-256 |
 |---|---|---|---|
-| Baxia 入口 | `https://g.alicdn.com/sd/baxia-entry/index.js` | [entry-index.js](samples/baxia/entry-index.js) | `79cbec5c53d89c594e6c0a2d5407385416e4c756700eefa663f5cca0f045a159` |
-| Baxia 公共入口 | `https://g.alicdn.com/sd/baxia-entry/baxiaCommon.js` | [entry-common.js](samples/baxia/entry-common.js) | `a4fd6a524c81be97cbd67058c8394c92ffbcbcfc83fc0af9611ca7d82c191c83` |
-| Baxia 2.5.37 | `https://g.alicdn.com/sd/baxia/2.5.37/baxiaCommon.js` | [baxia-common-2.5.37.js](samples/baxia/baxia-common-2.5.37.js) | `1b19182fd89af9530e7bc7722b73ce584104eb5bc5c8fa2c1e58332fad83e7af` |
-| AWSC 入口 | `https://g.alicdn.com/AWSC/AWSC/awsc.js` | [awsc.js](samples/baxia/awsc.js) | `dd61322f1a7e890f3677a320f05b5a36e4f501ebcf037400eab5e2009f2e911e` |
-| Fireye 1.234.24 | `https://g.alicdn.com/AWSC/fireyejs/1.234.24/fireyejs.js` | [fireye-1.234.24.js](samples/baxia/fireye-1.234.24.js) | `7b011c7d48ea0a7ddc87a430c6b087471cd9bd5d7901a30b262f511354ff30f0` |
+| Baxia 入口 | `https://g.alicdn.com/sd/baxia-entry/index.js` | [entry-index.js](../../../samples/baxia/entry-index.js) | `79cbec5c53d89c594e6c0a2d5407385416e4c756700eefa663f5cca0f045a159` |
+| Baxia 公共入口 | `https://g.alicdn.com/sd/baxia-entry/baxiaCommon.js` | [entry-common.js](../../../samples/baxia/entry-common.js) | `a4fd6a524c81be97cbd67058c8394c92ffbcbcfc83fc0af9611ca7d82c191c83` |
+| Baxia 2.5.37 | `https://g.alicdn.com/sd/baxia/2.5.37/baxiaCommon.js` | [baxia-common-2.5.37.js](../../../samples/baxia/baxia-common-2.5.37.js) | `1b19182fd89af9530e7bc7722b73ce584104eb5bc5c8fa2c1e58332fad83e7af` |
+| AWSC 入口 | `https://g.alicdn.com/AWSC/AWSC/awsc.js` | [awsc.js](../../../samples/baxia/awsc.js) | `dd61322f1a7e890f3677a320f05b5a36e4f501ebcf037400eab5e2009f2e911e` |
+| Fireye 1.234.24 | `https://g.alicdn.com/AWSC/fireyejs/1.234.24/fireyejs.js` | [fireye-1.234.24.js](../../../samples/baxia/fireye-1.234.24.js) | `7b011c7d48ea0a7ddc87a430c6b087471cd9bd5d7901a30b262f511354ff30f0` |
 
 每个请求返回 `HTTP 200` 和 `application/javascript`。响应头保存在同目录的 `.headers` 文件中。Fireye 文件约 551 KB，存在压缩/混淆；本次没有声称已完整还原其采集字段。
 
@@ -49,4 +51,4 @@
 
 ## 5. 与总体方案的关系
 
-本核查把[前端打点跨境数据流审计方案](前端打点跨境数据流审计方案.md)中的 Baxia 入口、业务请求透传、SDK 直传和下游访问四类证据具体化。生产环境结论需要第 4 节的运行时和灰盒证据。
+本核查把[美国业务前端跨境数据流场景](../../02-专题研究/美国业务前端跨境数据流场景.md)中的 Baxia 入口、业务请求透传、SDK 直传和下游访问四类证据具体化。生产环境结论需要第 4 节的运行时和灰盒证据。
