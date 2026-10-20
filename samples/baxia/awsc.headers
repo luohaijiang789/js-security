@@ -1,0 +1,26 @@
+HTTP/1.1 200 Connection established
+
+HTTP/2 200
+server: Tengine
+content-type: application/javascript
+content-length: 4916
+date: Thu, 15 Oct 2026 09:31:32 GMT
+vary: Accept-Encoding
+x-oss-request-id: 6AD09D74BED58D363826C9E9
+x-oss-object-type: Normal
+x-oss-hash-crc64ecma: 12736799334815208309
+x-oss-storage-class: Standard
+cache-control: max-age=7200,s-maxage=3600
+content-md5: 57GWSF9Up73TtZCmVDyH9w==
+x-oss-server-time: 2
+access-control-allow-origin: *
+x-source-scheme: https
+content-encoding: gzip
+via: cache38.l2cn2647[0,0,200-0,H], cache21.l2cn2647[0,0], cache21.l2cn2647[0,0], cache17.cn8014[42,41,200-0,M], cache21.cn8014[44,0]
+age: 2250
+ali-swift-global-savetime: 1792056692
+x-cache: MISS TCP_REFRESH_MISS dirn:10:326308121
+x-swift-savetime: Thu, 15 Oct 2026 10:09:02 GMT
+x-swift-cachetime: 1350
+timing-allow-origin: *
+eagleid: df64232917920589427431151e
