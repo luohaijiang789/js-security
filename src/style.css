@@ -1,0 +1,280 @@
+:root {
+  font-family: Inter, "PingFang SC", "Microsoft YaHei", sans-serif;
+  color: #233447;
+  background: #f3f6fa;
+  font-size: 14px;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+.shell {
+  display: grid;
+  grid-template-columns: 215px 1fr;
+  min-height: 100vh;
+}
+aside {
+  background: #14283f;
+  color: #d5e0ee;
+  padding: 32px 22px;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+}
+.brand {
+  font-size: 24px;
+  font-weight: 800;
+  color: #67dfcc;
+}
+.brand span {
+  font-size: 17px;
+  color: white;
+}
+nav {
+  display: grid;
+  gap: 8px;
+  margin-top: 36px;
+}
+nav button {
+  text-align: left;
+  background: transparent;
+  color: #aebed0;
+  border: 0;
+  padding: 13px;
+}
+nav button.active {
+  color: white;
+  background: #26415c;
+}
+.side-note {
+  margin-top: 60px;
+  font-size: 12px;
+  color: #91a5bc;
+  line-height: 1.8;
+}
+main {
+  padding: 32px 40px;
+  min-width: 0;
+  max-width: 1800px;
+}
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 28px;
+}
+h1 {
+  margin: 4px 0;
+  font-size: 28px;
+}
+h2 {
+  font-size: 18px;
+  margin: 0 0 16px;
+}
+h3 {
+  font-size: 14px;
+}
+.eyebrow {
+  font-size: 10px;
+  letter-spacing: 2px;
+  color: #7b8d9f;
+}
+.status {
+  padding: 8px 14px;
+  border-radius: 20px;
+  background: #e1e8f0;
+}
+.status.recording {
+  background: #cff1e7;
+  color: #12624d;
+}
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}
+.toolbar .muted {
+  margin-right: auto;
+}
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 10px;
+  margin: 22px 0;
+}
+.metrics div {
+  background: white;
+  padding: 16px;
+  border: 1px solid #e2e8ef;
+  border-radius: 9px;
+}
+.metrics strong {
+  display: block;
+  font-size: 24px;
+  margin-top: 7px;
+}
+.metrics small {
+  color: #6d8093;
+}
+.card {
+  background: white;
+  border: 1px solid #e0e7ef;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 18px 0;
+}
+.table-wrap {
+  padding: 0;
+  overflow: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+}
+th {
+  background: #f8fafc;
+  font-size: 12px;
+  color: #728399;
+  padding: 14px;
+}
+td {
+  padding: 13px;
+  border-top: 1px solid #edf1f5;
+  font-size: 13px;
+}
+tr:hover td {
+  background: #f5fafc;
+  cursor: pointer;
+}
+.url {
+  max-width: 520px;
+  overflow-wrap: anywhere;
+}
+.url small {
+  display: block;
+  color: #8493a5;
+  margin-top: 5px;
+}
+input,
+select,
+textarea,
+button {
+  font: inherit;
+  border: 1px solid #d6e0e9;
+  border-radius: 6px;
+  padding: 9px 12px;
+  background: white;
+  color: inherit;
+}
+input[type="checkbox"] {
+  accent-color: #168d78;
+}
+textarea {
+  display: block;
+  width: 100%;
+  font:
+    13px/1.6 ui-monospace,
+    monospace;
+  margin: 16px 0;
+  tab-size: 2;
+}
+button {
+  cursor: pointer;
+}
+button:hover {
+  border-color: #278f81;
+  color: #147666;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: wait;
+}
+.primary {
+  background: #168574;
+  color: white;
+  border-color: #168574;
+  margin-left: 12px;
+}
+pre {
+  background: #f6f8fb;
+  padding: 18px;
+  font:
+    12px/1.6 ui-monospace,
+    monospace;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 650px;
+  overflow: auto;
+}
+.alert,
+.notice {
+  border-radius: 8px;
+  padding: 14px;
+  margin: 12px 0;
+  background: #ffebe7;
+  color: #9f3825;
+}
+.notice {
+  background: #e0f3ee;
+  color: #156250;
+}
+.muted,
+small {
+  color: #728296;
+}
+.tab {
+  display: block;
+  padding: 12px 0;
+  border-bottom: 1px solid #edf1f5;
+}
+.tab small {
+  display: block;
+  margin-left: 27px;
+}
+.tab input {
+  margin-right: 10px;
+}
+.empty {
+  text-align: center;
+  padding: 48px;
+  color: #8191a3;
+}
+.prose {
+  line-height: 1.9;
+  max-width: 1000px;
+}
+details {
+  margin-top: 16px;
+}
+@media (max-width: 1100px) {
+  main {
+    padding: 24px;
+  }
+  .metrics {
+    grid-template-columns: repeat(4, 1fr);
+  }
+  .shell {
+    grid-template-columns: 180px 1fr;
+  }
+}
+
+.rule-editor {
+  border-left: 3px solid #bddbd5;
+  padding: 5px 15px;
+  margin: 12px 0;
+  background: #f9fbfc;
+}
+.rule-editor .toolbar {
+  margin: 8px 0;
+}
+.rule-editor textarea {
+  margin: 8px 0;
+}
+.visual-filter {
+  padding: 8px 0;
+}
