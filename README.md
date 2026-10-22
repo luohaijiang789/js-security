@@ -22,6 +22,14 @@
 
 用户确认的参考范围见[六个参考项目](references/已确认参考项目.md)：EASYapi、maksimu/openapi-devtools、mitmproxy2swagger、Akto、BurpAPIFinder（有 bug，需要维护）和 jshound。
 
+六个仓库已作为子模块放入 [references/repos](references/repos/README.md)。首次获取完整项目使用：
+
+```bash
+git clone --recurse-submodules https://github.com/luohaijiang789/js-security.git
+```
+
+已有本项目时运行 `git submodule update --init --recursive` 获取参考源码。
+
 ```text
 js-security/
 ├── README.md / AGENTS.md   # 项目介绍与工作约定

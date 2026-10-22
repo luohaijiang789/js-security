@@ -1,0 +1,24 @@
+[submodule "references/repos/EASYapi"]
+	path = references/repos/EASYapi
+	url = https://github.com/gsubigya/EASYapi.git
+	shallow = true
+[submodule "references/repos/openapi-devtools"]
+	path = references/repos/openapi-devtools
+	url = https://github.com/maksimu/openapi-devtools.git
+	shallow = true
+[submodule "references/repos/mitmproxy2swagger"]
+	path = references/repos/mitmproxy2swagger
+	url = https://github.com/alufers/mitmproxy2swagger.git
+	shallow = true
+[submodule "references/repos/akto"]
+	path = references/repos/akto
+	url = https://github.com/akto-api-security/akto.git
+	shallow = true
+[submodule "references/repos/BurpAPIFinder"]
+	path = references/repos/BurpAPIFinder
+	url = https://github.com/shuanx/BurpAPIFinder.git
+	shallow = true
+[submodule "references/repos/jshound"]
+	path = references/repos/jshound
+	url = https://github.com/AmbitSecurity/jshound.git
+	shallow = true

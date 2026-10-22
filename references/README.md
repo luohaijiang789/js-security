@@ -4,6 +4,8 @@
 
 **当前入口：[用户已确认的六个参考项目](已确认参考项目.md)**：EASYapi、maksimu/openapi-devtools、mitmproxy2swagger、Akto、BurpAPIFinder、jshound。**BurpAPIFinder 有 bug，需要维护**，具体问题待后续登记。
 
+这六个仓库的源码已通过 Git 子模块引入 [repos/](repos/README.md)，该目录记录固定 Commit、获取命令和维护方式。
+
 以下工具组合与推荐等级属于前期调研意见，保留供比较，不代表最终实现选型。其他传统工具的源码核查见[传统前端信息收集工具链评估](传统前端信息收集工具链评估.md)；后续围绕用户确认清单评估复用。
 
 本轮以官方仓库 README、许可证、固定提交和关键源码为依据。已运行 jshound 离线示例、Header fixture 和合成 HAR，发现了导出丢字段问题；**尚未在用户真实站点或项目试点做准确率与插件验收**。已有实现不等于已满足本项目证据口径。

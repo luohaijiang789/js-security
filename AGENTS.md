@@ -11,4 +11,5 @@
 - 三类证据分别保留为仓库静态、网站 JS 静态、插件实测；同 URL 不等于同版或同参数。插件不是白盒运行前提，单次实测不提升所有静态分支完整性。
 - 总体边界以 docs/API资产收集总方案.md 为准，结果与 Excel 规则集中于 docs/结果模型与Excel交付.md；候选工具见 Temp，设计与验证结果分开，不预设工具效果。
 - 用户确认的六个参考项目以 references/已确认参考项目.md 为准：EASYapi、maksimu/openapi-devtools、mitmproxy2swagger、Akto、BurpAPIFinder、jshound。BurpAPIFinder 有 bug，需要维护；具体问题待登记，不声称已修复。其他调研排序不代表用户最终选型。
+- 六个参考仓库以 Git 子模块放在 references/repos/，固定版本与维护说明见该目录 README。主仓库文档检查只覆盖主仓库自有文件，不递归检查或批量改写第三方子模块；维护子模块时须保证提交已推送到可访问的上游/fork，再更新主仓库指针。
 - 文档简洁、职责清晰；流程用图、比较用表、执行项用 Checklist。当前只维护设计；修改后检查链接和口径、提交并推送远端，核对远端与工作区状态。
