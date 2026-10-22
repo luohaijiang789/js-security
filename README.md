@@ -20,6 +20,8 @@
 
 从[文档导航](docs/README.md)开始；[总方案](docs/API资产收集总方案.md)说明整体关系，[交付约定](docs/结果模型与Excel交付.md)说明统一模型，[验证计划](docs/验证计划.md)列出下一步。[工具与项目评估](references/README.md)记录三个方案的候选组件、许可证和推荐验证组合。
 
+用户确认的参考范围见[六个参考项目](references/已确认参考项目.md)：EASYapi、maksimu/openapi-devtools、mitmproxy2swagger、Akto、BurpAPIFinder（有 bug，需要维护）和 jshound。
+
 ```text
 js-security/
 ├── README.md / AGENTS.md   # 项目介绍与工作约定
