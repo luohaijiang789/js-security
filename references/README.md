@@ -2,6 +2,8 @@
 
 核查日期：2026-10-22。这里保存可长期引用的选型依据；候选探索过程仍放在 [Temp](../Temp/README.md)。
 
+**当前首读：[传统前端信息收集工具链评估](传统前端信息收集工具链评估.md)。** 浏览器经 Burp/Yakit 记录流量、插件从 HTML/JS 同步提取接口是既有工作流。默认试点先用 Burp + 被动 JS 分析，比较 JS Miner/BurpAPIFinder；API Sword、URLFinder 分别评估主动递归与批量补抓。EASYapi/ExecEndpoints 降为补充候选，jshound 保留为静态字段分析工具。
+
 本轮以官方仓库 README、许可证、固定提交和关键源码为依据。已运行 jshound 离线示例、Header fixture 和合成 HAR，发现了导出丢字段问题；**尚未在用户真实站点或项目试点做准确率与插件验收**。已有实现不等于已满足本项目证据口径。
 
 先读[成熟 API 资产收集工具总览](成熟资产收集工具总览.md)。它修正了早期“主要只能复用底层组件”的判断：Vespasian、jshound、Akto、OpenAPI DevTools、Burp 插件和流量转 OpenAPI 工具已经覆盖大部分采集与资产化流程。
@@ -15,8 +17,8 @@
 | 方案 | 评估文档 | 当前最值得验证的组合 |
 |---|---|---|
 | [前端代码仓 JS 请求 API 采集](../docs/前端代码仓JS请求API采集.md) | [前端代码仓分析工具评估](前端代码仓分析工具评估.md) | 正式构建 + jshound 本地目录 + Vespasian 本地预览；CodeQL/Joern 只补源码语义 |
-| [JS 请求采集浏览器插件](<../docs/JS 请求采集浏览器插件.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | EASYapi 轻量体验、Burp/HAR 独立对照；ExecEndpoints 核对域名过滤与捕获窗口后再决定接入 |
-| [网站 JS 收集与静态分析](<../docs/网站 JS 收集与静态分析.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | 浏览器带正文 HAR → jshound；Vespasian 联合分析对照；保留内部结果以防导出丢字段 |
+| [JS 请求采集浏览器插件](<../docs/JS 请求采集浏览器插件.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | Burp Proxy/History 采集基线，Yakit 平台对照；插件任务边界/调用栈的确切差距再验证 |
+| [网站 JS 收集与静态分析](<../docs/网站 JS 收集与静态分析.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | Burp + JS Miner/BurpAPIFinder 被动提取；URLFinder 批量收集对照；jshound 等补字段 |
 
 ## 2. 总体判断
 
@@ -88,9 +90,9 @@
 
 ## 5. 下一轮验证顺序
 
-1. 选一个可重复构建的真实前端，生成 `dist`、source map 并启动本地预览。
-2. 对 `dist` 跑 jshound，对预览跑 Vespasian 被动模式，先验证现成静态与动态覆盖。
-3. 用 OpenAPI DevTools/Chrome HAR/Burp 记录同一操作，分别导入 Vespasian、mitmproxy2swagger、mitm2openapi 和 Akto。
-4. 只对现成工具漏掉的源码位置、跨文件封装和拦截器运行 CodeQL/Joern 对照。
-5. 将结果映射到 `analysis.json` 和 Excel，依据差距决定是否还需自研浏览器插件。
+1. 同一测试站点用 Burp 自带浏览器登录操作，保存原始请求/响应和 JS；比较 JS Miner/BurpAPIFinder 的被动提取结果。
+2. Yakit MITM/History 作平台对照；URLFinder 的批量 JS 获取单独检查额外请求、三层父链和外部域名。
+3. 对收集到的 JS 运行 jshound 等结构分析，对比请求 Method、Header、Query、Body、来源及未知项；已有工具的候选 GET 不当作真实 Method。
+4. 白盒使用可构建固定 Commit，对源码/产物/source map 分析；只对现成工具漏掉的语义运行 CodeQL/Joern/Yak SSA 对照。
+5. 将原始采集和静态候选映射到 `analysis.json` 与 Excel，依据实际差距决定适配和插件开发范围。
 

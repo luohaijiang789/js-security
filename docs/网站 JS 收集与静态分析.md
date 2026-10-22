@@ -1,6 +1,6 @@
 # 网站 JS 收集与静态分析
 
-**输入网站入口及访问范围，取得可发现的部署 JS，分析其中的请求与参数候选。** 当前先以 jshound 和 Vespasian 做端到端 PoC，再对三层父链、登录态和证据模型补适配。结果标记为“网站 JS 静态”，不表示请求已发生。
+**输入网站入口及访问范围，取得可发现的部署 JS，分析其中的请求与参数候选。** 当前先用 Burp + 被动 JS 提取和 Yakit 平台做采集试点，再比较 URLFinder 的资源发现及 jshound 等字段恢复；三层父链和证据模型按差距适配。结果标记为“网站 JS 静态”，不表示请求已发生。
 
 ## 1. 输入与流程
 
@@ -54,6 +54,6 @@ flowchart LR
 
 静态发现的路径可供插件定向触发；插件发现的漏项可反查漏收脚本、动态构造或不支持模型。仅 URL 相同不足以匹配仓库 Commit 或定位唯一源码调用。输出遵循[统一交付约定](结果模型与Excel交付.md)。
 
-首轮直接比较 jshound 与 Vespasian；Katana、Playwright、getJS、jsluice 和 LinkFinder 只用于定位差异与补缺。能力、主动行为和固定版本见[网站 JS 工具评估](../references/网站JS收集工具评估.md)。
+首轮默认 Burp + JS Miner/BurpAPIFinder 被动提取，Yakit 为平台对照；API Sword、URLFinder 单独检查主动访问；jshound/Vespasian 等补结构或作为管线对照。能力、主动行为和固定版本见[传统前端工具链评估](../references/传统前端信息收集工具链评估.md)及[网站 JS 工具评估](../references/网站JS收集工具评估.md)。
 
-对于“打开已登录网站，一边捕获请求、一边分析 JS”的使用方式，可先试 EASYapi 或 Burp + JS Miner/GAP；结构分析可采用含正文 HAR → jshound 离线目录。ExecEndpoints 形态匹配，但默认过滤外部域名、Send 窗口有限，并含 GraphQL 主动探测和历史来源，改造前不作为默认实现。详细步骤和已发现的 jshound 导出缺口见[浏览器联合采集评估](../references/网站浏览器挂载与动静态联合采集评估.md)。同一个工具产生的实际请求与静态候选仍分别标来源。
+对于“打开已登录网站，一边捕获请求、一边分析 JS”的使用方式，直接使用上述代理与响应分析工作流。EASYapi、ExecEndpoints 等保留补充评估；结构分析可采用含正文 HAR → jshound 离线目录。详细步骤和 jshound 导出缺口见[浏览器联合采集评估](../references/网站浏览器挂载与动静态联合采集评估.md)。同一个工具产生的实际请求与静态候选仍分别标来源。

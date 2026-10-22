@@ -1,6 +1,6 @@
 # 网站 JS 收集与静态分析工具评估
 
-目标是从获准网站收集内联脚本、外链 JS、懒加载 chunk、Worker 和 SDK，再对部署代码提取请求候选。jshound 和 Vespasian 是主要分析候选；现有登录页面优先使用浏览器收集入口，不能假定 URL CLI 会继承会话。插件与联合工具的详细比较、正确 HAR 命令和离线实测见[浏览器挂载与动静态联合采集评估](网站浏览器挂载与动静态联合采集评估.md)。
+目标是从获准网站收集内联脚本、外链 JS、懒加载 chunk、Worker 和 SDK，再对部署代码提取请求候选。**当前先验证 Burp/Yakit 与传统 JS 提取工作流**，专门比较 BurpAPIFinder、API Sword、URLFinder、JSFinder 的[传统工具链评估](传统前端信息收集工具链评估.md)为入口。jshound/Vespasian 保留为字段恢复与管线对照。插件候选、HAR 命令和离线实测见[浏览器挂载评估](网站浏览器挂载与动静态联合采集评估.md)。
 
 ## 1. 采集与发现候选
 
@@ -62,10 +62,10 @@ getJS 适合无需渲染的 HTML/script source 抽取，可作为小而清晰的
 
 ## 6. 推荐流水线
 
-1. 对公开入口运行 jshound，保存 JS、`requests.jsonl`、OpenAPI 和缺失 chunk 统计。
-2. 对同一入口运行 Vespasian 被动 crawl/JS analysis，分别保存 browser 与 `static:js*` 来源。
-3. 登录后范围导出含 JS 响应正文的 HAR；jshound 用 `python -m jshound.fromhar session.har -o collected-js` 转换，再对目录分析；Vespasian 保留实际请求和静态来源。
-4. 适配三层父链、内容哈希和同版 source map；仅对缺口使用 Katana、getJS、webcrack、jsluice/LinkFinder。
+1. 浏览器通过 Burp 正常登录操作，保存原始流量/JS，用 JS Miner/BurpAPIFinder 被动提取候选；Yakit 平台对照。
+2. 对资源发现差距比较 URLFinder/Katana，单独核对主动请求、深度和第三方域名；API Sword 仅作主动模式对照。
+3. 导出含 JS 正文 HAR；用 `python -m jshound.fromhar session.har -o collected-js` 转换后分析目录，或用 Vespasian 导入/静态模式对照，分别保留观察与候选。
+4. 适配三层父链、内容哈希和同版 source map；仅对字段差距使用 webcrack、jsluice、LinkFinder 和数据流模型。
 5. 与插件实测按脚本哈希、页面、调用位置和版本线索关联；仅 URL 相同不认定同版。
 
 ## 7. 首轮淘汰条件
