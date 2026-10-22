@@ -1,13 +1,13 @@
 # 网站 JS 收集与静态分析工具评估
 
-目标是从获准网站收集内联脚本、外链 JS、懒加载 chunk、Worker 和 SDK，再对部署代码提取请求候选。**jshound 和 Vespasian 已经实现了高度贴合的端到端流程，应先直接采用，而不是先拼装爬虫和解析库。**
+目标是从获准网站收集内联脚本、外链 JS、懒加载 chunk、Worker 和 SDK，再对部署代码提取请求候选。jshound 和 Vespasian 是主要分析候选；现有登录页面优先使用浏览器收集入口，不能假定 URL CLI 会继承会话。插件与联合工具的详细比较、正确 HAR 命令和离线实测见[浏览器挂载与动静态联合采集评估](网站浏览器挂载与动静态联合采集评估.md)。
 
 ## 1. 采集与发现候选
 
 | 候选 | 已核实能力 | 主要缺口 | 结论 |
 |---|---|---|---|
-| [jshound](https://github.com/AmbitSecurity/jshound) | 给定 URL 后发现页面脚本、主流 bundler 的懒加载 chunk 和模块；静态恢复 Method、URL、Body、Content-Type、Header、GraphQL/RPC；输出页面/文件来源、JSONL、OpenAPI 和全部 JS；也可离线分析本地目录 | 无登录浏览器会话；运行时动态插入脚本可能漏；默认递归至无新 chunk，与本项目三层规则需适配；项目较新 | **A：首要端到端基线** |
-| [Vespasian](https://github.com/praetorian-inc/vespasian) | Headless Chrome/HTTP crawl 捕获页面与真实流量；静态分析捕获 JS、source map、拼接 URL 和 Body 字段；导入多种流量并生成 API 规格 | JS 静态字段模型不如本项目完整；无脚本三层父链；部分流程默认主动 probe | **A：动态加载 + 静态补漏基线**，使用 `--probe=false` |
+| [jshound](https://github.com/AmbitSecurity/jshound) | 公共 URL 收集 bundle/chunk；本地目录或 HAR 转换目录可离线分析 Method/URL/Header/Body 等 | 非浏览器插件；不继承登录；Beta 0.1.0；实测 JSONL 漏 Query、OpenAPI 丢嵌套 Body；route 候选会转成 GET endpoint；三层父链需适配 | **A：结构提取 PoC**，保存内部结果并核对导出 |
+| [Vespasian](https://github.com/praetorian-inc/vespasian) | Headless Chrome/HTTP crawl 捕获页面与真实流量；静态分析捕获 JS、source map、拼接 URL 和 Body 字段；导入多种流量并生成 API 规格 | 静态字段模型未覆盖本项目全部要求；默认单 bundle 5 MB/500 候选/5 秒；无脚本三层父链；部分流程默认主动 probe | **A：动态加载 + 静态补漏基线**，使用 `--probe=false` |
 | [Katana](https://github.com/projectdiscovery/katana) | 标准与 headless/hybrid 爬取；JS parsing/crawling；可启用 jsluice；可提取 XHR URL/Method；支持范围、Header/Cookie、JSONL 和限速 | 网站爬取深度不等于 JS 引用深度；会主动访问发现链接；XHR/端点输出不等于完整参数和调用证据 | **A：综合采集基线**，需关闭非必要主动行为并接自有父链模型 |
 | [Playwright](https://github.com/microsoft/playwright) | 受控真实浏览器、BrowserContext、网络事件、trace、页面操作和登录态复用 | 自动化只能看到实际加载；未触发 chunk 仍需静态发现；需要自行做范围、脚本落盘和引用链 | **A：动态发现/登录态/验收基线** |
 | [getJS](https://github.com/003random/getJS) | 从 URL、HTML/HTTP 响应抽取 JS source；补全相对地址；有 CLI 和 Go package | 不渲染页面，不发现运行时加载，不分析请求 | **A/B：简单、可嵌入的静态入口** |
@@ -33,7 +33,7 @@ jshound 直接覆盖“入口页面 → bundle/chunk → 静态请求 → JSONL/
 
 Vespasian 同时保留真实浏览器请求和 `static:js*` 候选，数据结构有 `source`、`page_url`、请求/响应 Header、Query 和 Body。它最适合验证“动态实测 + 静态补漏”能否在一个现成管线中完成。其 `scan` 和 `generate` 默认可执行 OPTIONS、Schema、WSDL、GraphQL 等主动 probe；本项目必须使用 passive crawl/import 或显式 `--probe=false`，不能照抄默认命令。
 
-两者功能较新，README 中的覆盖声明必须用本项目样例验证；“已有完整实现”不等于已经证明准确率。
+两者功能较新，README 中的覆盖声明必须用本项目样例验证。jshound 已在离线示例、Header fixture 和合成 HAR 上跑通，但同时发现导出损失；未得出真实站点准确率或浏览器捕获完整性结论。
 
 ## 4. Katana 的正确接入方式
 
@@ -64,7 +64,7 @@ getJS 适合无需渲染的 HTML/script source 抽取，可作为小而清晰的
 
 1. 对公开入口运行 jshound，保存 JS、`requests.jsonl`、OpenAPI 和缺失 chunk 统计。
 2. 对同一入口运行 Vespasian 被动 crawl/JS analysis，分别保存 browser 与 `static:js*` 来源。
-3. 登录后范围用 Playwright 或人工会话导出 HAR，再交给 Vespasian/jshound 导入能力或补抓脚本。
+3. 登录后范围导出含 JS 响应正文的 HAR；jshound 用 `python -m jshound.fromhar session.har -o collected-js` 转换，再对目录分析；Vespasian 保留实际请求和静态来源。
 4. 适配三层父链、内容哈希和同版 source map；仅对缺口使用 Katana、getJS、webcrack、jsluice/LinkFinder。
 5. 与插件实测按脚本哈希、页面、调用位置和版本线索关联；仅 URL 相同不认定同版。
 

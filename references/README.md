@@ -2,19 +2,21 @@
 
 核查日期：2026-10-22。这里保存可长期引用的选型依据；候选探索过程仍放在 [Temp](../Temp/README.md)。
 
-本轮以官方仓库 README、许可证、固定提交和关键源码为依据，只完成桌面评估，**尚未在本项目试点上运行或做准确率测试**。已有成熟产品和完整实现不等于已满足本项目证据口径，仍需 PoC。
+本轮以官方仓库 README、许可证、固定提交和关键源码为依据。已运行 jshound 离线示例、Header fixture 和合成 HAR，发现了导出丢字段问题；**尚未在用户真实站点或项目试点做准确率与插件验收**。已有实现不等于已满足本项目证据口径。
 
 先读[成熟 API 资产收集工具总览](成熟资产收集工具总览.md)。它修正了早期“主要只能复用底层组件”的判断：Vespasian、jshound、Akto、OpenAPI DevTools、Burp 插件和流量转 OpenAPI 工具已经覆盖大部分采集与资产化流程。
 
 实测反馈更新：用户安装 OpenAPI DevTools 后反馈遗漏大量请求；已从历史派生源码确认存在主动过滤线索，现降为规格生成参考，取消优先采集基线推荐。现场版本与漏项原因仍待核对，详见[漏采排查](OpenAPI%20DevTools漏采排查.md)。
+
+“打开网站并挂载工具，同时捕获实际请求和分析 JS”的专门比较见[浏览器挂载与动静态联合采集评估](网站浏览器挂载与动静态联合采集评估.md)：EASYapi、ExecEndpoints、Burp + JS Miner/GAP、FindSomething、JS Recon Buddy、SnowEyes、HAPPY-JS，以及 HAR → jshound 的已验证入口。
 
 ## 1. 按三个方案阅读
 
 | 方案 | 评估文档 | 当前最值得验证的组合 |
 |---|---|---|
 | [前端代码仓 JS 请求 API 采集](../docs/前端代码仓JS请求API采集.md) | [前端代码仓分析工具评估](前端代码仓分析工具评估.md) | 正式构建 + jshound 本地目录 + Vespasian 本地预览；CodeQL/Joern 只补源码语义 |
-| [JS 请求采集浏览器插件](<../docs/JS 请求采集浏览器插件.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | 先试 OpenAPI DevTools/HAR/Burp + Vespasian/mitmproxy2swagger/Akto；确有调用栈和证据缺口再开发 |
-| [网站 JS 收集与静态分析](<../docs/网站 JS 收集与静态分析.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | jshound 与 Vespasian 双基线；Katana/Playwright/jsluice 降为组件对照 |
+| [JS 请求采集浏览器插件](<../docs/JS 请求采集浏览器插件.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | EASYapi 轻量体验、Burp/HAR 独立对照；ExecEndpoints 核对域名过滤与捕获窗口后再决定接入 |
+| [网站 JS 收集与静态分析](<../docs/网站 JS 收集与静态分析.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | 浏览器带正文 HAR → jshound；Vespasian 联合分析对照；保留内部结果以防导出丢字段 |
 
 ## 2. 总体判断
 
