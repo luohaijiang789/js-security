@@ -73,10 +73,20 @@ flowchart TD
 | `request_headers` | 可取得的请求头，敏感值按任务策略保护 |
 | `query_params` | Query 名称和值，保留同名参数的多个值 |
 | `request_body`、`content_type` | JSON、Form、URL-encoded、文本等；保留表示类型与解析结果 |
-| `initiator_url`、`initiator_stack` | 发起 JS 地址与可取得的调用栈；保留脚本 URL、函数、行列等可用信息 |
+| `initiator_url`、`initiator_stack` | 发起 JS 地址与可取得的调用栈；保留脚本 URL、函数、行列、同步帧、异步父段 `description`、`parent` 与未解析的 `parentId`，不能将未解析父链当作不存在 |
 | `capture_status` | 分别记录头/body/调用栈的完整、部分、缺失、不支持或不可解析状态及原因 |
 
 未解析不等于空 body；截断、大小限制、跳过二进制/文件均须显式标记。经授权保留原始表示时，同时保存解析结果与原始记录的关联。响应正文不列为本稿的必采字段。
+
+### 3.3 同步与异步调用栈
+
+仅启用 Network 事件不能预设可取得与 DevTools 相同深度的调用栈。每个已附加会话在采集请求前配置 `Runtime.enable`、`Runtime.setMaxCallStackSizeToCapture({size:200})`；先设置 `Debugger.setSkipAllPauses({skip:true})`，成功后才启用 Debugger 并设置异步捕获深度 `32`，避免连接配置窗口触发业务暂停；同时配置不在异常处暂停。不能保证跳过暂停时须关闭 Debugger，保留 Runtime 同步采集与事件已有信息并标记异步栈降级原因。
+
+对 CDP 内联 `parent` 直接保留；只有 `parentId` 时，在对应 debugger 会话通过 `Debugger.getStackTrace` 有界补取。保留 `description` 作为异步边界，例如 `Promise.then`、`await`，不把多段链压缩为一条无说明的帧列表。
+
+当前解析预算为最多 `33` 个栈段（当前段 + 32 层异步父段）、总计 `400` 帧、单条 `1,200ms`、最多 `4` 个并发读取；同步 `200` 帧和异步 `32` 层是请求浏览器采用的捕获参数，不是所有页面的完整性保证。会话不可用、超时、预算耗尽、循环引用或命令不支持时保留已有栈与未解析引用，并在 `capture_status.stack` 写明原因。只有已返回链在模型预算内解析完毕时才可标完整，不能由模型补写浏览器没有返回的历史。
+
+详情展示必须保留分段及缺失说明。验收按同一受控请求比较同步帧数、异步段描述、段内帧数及未解析引用，不能仅比较 DevTools 屏幕行数。实测对照见[调用栈验证记录](插件界面与交互改进.md#调用栈采集与分段展示)。
 
 ## 4. F02/F03：统一 Filter
 

@@ -125,6 +125,7 @@ export function protectRecord(record: RecordEntry): RecordEntry {
   r.page_url = r.page_url ? safeURL(r.page_url) : null;
   r.referer = r.referer ? safeURL(r.referer) : null;
   r.initiator_url = r.initiator_url ? safeURL(r.initiator_url) : null;
+  r.initiator_stack = stackFrames(r.initiator_stack);
   r.request_headers = protectPairs(
     r.request_headers.map((p) => ({
       ...p,
@@ -140,17 +141,62 @@ export function protectRecord(record: RecordEntry): RecordEntry {
   r.protection.redacted = JSON.stringify(r) !== JSON.stringify(record);
   return r;
 }
-export function stackFrames(stack: any, depth = 0): unknown {
-  if (!stack || depth > 16) return null;
+export type SavedStack = {
+  callFrames: Array<{
+    scriptId?: string;
+    url: string;
+    functionName?: string;
+    lineNumber?: number;
+    columnNumber?: number;
+  }>;
+  description?: string;
+  parent: SavedStack | null;
+  parentId: { id: string; debuggerId?: string } | null;
+  truncated_reason?: string;
+};
+export function stackFrames(
+  stack: any,
+  depth = 0,
+  seen = new Set<unknown>(),
+): SavedStack | null {
+  if (!stack || typeof stack !== "object") return null;
+  if (depth > 32 || seen.has(stack))
+    return {
+      callFrames: [],
+      parent: null,
+      parentId:
+        typeof stack.parentId?.id === "string" ? { ...stack.parentId } : null,
+      truncated_reason:
+        depth > 32
+          ? "异步调用栈超过保存深度上限（33 段）"
+          : "异步调用栈包含循环引用",
+    };
+  seen.add(stack);
   return {
-    callFrames: (stack.callFrames ?? []).map((f: any) => ({
-      scriptId: f.scriptId,
-      url: safeURL(f.url),
-      functionName: f.functionName,
-      lineNumber: f.lineNumber,
-      columnNumber: f.columnNumber,
-    })),
-    parent: stackFrames(stack.parent, depth + 1),
-    parentId: stack.parentId ?? null,
+    callFrames: (Array.isArray(stack.callFrames) ? stack.callFrames : [])
+      .filter((f: any) => f && typeof f === "object")
+      .map((f: any) => ({
+        scriptId: f.scriptId,
+        url: typeof f.url === "string" && f.url ? safeURL(f.url) : "",
+        functionName: f.functionName,
+        lineNumber: f.lineNumber,
+        columnNumber: f.columnNumber,
+      })),
+    ...(typeof stack.description === "string"
+      ? { description: stack.description }
+      : {}),
+    ...(typeof stack.truncated_reason === "string"
+      ? { truncated_reason: stack.truncated_reason }
+      : {}),
+    parent: stackFrames(stack.parent, depth + 1, seen),
+    parentId:
+      typeof stack.parentId?.id === "string"
+        ? {
+            id: stack.parentId.id,
+            ...(typeof stack.parentId.debuggerId === "string"
+              ? { debuggerId: stack.parentId.debuggerId }
+              : {}),
+          }
+        : null,
   };
 }

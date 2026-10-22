@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "JS 请求采集",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "minimum_chrome_version": "125",
-  "description": "仅采集明确选定标签页的请求，保留原始观察、调用栈及采集缺口。",
+  "description": "浏览器全局采集网页请求，按 Filter 留存原始观察、调用栈及采集缺口。",
   "permissions": [
     "debugger",
     "tabs",
@@ -13,7 +13,10 @@
     "alarms"
   ],
   "optional_host_permissions": ["https://*/*"],
-  "background": { "service_worker": "background.js", "type": "module" },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
   "action": {
     "default_title": "打开 JS 请求观察台"
   },

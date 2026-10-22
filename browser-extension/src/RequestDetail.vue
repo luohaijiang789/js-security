@@ -8,12 +8,11 @@ import {
   timeText,
   statusText,
   statusTone,
-  frames,
+  stackSegments,
   pretty,
   recordForDisplay,
   frameLocation,
   bodyContentAvailable,
-  unresolvedStackParent,
 } from "./presentation";
 const props = defineProps<{
   record: RecordEntry | null;
@@ -35,10 +34,7 @@ const tab = ref("概览");
 const bodyAvailable = computed(() =>
   bodyContentAvailable(props.record?.request_body),
 );
-const missingParent = computed(() =>
-  unresolvedStackParent(props.record?.initiator_stack),
-);
-const stack = computed(() => frames(props.record?.initiator_stack));
+const stack = computed(() => stackSegments(props.record?.initiator_stack));
 const bodyText = computed(() => {
   const body = record.value?.request_body;
   return body?.parsed !== null && body?.parsed !== undefined
@@ -397,29 +393,56 @@ onUnmounted(() => window.removeEventListener("keydown", key));
             >
           </div>
           <p class="field-note">{{ record.capture_status.stack.reason }}</p>
-          <p v-if="missingParent" class="field-note warning-text">
-            异步父栈标识已保存，但未取得对应的全部栈帧；未补写未知调用位置。
+          <p class="field-note">
+            保留浏览器提供的全部帧及顺序；行列显示为 1 起始，原始数据保留 CDP 的
+            0 起始值。
           </p>
           <div v-if="stack.length" class="stack-list">
-            <div v-for="(frame, i) in stack" :key="i" class="stack-frame">
-              <span class="frame-number">{{
-                String(i + 1).padStart(2, "0")
-              }}</span>
-              <div>
-                <strong
-                  >{{ frame.functionName || "（匿名函数）" }}
-                  <small v-if="frame.async">异步父栈</small></strong
-                >
-                <p>{{ frameLocation(frame) }}</p>
-                <button
-                  v-if="frame.url"
-                  class="text-button"
-                  @click="emit('copy', frameLocation(frame))"
-                >
-                  复制代码位置
-                </button>
+            <section
+              v-for="(segment, segmentIndex) in stack"
+              :key="segmentIndex"
+              class="stack-segment"
+            >
+              <div class="stack-boundary">
+                <h3>{{ segmentIndex + 1 }} · {{ segment.description }}</h3>
+                <span v-if="segment.async" class="pill">异步父段</span>
               </div>
-            </div>
+              <p v-if="segment.parentId" class="field-note">
+                父栈 ID：{{ segment.parentId.id
+                }}<span v-if="segment.parentId.debuggerId">
+                  · Debugger：{{ segment.parentId.debuggerId }}</span
+                >
+              </p>
+              <p v-if="segment.warning" class="field-note warning-text">
+                {{ segment.warning }}
+              </p>
+              <p v-if="!segment.frames.length" class="field-note">
+                此段没有可展示的栈帧。
+              </p>
+              <div
+                v-for="(frame, i) in segment.frames"
+                :key="i"
+                class="stack-frame"
+              >
+                <span class="frame-number">{{
+                  String(i + 1).padStart(2, "0")
+                }}</span>
+                <div>
+                  <strong>{{ frame.functionName || "（匿名函数）" }}</strong>
+                  <p>{{ frameLocation(frame) }}</p>
+                  <p class="field-note">
+                    Script ID：{{ frame.scriptId || "未提供" }}
+                  </p>
+                  <button
+                    v-if="frame.url"
+                    class="text-button"
+                    @click="emit('copy', frameLocation(frame))"
+                  >
+                    复制代码位置
+                  </button>
+                </div>
+              </div>
+            </section>
           </div>
           <div v-else class="empty-state compact">
             <Icon name="code" :size="30" />

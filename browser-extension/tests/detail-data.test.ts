@@ -3,9 +3,11 @@ import { IDBFactory } from "fake-indexeddb";
 import { describe, it, expect, vi } from "vitest";
 import * as db from "../src/store";
 import type { Group, RecordEntry } from "../src/model";
+import { stackFrames, protectRecord } from "../src/privacy";
 import {
   bodyContentAvailable,
   frames,
+  stackSegments,
   frameLocation,
   recordForDisplay,
   statusText,
@@ -13,6 +15,79 @@ import {
   unresolvedStackParent,
   timeText,
 } from "../src/presentation";
+
+describe("调用栈分段保存与展示", () => {
+  const frame = {
+    scriptId: "42",
+    functionName: "",
+    url: "https://cdn.test/vendor.js?token=secret&v=2",
+    lineNumber: 0,
+    columnNumber: 7,
+  };
+  it("保留Promise分段、重复匿名和库帧、父标识及脚本坐标，同时脱敏所有段URL", () => {
+    const saved = stackFrames({
+      callFrames: [frame, frame],
+      parent: {
+        description: "Promise.then",
+        callFrames: [frame],
+        parentId: { id: "later", debuggerId: "debugger-1" },
+      },
+    })!;
+    expect(saved.callFrames).toHaveLength(2);
+    expect(saved.parent?.description).toBe("Promise.then");
+    expect(saved.parent?.parentId).toEqual({
+      id: "later",
+      debuggerId: "debugger-1",
+    });
+    expect(saved.parent?.callFrames[0]).toMatchObject({
+      scriptId: "42",
+      functionName: "",
+      lineNumber: 0,
+      columnNumber: 7,
+    });
+    expect(JSON.stringify(saved)).not.toContain("secret");
+    expect(saved.parent?.callFrames[0].url).toContain("v=2");
+    const segments = stackSegments(saved);
+    expect(segments.map((s) => s.description)).toEqual([
+      "当前调用栈",
+      "Promise.then",
+    ]);
+    expect(segments[1].warning).toContain("未取得");
+    expect(frames(saved)).toHaveLength(3);
+    expect(frames(saved)[0].scriptId).toBe("42");
+    expect(frameLocation(frames(saved)[0])).toContain(":1:8");
+  });
+  it("protectRecord也保护后来解析的父栈，且不修改原对象", () => {
+    const source = entry("stack-safe", "request", 1, {
+      initiator_stack: {
+        callFrames: [],
+        parent: { description: "setTimeout", callFrames: [frame] },
+      },
+    });
+    expect(JSON.stringify(protectRecord(source).initiator_stack)).not.toContain(
+      "secret",
+    );
+    expect(JSON.stringify(source.initiator_stack)).toContain("secret");
+  });
+  it("支持32层异步父段，越限或循环显式留痕，缺URL保持匿名脚本", () => {
+    let stack: any = {
+      description: "oldest",
+      callFrames: [{ ...frame, url: "" }],
+    };
+    for (let i = 0; i < 32; i++) stack = { callFrames: [frame], parent: stack };
+    const saved = stackFrames(stack)!;
+    expect(frames(saved)).toHaveLength(33);
+    expect(stackSegments(saved).at(-1)?.description).toBe("oldest");
+    expect(stackSegments(saved).at(-1)?.frames[0].url).toBe("");
+    expect(unresolvedStackParent(saved)).toBe(false);
+    const deeper = stackFrames({ callFrames: [frame], parent: stack });
+    expect(unresolvedStackParent(deeper)).toBe(true);
+    expect(JSON.stringify(deeper)).toContain("深度上限");
+    const cycle: any = { callFrames: [] };
+    cycle.parent = cycle;
+    expect(stackSegments(stackFrames(cycle)).at(-1)?.warning).toContain("循环");
+  });
+});
 
 function entry(
   scan: string,

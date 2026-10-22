@@ -2617,3 +2617,61 @@ svg {
     line-height: 1.85;
   }
 }
+
+/* Async stack boundaries preserve the original ordering without collapsing frames. */
+.stack-segment + .stack-segment {
+  border-top: 1px dashed #d9e3f2;
+}
+.stack-boundary {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 11px 13px;
+  background: #f5f8fd;
+  border-bottom: 1px solid #e8eef7;
+}
+.stack-boundary h3 {
+  min-width: 0;
+  font:
+    600 12px/1.8 ui-monospace,
+    SFMono-Regular,
+    Consolas,
+    monospace;
+  color: #58759e;
+  overflow-wrap: anywhere;
+}
+.stack-boundary .pill {
+  flex-shrink: 0;
+  margin-top: 2px;
+  font-size: 10px;
+}
+.stack-segment > .field-note {
+  margin: 0;
+  padding: 10px 13px;
+  border-bottom: 1px solid #edf2f8;
+  font-size: 11px;
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.stack-frame .frame-number {
+  flex: 0 0 24px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.stack-frame > div {
+  flex: 1;
+}
+.stack-frame strong {
+  display: block;
+  overflow-wrap: anywhere;
+  line-height: 1.8;
+}
+.stack-frame p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.stack-frame .field-note {
+  font-size: 11px;
+  color: #7889a1;
+}

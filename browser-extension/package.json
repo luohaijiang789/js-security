@@ -1,12 +1,12 @@
 {
   "name": "js-security-recorder",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vue-tsc --noEmit && vite build",
     "test": "vitest run",
-    "test:browser": "vitest run tests/cdp.test.ts tests/ui.test.ts",
+    "test:browser": "vitest run tests/cdp.test.ts tests/call-stack-cdp.test.ts tests/ui.test.ts",
     "test:extension": "node tests/browser.mjs"
   },
   "dependencies": {

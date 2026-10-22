@@ -73,42 +73,77 @@ export function statusTone(r: RequestState) {
     : "muted";
 }
 export type DisplayFrame = {
+  scriptId: string;
   url: string;
   functionName: string;
   lineNumber: number | null;
   columnNumber: number | null;
   async: boolean;
 };
-export function frames(stack: unknown): DisplayFrame[] {
-  const result: DisplayFrame[] = [],
+export type StackSegment = {
+  description: string;
+  async: boolean;
+  frames: DisplayFrame[];
+  parentId: { id: string; debuggerId?: string } | null;
+  warning: string;
+};
+export function stackSegments(stack: unknown): StackSegment[] {
+  const result: StackSegment[] = [],
     seen = new Set<unknown>();
   let current: any = stack,
     depth = 0;
-  while (
-    current &&
-    typeof current === "object" &&
-    !seen.has(current) &&
-    depth < 17
-  ) {
-    seen.add(current);
-    for (const f of Array.isArray(current.callFrames)
-      ? current.callFrames
-      : []) {
-      if (!f || typeof f !== "object") continue;
-      const coordinate = (v: unknown) =>
-        typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
+  while (current && typeof current === "object") {
+    if (seen.has(current) || depth > 33) {
       result.push({
-        url: typeof f.url === "string" ? f.url : "",
-        functionName: typeof f.functionName === "string" ? f.functionName : "",
-        lineNumber: coordinate(f.lineNumber),
-        columnNumber: coordinate(f.columnNumber),
-        async: depth > 0,
+        description: "未展开的父栈",
+        async: true,
+        frames: [],
+        parentId: null,
+        warning: seen.has(current)
+          ? "异步调用栈包含循环引用"
+          : "异步调用栈超过展示深度上限",
       });
+      break;
     }
+    seen.add(current);
+    const coordinate = (v: unknown) =>
+      typeof v === "number" && Number.isInteger(v) && v >= 0 ? v : null;
+    const parentId =
+      typeof current.parentId?.id === "string" ? current.parentId : null;
+    result.push({
+      description:
+        typeof current.description === "string"
+          ? current.description
+          : depth
+            ? "异步父栈"
+            : "当前调用栈",
+      async: depth > 0,
+      frames: (Array.isArray(current.callFrames) ? current.callFrames : [])
+        .filter((f: any) => f && typeof f === "object")
+        .map((f: any) => ({
+          scriptId: typeof f.scriptId === "string" ? f.scriptId : "",
+          url: typeof f.url === "string" ? f.url : "",
+          functionName:
+            typeof f.functionName === "string" ? f.functionName : "",
+          lineNumber: coordinate(f.lineNumber),
+          columnNumber: coordinate(f.columnNumber),
+          async: depth > 0,
+        })),
+      parentId,
+      warning:
+        typeof current.truncated_reason === "string"
+          ? current.truncated_reason
+          : parentId && !current.parent
+            ? "异步父栈标识已保存，但对应栈帧未取得"
+            : "",
+    });
     current = current.parent;
     depth++;
   }
   return result;
+}
+export function frames(stack: unknown): DisplayFrame[] {
+  return stackSegments(stack).flatMap((segment) => segment.frames);
 }
 export function frameLocation(frame: DisplayFrame) {
   const position =
@@ -249,18 +284,5 @@ export function bodyContentAvailable(
   );
 }
 export function unresolvedStackParent(stack: unknown) {
-  const seen = new Set<unknown>();
-  let current: any = stack,
-    depth = 0;
-  while (
-    current &&
-    typeof current === "object" &&
-    !seen.has(current) &&
-    depth++ < 17
-  ) {
-    seen.add(current);
-    if (current.parentId && !current.parent) return true;
-    current = current.parent;
-  }
-  return !!current;
+  return stackSegments(stack).some((segment) => !!segment.warning);
 }

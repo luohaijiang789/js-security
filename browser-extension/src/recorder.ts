@@ -9,14 +9,16 @@ import {
   type Group,
 } from "./model";
 import { matchFilter } from "./filter";
-import { parseBody, protectRecord, safeURL, stackFrames } from "./privacy";
+import { parseBody, protectRecord, safeURL } from "./privacy";
 import { fingerprint } from "./group";
 import * as db from "./store";
+import { StackCapture } from "./stack";
 type Source = chrome.debugger.DebuggerSession;
 type Hop = {
   record: RecordEntry;
   extra?: boolean;
   body?: Promise<void>;
+  stack?: Promise<void>;
   done?: boolean;
   finishing?: boolean;
 };
@@ -42,9 +44,10 @@ export class Recorder {
   failure = "";
   bodyReads = 0;
   finalizers = 0;
-  constructor(
-    public send: (s: Source, m: string, p?: object) => Promise<any>,
-  ) {}
+  stacks: StackCapture;
+  constructor(public send: (s: Source, m: string, p?: object) => Promise<any>) {
+    this.stacks = new StackCapture(send);
+  }
   async create(
     name: string,
     tabs: { id: number; url: string }[],
@@ -67,7 +70,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.2.0",
+      plugin: "0.2.1",
       stats: {
         observed: 0,
         pending: 0,
@@ -86,6 +89,7 @@ export class Recorder {
     this.channels.clear();
     this.unavailableTabs.clear();
     this.targets.clear();
+    this.stacks.reset();
     this.entries = [];
     this.groups.clear();
     this.connection = uid();
@@ -122,6 +126,9 @@ export class Recorder {
     await this.send(source, "Network.enable", {
       maxPostDataSize: this.scan?.config.body_limit ?? 1048576,
     });
+    const stackWarnings = await this.stacks.configure(source);
+    if (stackWarnings.length && this.scan)
+      gap(this.scan, "stack_configuration", stackWarnings.join("；"));
     await this.send(source, "Target.setAutoAttach", {
       autoAttach: true,
       waitForDebuggerOnStart: false,
@@ -146,6 +153,7 @@ export class Recorder {
       return;
     }
     if (method === "Target.detachedFromTarget") {
+      this.stacks.forget({ tabId: source.tabId, sessionId: p.sessionId });
       for (const c of this.channels.values())
         if (
           c.source.tabId === source.tabId &&
@@ -205,7 +213,7 @@ export class Recorder {
         scan.config.body_limit,
         false,
       );
-      const stack = stackFrames(p.initiator?.stack),
+      const stack = this.stacks.snapshot(p.initiator?.stack),
         initiator =
           p.initiator?.url ?? p.initiator?.stack?.callFrames?.[0]?.url ?? null;
       const hop = channel.hops.length;
@@ -267,6 +275,14 @@ export class Recorder {
         filter_version: scan.versions.at(-1)!.version,
       };
       const h: Hop = { record: r };
+      h.stack = this.stacks
+        .capture(source, p.initiator?.stack)
+        .then((result) => {
+          if (!h.done && this.scan === scan) {
+            r.initiator_stack = result.stack;
+            r.capture_status.stack = result.quality;
+          }
+        });
       if (typeof p.request.postData === "string" && !parsed.truncated)
         r.request_body.raw = p.request.postData;
       channel.hops.push(h);
@@ -429,7 +445,7 @@ export class Recorder {
     const grace = new Promise((r) => setTimeout(r, 250));
     this.tail = this.tail
       .then(async () => {
-        await h.body;
+        await Promise.all([h.body, h.stack]);
         await grace;
         await this.finalize(h);
       })
