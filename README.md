@@ -18,14 +18,14 @@
 
 ## 文档与目录
 
-从[文档导航](docs/README.md)开始；[总方案](docs/API资产收集总方案.md)说明整体关系，[交付约定](docs/结果模型与Excel交付.md)说明统一模型，[验证计划](docs/验证计划.md)列出下一步。
+从[文档导航](docs/README.md)开始；[总方案](docs/API资产收集总方案.md)说明整体关系，[交付约定](docs/结果模型与Excel交付.md)说明统一模型，[验证计划](docs/验证计划.md)列出下一步。[工具与项目评估](references/README.md)记录三个方案的候选组件、许可证和推荐验证组合。
 
 ```text
 js-security/
 ├── README.md / AGENTS.md   # 项目介绍与工作约定
 ├── docs/                  # 当前方案、交付规则、验证计划
 ├── Temp/                  # 候选工具与研究讨论，非实测结论
-├── references/            # 后续参考材料
+├── references/            # 工具、插件、项目评估与固定核查依据
 ├── src/                   # 待开发实现，当前仅占位
 └── tests/                 # 后续验证样例，当前仅占位
 ```
