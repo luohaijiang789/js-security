@@ -126,6 +126,8 @@ export type Scan = {
   started_at: string;
   ended_at?: string;
   heartbeat: string;
+  /** Missing on legacy tasks: keep their explicitly selected scope. */
+  tab_scope?: "all" | "selected";
   tabs: { id: number; url: string }[];
   versions: { version: number; effective_at: string; config: Config }[];
   config: Config;

@@ -10,9 +10,74 @@ import {
 } from "./model";
 import { validateConfig } from "./config";
 import { transfer, downloadChanged } from "./transfer";
+import { safeURL } from "./privacy";
+async function deadline<T>(
+  promise: Promise<T>,
+  label: string,
+  ms = 3000,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(Error(label + "超时")), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 const recorder = new Recorder((s, m, p) =>
-  chrome.debugger.sendCommand(s, m, p as Record<string, unknown> | undefined),
+  deadline(
+    chrome.debugger.sendCommand(s, m, p as Record<string, unknown> | undefined),
+    "CDP " + m,
+  ),
 );
+const attachedTabs = new Map<number, string>(),
+  unavailableTabs = new Map<number, string>(),
+  manualDetachedTabs = new Set<number>(),
+  closedTabs = new Set<number>(),
+  failedTabURLs = new Map<number, string>(),
+  attachAttempts = new Map<number, symbol>(),
+  sessionGenerations = new Map<number, number>();
+function webURL(tab: chrome.tabs.Tab) {
+  const url = /^https?:/i.test(tab.url ?? "") ? tab.url : tab.pendingUrl;
+  try {
+    const u = new URL(url ?? "");
+    return ["http:", "https:"].includes(u.protocol) ? u.href : null;
+  } catch {
+    return null;
+  }
+}
+async function browserPages() {
+  return (await chrome.tabs.query({})).flatMap((tab) => {
+    const url = webURL(tab);
+    return tab.id !== undefined && url ? [{ id: tab.id, url }] : [];
+  });
+}
+function queueBrowserChange(scan: Scan, operation: () => Promise<void>) {
+  const pending = controlTail.then(async () => {
+    await ready;
+    if (
+      recorder.scan !== scan ||
+      scan.tab_scope !== "all" ||
+      scan.state !== "recording"
+    )
+      return;
+    await operation();
+  });
+  controlTail = pending.catch(() => {});
+  void pending.catch(() => {
+    if (recorder.scan === scan && scan.state !== "ended")
+      gap(
+        scan,
+        "browser_scope_sync",
+        "浏览器页面范围同步失败，等待下一次导航或恢复时重试",
+      );
+  });
+}
+
 let eventTail = Promise.resolve(),
   queued = 0,
   queueBytes = 0,
@@ -32,11 +97,15 @@ const deliberateDetaches = new Map<
   number,
   { scanId: string | undefined; expires: number }
 >();
-async function detachIntentionally(tabId: number) {
-  const marker = { scanId: recorder.scan?.id, expires: Date.now() + 5000 };
+async function detachIntentionally(tabId: number, scanId = recorder.scan?.id) {
+  if (attachedTabs.has(tabId) && attachedTabs.get(tabId) !== scanId) return;
+  const marker = { scanId, expires: Date.now() + 5000 };
   deliberateDetaches.set(tabId, marker);
+  attachedTabs.delete(tabId);
+  if (scanId && recorder.scan?.id === scanId)
+    unavailableTabs.set(tabId, scanId);
   try {
-    await chrome.debugger.detach({ tabId });
+    await deadline(chrome.debugger.detach({ tabId }), "分离网页");
   } catch {
     if (deliberateDetaches.get(tabId) === marker)
       deliberateDetaches.delete(tabId);
@@ -91,14 +160,33 @@ const ready = (async () => {
     .create("maintenance", { periodInMinutes: 0.5 })
     .catch(() => {});
 });
-chrome.action.onClicked.addListener((tab) => {
-  const source =
-    tab.id !== undefined && /^https?:/.test(tab.url ?? "")
-      ? "?sourceTab=" + tab.id
-      : "";
-  void chrome.tabs.create({
-    url: chrome.runtime.getURL("index.html") + source,
+chrome.action.onClicked.addListener(() => {
+  void chrome.tabs.create({ url: chrome.runtime.getURL("index.html") });
+});
+function browserTabChanged(tab: chrome.tabs.Tab) {
+  const scan = recorder.scan;
+  if (!scan || scan.tab_scope !== "all" || scan.state !== "recording") return;
+  queueBrowserChange(scan, async () => {
+    await observeBrowserTab(scan, tab);
   });
+}
+chrome.tabs.onCreated.addListener(browserTabChanged);
+chrome.tabs.onUpdated.addListener((tabId, change, tab) => {
+  if (
+    change.url !== undefined ||
+    change.status === "loading" ||
+    change.status === "complete"
+  )
+    browserTabChanged({ ...tab, id: tabId });
+});
+chrome.tabs.onRemoved.addListener((tabId) => {
+  const scan = recorder.scan;
+  if (!scan || scan.state === "ended" || !scan.tabs.some((t) => t.id === tabId))
+    return;
+  unavailableTabs.set(tabId, scan.id);
+  attachedTabs.delete(tabId);
+  const cutoff = eventTail;
+  queueTabLoss(scan, tabId, "标签页已关闭", true, cutoff);
 });
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (
@@ -113,7 +201,19 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     ].includes(method)
   )
     return;
-  const config = recorder.scan?.config;
+  const current = recorder.scan;
+  if (
+    !current ||
+    current.state === "ended" ||
+    !current.tabs.some((t) => t.id === source.tabId)
+  )
+    return;
+  if (
+    source.tabId !== undefined &&
+    unavailableTabs.get(source.tabId) === current?.id
+  )
+    return;
+  const config = current?.config;
   const bytes = new TextEncoder().encode(JSON.stringify(params ?? {})).length;
   if (
     config &&
@@ -126,10 +226,14 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   queueBytes += bytes;
   eventTail = eventTail
     .then(() => ready)
-    .then(() => recorder.event(source, method, params ?? {}))
+    .then(() =>
+      recorder.scan === current
+        ? recorder.event(source, method, params ?? {})
+        : undefined,
+    )
     .catch(() => {
-      if (recorder.scan) {
-        gap(recorder.scan, "event_error", "CDP 事件处理失败，数据可能不完整");
+      if (recorder.scan === current) {
+        gap(current, "event_error", "CDP 事件处理失败，数据可能不完整");
         recorder.scan.state = "paused";
       }
     })
@@ -138,38 +242,67 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       queueBytes -= bytes;
     });
 });
+function queueTabLoss(
+  scan: Scan,
+  tabId: number,
+  reason: string,
+  closed: boolean,
+  cutoff: Promise<void>,
+) {
+  const generation = sessionGenerations.get(tabId);
+  const pending = controlTail.then(async () => {
+    await ready;
+    await cutoff;
+    if (sessionGenerations.get(tabId) !== generation) return;
+    await handleTabLoss(scan, tabId, reason, closed, cutoff);
+  });
+  controlTail = pending.catch(() => {});
+}
+async function handleTabLoss(
+  scan: Scan,
+  tabId: number,
+  reason: string,
+  closed: boolean,
+  cutoff: Promise<void>,
+) {
+  await cutoff;
+  if (recorder.scan !== scan || scan.state === "ended") return;
+  if (!closed || !closedTabs.has(tabId)) {
+    gap(
+      scan,
+      closed ? "tab_closed" : "debugger_detach",
+      `标签页 ${tabId}：${reason}`,
+    );
+    if (closed) closedTabs.add(tabId);
+  }
+  if (scan.tab_scope !== "all") scan.state = "interrupted";
+  await recorder.interruptTab(tabId, reason);
+}
 chrome.debugger.onDetach.addListener((source, reason) => {
-  const scan = recorder.scan,
-    tabId = source.tabId;
-  const deliberate =
-    tabId === undefined ? undefined : deliberateDetaches.get(tabId);
-  if (tabId !== undefined) deliberateDetaches.delete(tabId);
+  const tabId = source.tabId;
+  if (tabId === undefined) return;
+  attachedTabs.delete(tabId);
+  const deliberate = deliberateDetaches.get(tabId);
+  deliberateDetaches.delete(tabId);
   if (
     deliberate &&
     deliberate.expires >= Date.now() &&
     reason === "canceled_by_user"
   )
     return;
-  // Do not let a delayed event from an old task interrupt a newly created task.
+  const scan = recorder.scan;
   if (!scan || scan.state === "ended" || !scan.tabs.some((t) => t.id === tabId))
     return;
-  void ready
-    .then(async () => {
-      if (recorder.scan !== scan || scan.state === "ended") return;
-      gap(scan, "debugger_detach", `标签页 ${tabId} 调试连接断开：${reason}`);
-      scan.state = "interrupted";
-      for (const c of recorder.channels.values())
-        if (c.source.tabId === tabId)
-          for (const h of c.hops)
-            if (!h.done) {
-              h.record.request_state = "incomplete";
-              h.record.error = "调试连接断开";
-              recorder.finish(h);
-            }
-      await recorder.tail;
-      await recorder.flush();
-    })
-    .catch(() => {});
+  unavailableTabs.set(tabId, scan.id);
+  if (reason === "canceled_by_user") manualDetachedTabs.add(tabId);
+  const cutoff = eventTail;
+  queueTabLoss(
+    scan,
+    tabId,
+    "调试连接断开：" + reason,
+    reason === "target_closed",
+    cutoff,
+  );
 });
 chrome.downloads.onChanged.addListener((d) => {
   void downloadChanged(d).catch(() => {});
@@ -208,34 +341,152 @@ setInterval(() => {
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "maintenance") void tick();
 });
-async function attach(scan: Scan, reuseOwnedSession = false) {
+async function attach(
+  scan: Scan,
+  reuseOwnedSession = false,
+  targets = scan.tabs,
+) {
   const failed: number[] = [];
-  for (const t of scan.tabs) {
+  for (const tab of targets) {
+    if (
+      recorder.scan !== scan ||
+      scan.state === "ended" ||
+      scan.state === "draining"
+    )
+      break;
+    if (attachedTabs.get(tab.id) === scan.id) continue;
+    // A queued loss can be behind this resume command. Close its old in-flight
+    // records before admitting a new session; the generation guard then skips its stale job.
+    if (unavailableTabs.get(tab.id) === scan.id) {
+      await eventTail;
+      await recorder.interruptTab(
+        tab.id,
+        "网页连接已中断，恢复前旧请求终态未知",
+      );
+    }
+    const attempt = Symbol();
+    attachAttempts.set(tab.id, attempt);
+    recorder.includeTab(tab);
+    unavailableTabs.delete(tab.id);
+    closedTabs.delete(tab.id);
+    const started = now();
+    let timedOut = false;
+    let acquired = false;
     try {
       let owned = false;
       if (reuseOwnedSession) {
         try {
-          await chrome.debugger.sendCommand({ tabId: t.id }, "Network.enable");
+          await deadline(
+            chrome.debugger.sendCommand({ tabId: tab.id }, "Network.enable"),
+            "探测网页会话",
+          );
           owned = true;
         } catch {}
       }
-      if (!owned) await chrome.debugger.attach({ tabId: t.id }, "1.3");
-      const targets = await chrome.debugger.getTargets();
-      const target = targets.find((x) => x.tabId === t.id);
-      if (target) recorder.targets.set(`${t.id}:root`, target.id);
-      await recorder.configure({ tabId: t.id });
+      if (!owned) {
+        const attaching = chrome.debugger.attach({ tabId: tab.id }, "1.3");
+        void attaching
+          .then(() => {
+            if (
+              (timedOut || scan.state === "ended") &&
+              recorder.scan === scan &&
+              attachAttempts.get(tab.id) === attempt &&
+              !attachedTabs.has(tab.id)
+            )
+              void detachIntentionally(tab.id, scan.id);
+          })
+          .catch(() => {});
+        try {
+          await deadline(attaching, "附加网页");
+        } catch (e) {
+          timedOut = true;
+          throw e;
+        }
+      }
+      acquired = true;
+      const targets = await deadline(
+        chrome.debugger.getTargets(),
+        "读取网页目标",
+      );
+      const target = targets.find((t) => t.tabId === tab.id);
+      if (target) recorder.targets.set(`${tab.id}:root`, target.id);
+      await recorder.configure({ tabId: tab.id });
+      attachedTabs.set(tab.id, scan.id);
+      sessionGenerations.set(tab.id, (sessionGenerations.get(tab.id) ?? 0) + 1);
+      failedTabURLs.delete(tab.id);
+      if (scan.tab_scope === "all") {
+        const window = gap(
+          scan,
+          "target_attach_window",
+          `标签页 ${tab.id} 首次附加前的导航和请求可能未被观测，不能视为完整覆盖`,
+        );
+        window.timestamp = started;
+        window.end = now();
+      }
     } catch {
-      failed.push(t.id);
+      if (acquired) await detachIntentionally(tab.id);
+      failed.push(tab.id);
+      attachedTabs.delete(tab.id);
+      unavailableTabs.set(tab.id, scan.id);
+      await eventTail;
+      await recorder.interruptTab(tab.id, "网页附加或配置失败，连接终态未知");
+      failedTabURLs.set(tab.id, safeURL(tab.url));
       gap(
         scan,
         "attach_failed",
-        `无法附加标签页 ${t.id}，可能已关闭、页面受限或已被调试`,
+        `无法附加标签页 ${tab.id}，可能已关闭、页面受限、被其他调试器占用或连接超时`,
       );
-      scan.state = "interrupted";
+      if (scan.tab_scope !== "all") scan.state = "interrupted";
     }
   }
   await recorder.flush();
   return failed;
+}
+async function observeBrowserTab(scan: Scan, tab: chrome.tabs.Tab) {
+  if (
+    recorder.scan !== scan ||
+    scan.tab_scope !== "all" ||
+    scan.state !== "recording" ||
+    tab.id === undefined
+  )
+    return;
+  const url = webURL(tab);
+  if (!url) {
+    if (attachedTabs.get(tab.id) === scan.id) {
+      await detachIntentionally(tab.id);
+      await recorder.interruptTab(tab.id, "页面离开 HTTP/HTTPS 范围");
+      gap(scan, "page_out_of_scope", `标签页 ${tab.id} 已离开网页采集范围`);
+    }
+    return;
+  }
+  const previous = scan.tabs.find((t) => t.id === tab.id);
+  if (previous) previous.url = safeURL(url);
+  if (
+    manualDetachedTabs.has(tab.id) ||
+    failedTabURLs.get(tab.id) === safeURL(url)
+  ) {
+    await recorder.flush();
+    return;
+  }
+  await attach(scan, true, [{ id: tab.id, url }]);
+}
+async function rescanBrowser(scan: Scan) {
+  const pages = await browserPages();
+  for (const page of pages) {
+    if (
+      recorder.scan !== scan ||
+      scan.state === "ended" ||
+      scan.state === "draining"
+    )
+      break;
+    if (
+      manualDetachedTabs.has(page.id) ||
+      failedTabURLs.get(page.id) === safeURL(page.url)
+    )
+      continue;
+    await attach(scan, true, [page]);
+  }
+  return pages;
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return;
@@ -252,16 +503,21 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         };
       case "start": {
         validateConfig(message.config);
-        const ids = [...new Set<number>(message.tabs)];
-        if (!ids.length) throw Error("至少选择一个授权标签页");
-        const tabs = await Promise.all(
-          ids.map(async (id) => {
-            const t = await chrome.tabs.get(id);
-            if (!t.url || !/^https?:/.test(t.url))
-              throw Error("仅支持 HTTP/HTTPS 标签页");
-            return { id, url: t.url };
-          }),
-        );
+        const scope = message.tab_scope === "selected" ? "selected" : "all";
+        let tabs: { id: number; url: string }[];
+        if (scope === "all") tabs = await browserPages();
+        else {
+          const ids = [...new Set<number>(message.tabs ?? [])];
+          if (!ids.length) throw Error("至少选择一个授权标签页");
+          tabs = await Promise.all(
+            ids.map(async (id) => {
+              const tab = await chrome.tabs.get(id);
+              const url = webURL(tab);
+              if (!url) throw Error("仅支持 HTTP/HTTPS 标签页");
+              return { id, url };
+            }),
+          );
+        }
         if (
           message.config.service.enabled &&
           !(await chrome.permissions.contains({
@@ -269,8 +525,19 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           }))
         )
           throw Error("请先授权接收服务");
-        const s = await recorder.create(message.name, tabs, message.config);
+        const s = await recorder.create(
+          message.name,
+          tabs,
+          message.config,
+          scope,
+        );
+        attachedTabs.clear();
+        unavailableTabs.clear();
+        manualDetachedTabs.clear();
+        closedTabs.clear();
+        failedTabURLs.clear();
         await attach(s);
+        if (scope === "all") await rescanBrowser(s);
         await chrome.storage.local.set({ last_config: message.config });
         return s;
       }
@@ -288,9 +555,13 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           recorder.scan = s;
         }
         const s = recorder.scan!;
-        if (s.state === "interrupted") {
-          // Reuse our own still-attached sessions after a partial interruption.
-          // Detaching here would generate an onDetach event that can interrupt the resumed task.
+        if (s.tab_scope === "all") {
+          if (!["paused", "interrupted"].includes(s.state))
+            throw Error("当前任务不可恢复");
+          manualDetachedTabs.clear();
+          failedTabURLs.clear();
+          await rescanBrowser(s);
+        } else if (s.state === "interrupted") {
           const failed = await attach(s, true);
           if (failed.length)
             throw Error(
@@ -298,6 +569,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             );
         }
         await recorder.resume();
+        if (s.tab_scope === "all") await rescanBrowser(s);
         return true;
       }
       case "stop": {

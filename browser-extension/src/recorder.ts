@@ -31,6 +31,7 @@ const pairs = (h: Record<string, string> = {}) =>
 export class Recorder {
   scan: Scan | null = null;
   channels = new Map<string, Channel>();
+  unavailableTabs = new Set<number>();
   targets = new Map<string, string>();
   connection = uid();
   entries: RecordEntry[] = [];
@@ -48,6 +49,7 @@ export class Recorder {
     name: string,
     tabs: { id: number; url: string }[],
     config: Config,
+    tabScope: "all" | "selected" = "selected",
   ) {
     if (this.scan && this.scan.state !== "ended")
       throw Error("请先停止当前任务");
@@ -58,6 +60,7 @@ export class Recorder {
       state: "recording",
       started_at: time,
       heartbeat: time,
+      tab_scope: tabScope,
       tabs: tabs.map((t) => ({ ...t, url: safeURL(t.url) })),
       config: structuredClone(config),
       versions: [
@@ -81,12 +84,36 @@ export class Recorder {
       integrity: "observed_scope",
     };
     this.channels.clear();
+    this.unavailableTabs.clear();
     this.targets.clear();
     this.entries = [];
     this.groups.clear();
     this.connection = uid();
     await db.put("scans", this.scan);
     return this.scan;
+  }
+  includeTab(tab: { id: number; url: string }) {
+    if (!this.scan) return;
+    const previous = this.scan.tabs.find((t) => t.id === tab.id);
+    if (previous) previous.url = safeURL(tab.url);
+    else this.scan.tabs.push({ id: tab.id, url: safeURL(tab.url) });
+    this.unavailableTabs.delete(tab.id);
+  }
+  async interruptTab(tabId: number, reason: string) {
+    this.unavailableTabs.add(tabId);
+    for (const c of this.channels.values())
+      if (c.source.tabId === tabId)
+        for (const h of c.hops)
+          if (!h.done && h.record.request_state === "pending") {
+            h.record.request_state = "incomplete";
+            h.record.error = reason;
+            this.finish(h);
+          }
+    await this.tail;
+    for (const [key, c] of this.channels)
+      if (c.source.tabId === tabId && c.hops.every((h) => h.done))
+        this.channels.delete(key);
+    await this.flush();
   }
   key(s: Source, id: string) {
     return `${s.tabId}:${s.sessionId ?? "root"}:${id}`;
@@ -125,7 +152,7 @@ export class Recorder {
           c.source.sessionId === p.sessionId
         )
           for (const h of c.hops)
-            if (!h.done) {
+            if (!h.done && h.record.request_state === "pending") {
               h.record.request_state = "incomplete";
               h.record.error = "子目标断开";
               this.finish(h);
@@ -134,6 +161,8 @@ export class Recorder {
       return;
     }
     if (!method.startsWith("Network.")) return;
+    if (source.tabId !== undefined && this.unavailableTabs.has(source.tabId))
+      return;
     const key = this.key(source, p.requestId);
     let channel = this.channels.get(key);
     if (method === "Network.requestWillBeSent") {

@@ -83,8 +83,8 @@ try {
   const id = new URL(worker.url()).host;
   const target = await context.newPage();
   await target.goto(origin);
-  const unselected = await context.newPage();
-  await unselected.goto(origin + "/?unselected");
+  const secondPage = await context.newPage();
+  await secondPage.goto(origin + "/?second-tab");
   const ui = await context.newPage();
   ui.on("pageerror", (e) => failures.push(String(e)));
   await ui.goto(`chrome-extension://${id}/index.html`);
@@ -98,12 +98,14 @@ try {
       },
       { type, data },
     );
-  const tabId = await ui.evaluate(
-    async (url) => (await chrome.tabs.query({})).find((t) => t.url === url).id,
-    target.url(),
-  );
   const config = {
-    filter: {},
+    filter: {
+      exclude: {
+        field: "pathname",
+        operator: "equals",
+        values: ["/EXCLUDED_BY_FILTER"],
+      },
+    },
     retention: "matching",
     merge: "normalized",
     dynamic_query: ["ts"],
@@ -126,7 +128,8 @@ try {
   };
   const scan = await rpc("start", {
     name: "Chromium 受控集成验收",
-    tabs: [tabId],
+    tab_scope: "all",
+    tabs: [],
     config,
   });
   assert.equal(scan.state, "recording");
@@ -163,7 +166,18 @@ try {
       body: JSON.stringify({ text: "x".repeat(2000) }),
     });
   });
-  await unselected.evaluate(() => fetch("/UNAUTHORIZED"));
+  await secondPage.evaluate(() => fetch("/SECOND_TAB"));
+  await secondPage.evaluate(() => fetch("/EXCLUDED_BY_FILTER"));
+  const newlyOpened = await context.newPage();
+  await newlyOpened.goto(origin + "/?new-global-page", {
+    waitUntil: "networkidle",
+  });
+  await ui.waitForFunction(async (url) => {
+    const r = await chrome.runtime.sendMessage({ type: "state" });
+    return r.ok && r.result.scan?.tabs.some((t) => t.url === url);
+  }, newlyOpened.url());
+  await newlyOpened.evaluate(() => fetch("/NEW_TAB"));
+
   await new Promise((r) => setTimeout(r, 1500));
   await rpc("pause", { id: scan.id });
   await target.evaluate(() => fetch("/PAUSED"));
@@ -218,9 +232,13 @@ try {
     "/worker-request",
     "/large",
     "/slow",
+    "/SECOND_TAB",
+    "/NEW_TAB",
   ])
     assert(paths.includes(p), `missing ${p}`);
-  assert(!paths.includes("/UNAUTHORIZED"));
+  assert(!paths.includes("/EXCLUDED_BY_FILTER"));
+  assert.equal(data.scan.tab_scope, "all");
+  assert(data.scan.stats.excluded >= 1);
   assert(!paths.includes("/PAUSED"));
   assert.equal(data.scan.state, "ended");
   assert.equal(data.scan.stats.pending, 0);

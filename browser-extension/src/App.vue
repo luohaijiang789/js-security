@@ -23,9 +23,7 @@ import { validateConfig } from "./config";
 import { presets, validateFilter, matchFilter } from "./filter";
 import * as db from "./store";
 import { packageFiles, csv, jsonl } from "./export";
-const tabs = ref<chrome.tabs.Tab[]>([]),
-  selectedTabs = ref<number[]>([]),
-  name = ref("业务请求采集");
+const name = ref("业务请求采集");
 const current = ref<Scan | null>(null),
   history = ref<Scan[]>([]),
   scanId = ref(""),
@@ -163,7 +161,7 @@ const attention = computed(() => {
   return (
     (labels[s.state] ?? s.state) +
     "：" +
-    (g?.reason ?? "请检查授权页面和连接状态后恢复。")
+    (g?.reason ?? "请检查网页和连接状态后恢复。")
   );
 });
 const resultCount = ref(0);
@@ -257,13 +255,6 @@ function groupMembers(group: Group) {
   closeDetail();
 }
 async function openNewTask() {
-  await refreshTabs();
-  const sourceId = Number(
-    new URLSearchParams(location.search).get("sourceTab"),
-  );
-  selectedTabs.value = tabs.value.some((t) => t.id === sourceId)
-    ? [sourceId]
-    : [];
   name.value = "业务采集 " + timeText(new Date().toISOString());
   draftConfig.value = defaults();
   draftTemplate.value = "全量";
@@ -320,11 +311,6 @@ async function run(fn: () => Promise<unknown>) {
   } finally {
     busy.value = false;
   }
-}
-async function refreshTabs() {
-  tabs.value = (await chrome.tabs.query({})).filter((t) =>
-    /^https?:/.test(t.url ?? ""),
-  );
 }
 async function viewGroup(g: Group) {
   const seq = ++detailSequence;
@@ -476,7 +462,8 @@ async function start() {
     return;
   const s = await rpc("start", {
     name: name.value,
-    tabs: selectedTabs.value,
+    tab_scope: "all",
+    tabs: [],
     config: c,
   });
   current.value = s;
@@ -485,10 +472,11 @@ async function start() {
   newTaskOpen.value = false;
   section.value = "请求";
   if (s.state === "recording")
-    notice.value = "采集已开始。请切换到授权标签页执行业务操作。";
+    notice.value =
+      "浏览器全局采集已开始，新打开的网页自动接入；请求按 Filter 留存。";
   else
     error.value =
-      "任务已创建，但有标签页未成功连接，当前为已中断状态。请在存储与转存中查看原因，恢复连接或结束任务后重新选择页面。";
+      "任务已创建，但采集连接中断。请在存储与转存中查看原因后恢复任务。";
 }
 async function action(type: string) {
   const id = scanId.value,
@@ -810,7 +798,6 @@ async function deleteScan() {
 let timer: ReturnType<typeof setInterval>;
 onMounted(async () => {
   await run(async () => {
-    await refreshTabs();
     const saved = await chrome.storage.local.get([
       "filter_templates",
       "last_config",
@@ -918,7 +905,7 @@ onUnmounted(() => {
                   : section === "Filter"
                     ? "用可解释的规则限定留存范围，保留每次变更的版本。"
                     : section === "任务"
-                      ? "选择授权页面，管理任务策略与采集状态。"
+                      ? "管理采集范围、任务策略与采集状态。"
                       : section === "存储与转存"
                         ? "分别追踪本地保存、文件归档和接收服务的完成情况。"
                         : section === "历史任务"
@@ -1369,7 +1356,7 @@ onUnmounted(() => {
                             ? "请求完成后会出现在原始观察中；在途快照按批次更新。"
                             : scan.state === "ended"
                               ? "此任务没有已保存的请求。可检查过滤规则或新建任务重新采集。"
-                              : "切换到已授权的业务页面操作，采集到的请求将自动显示。"
+                              : "在浏览器中执行业务操作，匹配 Filter 的请求将自动显示。"
                     }}
                   </p>
                   <button
@@ -1446,7 +1433,11 @@ onUnmounted(() => {
           </div>
           <div class="workspace-footer">
             <span
-              ><Icon name="shield" :size="13" />已授权
+              ><Icon name="shield" :size="13" />{{
+                scan && scan.tab_scope !== "all"
+                  ? "历史指定范围 · 已接入"
+                  : "浏览器全局 · 已接入"
+              }}
               {{ selectedTabCount }} 个标签页 · 敏感字段按策略保护</span
             ><span
               >队列 {{ queued }} 个事件 · {{ pending }} 条请求 / 待写记录<span
@@ -1465,7 +1456,7 @@ onUnmounted(() => {
                 <h2>{{ scan ? "当前任务" : "开始新的采集任务" }}</h2>
                 <p>
                   {{
-                    scan ? scan.name : "先选择测试页面，再执行正常业务操作。"
+                    scan ? scan.name : "默认采集全部网页，按 Filter 留存请求。"
                   }}
                 </p>
               </div>
@@ -1484,8 +1475,12 @@ onUnmounted(() => {
                   ><strong>v{{ scan.versions.length }}</strong>
                 </div>
                 <div>
-                  <small>授权页面</small
-                  ><strong>{{ scan.tabs.length }} 个标签页</strong>
+                  <small>采集范围</small
+                  ><strong>{{
+                    scan.tab_scope === "all"
+                      ? "浏览器全局 · 自动接入新页"
+                      : "历史指定范围"
+                  }}</strong>
                 </div>
               </div>
               <div v-for="t in scan.tabs" :key="t.id" class="authorized-page">
@@ -1494,12 +1489,12 @@ onUnmounted(() => {
                   <strong>标签页 {{ t.id }}</strong
                   ><span>{{ t.url }}</span>
                 </div>
-                <span class="pill teal">已授权</span>
+                <span class="pill teal">已纳入</span>
               </div></template
             >
             <div v-else class="empty-state compact">
               <Icon name="globe" :size="32" />
-              <p>只采集你明确选择的标签页。</p>
+              <p>开始一次浏览器级采集，通过 Filter 留存需要的请求。</p>
               <button class="button primary" @click="run(openNewTask)">
                 创建任务
               </button>
@@ -1658,7 +1653,8 @@ onUnmounted(() => {
                   {
                     key: 'scope',
                     label: '页面范围',
-                    description: '限定已授权页面，规则不会扩大标签页授权。',
+                    description:
+                      '在任务采集范围内，按页面 URL 等条件限定请求。',
                   },
                   {
                     key: 'include',
@@ -2041,7 +2037,7 @@ onUnmounted(() => {
                   >
                     <Icon name="folder" :size="17" />{{ s.name }}</button
                   ><small
-                    >{{ s.tabs.length }} 个授权页面 · 规则 v{{
+                    >{{ s.tabs.length }} 个已纳入页面 · 规则 v{{
                       s.versions.length
                     }}<span v-if="s.integrity === 'gaps'">
                       · 包含采集缺口</span
@@ -2111,8 +2107,8 @@ onUnmounted(() => {
             <div
               v-for="(step, i) in [
                 {
-                  title: '选择页面，开始任务',
-                  text: '点击“新建采集任务”，选择明确授权的测试标签页。只有选中的页面会进入采集范围。',
+                  title: '设置 Filter，开始任务',
+                  text: '点击“新建采集任务”，默认纳入全部网页及新打开的网页，通过 Filter 限定要保留的请求，无需选择标签页。',
                 },
                 {
                   title: '正常执行业务操作',
@@ -2178,7 +2174,7 @@ onUnmounted(() => {
           <div>
             <p class="eyebrow">NEW CAPTURE</p>
             <h2 id="new-task-title">新建采集任务</h2>
-            <p>选择测试页面，记录真实发生的请求。</p>
+            <p>默认采集全部网页，按 Filter 留存真实请求。</p>
           </div>
           <button
             class="icon-button"
@@ -2195,38 +2191,17 @@ onUnmounted(() => {
               v-model="name"
               placeholder="例如：控制台登录与订单流程"
           /></label>
-          <div class="section-heading">
-            <h3>
-              授权标签页
-              <span class="subtle-count">已选 {{ selectedTabs.length }}</span>
-            </h3>
-            <button class="text-button" @click="run(refreshTabs)">
-              <Icon name="refresh" :size="14" />刷新页面
-            </button>
-          </div>
-          <div class="tab-picker">
-            <label
-              v-for="t in tabs"
-              :key="t.id"
-              class="tab-option"
-              :class="{ checked: selectedTabs.includes(t.id!) }"
-              ><input
-                v-model="selectedTabs"
-                type="checkbox"
-                :value="t.id" /><span class="site-icon"
-                ><Icon name="globe" :size="18" /></span
-              ><span class="tab-option-content"
-                ><strong>{{ t.title || "未命名页面" }}</strong
-                ><small>{{ t.url }}</small></span
-              ><Icon
-                v-if="selectedTabs.includes(t.id!)"
-                name="check"
-                :size="16"
-            /></label>
-            <div v-if="!tabs.length" class="inline-empty">
-              没有可选的 HTTP/HTTPS 页面，请先打开测试网站后刷新。
+          <div class="capture-scope">
+            <Icon name="globe" :size="22" />
+            <div>
+              <strong>浏览器全局采集</strong
+              ><small>当前与新开的网页自动接入，无需选择标签页</small>
             </div>
           </div>
+          <p class="scope-summary">
+            覆盖当前浏览器所有窗口的普通网页。阿里云等业务跳转到新页面后，会自动继续采集。可以先开始任务，再打开网站；用
+            Filter 筛选需要保存的请求。
+          </p>
           <div class="form-grid">
             <label
               >Filter 模板<select v-model="draftTemplate">
@@ -2253,21 +2228,20 @@ onUnmounted(() => {
             ></label
           >
           <p class="permission-note">
-            <Icon name="shield" :size="15" />只采集勾选的页面。Chrome
-            会显示调试提示，敏感字段按策略保护。
+            <Icon name="shield" :size="15" /><span
+              >跳过浏览器内部页面与扩展页面。Chrome 会显示调试提示；默认保存
+              Filter
+              匹配项，无法判定的请求保留并标注。敏感字段按策略保护。</span
+            >
           </p>
         </div>
         <footer class="modal-footer">
-          <span>{{
-            selectedTabs.length
-              ? "将采集 " + selectedTabs.length + " 个标签页"
-              : "请选择至少一个测试页面"
-          }}</span
+          <span>浏览器全局采集 · 按 Filter 留存</span
           ><button class="button" :disabled="busy" @click="newTaskOpen = false">
             取消</button
           ><button
             class="button primary"
-            :disabled="busy || !selectedTabs.length || !canStart"
+            :disabled="busy || !canStart"
             @click="run(start)"
           >
             <Icon :name="busy ? 'refresh' : 'play'" :size="15" />{{

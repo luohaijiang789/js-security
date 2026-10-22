@@ -4,6 +4,7 @@ import { preview } from "vite";
 import { mkdir } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { workspaceFixture } from "./fixtures";
+import { presets } from "../src/filter";
 
 // Real rendering and IndexedDB; privileged extension APIs are replaced. This
 // suite is not evidence of MV3 installation or debugger/worker coverage.
@@ -65,7 +66,13 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
               state: "recording",
               started_at: timestamp,
               heartbeat: timestamp,
-              tabs: message.tabs.map((id: number) => ({
+              tab_scope: message.tab_scope ?? "selected",
+              tabs: (message.tab_scope === "all"
+                ? w.noPages
+                  ? []
+                  : [42, 77]
+                : message.tabs
+              ).map((id: number) => ({
                 id,
                 url: "https://fixture.test/",
               })),
@@ -110,7 +117,7 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
       tabs: {
         query: async () => [
           { id: 42, url: "https://fixture.test/", title: "受控业务页面" },
-          { id: 77, url: "https://unselected.test/", title: "未授权页面" },
+          { id: 77, url: "https://unselected.test/", title: "另一个业务页面" },
         ],
       },
       storage: {
@@ -367,7 +374,7 @@ it("单条 JSONL 与完整 ZIP 导出包含实际已保存记录", async () => {
   }
 }, 25000);
 
-it("新建任务弹窗完成明确授权，非法正则及 null 配置能看到错误反馈", async () => {
+it("默认全局采集无需选择页面，Filter正确传递且非法配置有明确反馈", async () => {
   const { context, page, errors } = await openWorkspace();
   try {
     await page
@@ -379,13 +386,36 @@ it("新建任务弹窗完成明确授权，非法正则及 null 配置能看到�
       exact: true,
     });
     await dialog.waitFor();
-    await dialog.getByRole("checkbox", { name: /受控业务页面/ }).check();
+    expect(
+      await dialog
+        .getByRole("button", { name: "开始采集", exact: true })
+        .isDisabled(),
+    ).toBe(false);
+    expect(
+      await dialog
+        .getByRole("button", { name: "全部网页", exact: true })
+        .count(),
+    ).toBe(0);
+    expect(
+      await dialog
+        .getByRole("button", { name: "指定标签页", exact: true })
+        .count(),
+    ).toBe(0);
+    expect(await dialog.locator(".tab-option").count()).toBe(0);
+    await dialog.getByText("浏览器全局采集", { exact: true }).waitFor();
+    await dialog.getByLabel(/Filter 模板/).selectOption("XHR / Fetch / Beacon");
+    await page.screenshot({
+      path: "work/redesign/new-task-global.png",
+      fullPage: false,
+    });
     await dialog.getByRole("button", { name: "开始采集", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
     const message = await page.evaluate(() =>
       (window as any).messages.find((m: any) => m.type === "start"),
     );
-    expect(message.tabs).toEqual([42]);
+    expect(message.tab_scope).toBe("all");
+    expect(message.tabs).toEqual([]);
+    expect(message.config.filter).toEqual(presets["XHR / Fetch / Beacon"]);
     expect(message.config.retention).toBe("matching");
     await page.getByRole("button", { name: "任务设置", exact: true }).click();
     await page.getByText("高级配置 JSON", { exact: true }).click();
@@ -423,6 +453,49 @@ it("新建任务弹窗完成明确授权，非法正则及 null 配置能看到�
     await context.close();
   }
 }, 25000);
+
+it("没有任何网页时仍可创建全局采集任务，不调用标签页查询", async () => {
+  const { context, page, errors } = await openWorkspace();
+  try {
+    await page.evaluate(() => {
+      const w = window as any;
+      w.noPages = true;
+      w.tabQueryCalls = 0;
+      w.chrome.tabs.query = async () => {
+        w.tabQueryCalls++;
+        return [];
+      };
+    });
+    await page
+      .getByRole("button", { name: "新建采集任务", exact: true })
+      .first()
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "新建采集任务",
+      exact: true,
+    });
+    await dialog.getByText("浏览器全局采集", { exact: true }).waitFor();
+    expect(
+      await dialog
+        .getByRole("button", { name: "开始采集", exact: true })
+        .isDisabled(),
+    ).toBe(false);
+    await dialog.getByRole("button", { name: "开始采集", exact: true }).click();
+    await dialog.waitFor({ state: "hidden" });
+    const message = await page.evaluate(() =>
+      (window as any).messages.find((m: any) => m.type === "start"),
+    );
+    expect(message.tab_scope).toBe("all");
+    expect(message.tabs).toEqual([]);
+    expect(await page.evaluate(() => (window as any).activeScan.tabs)).toEqual(
+      [],
+    );
+    expect(await page.evaluate(() => (window as any).tabQueryCalls)).toBe(0);
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+}, 20000);
 
 it("CSV 写入期间锁定任务选择，导出内容不会混入其他历史任务", async () => {
   const { context, page, errors } = await openWorkspace();

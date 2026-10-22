@@ -2563,3 +2563,57 @@ svg {
     display: block;
   }
 }
+
+/* Capture is browser-wide; this is a scope explanation, not a tab selector. */
+.capture-scope {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 17px 18px;
+  margin-top: 22px;
+  border: 1px solid #dce6fb;
+  border-radius: 9px;
+  background: #f4f7ff;
+  box-shadow: inset 3px 0 #6b8fe8;
+}
+.capture-scope > svg {
+  color: #5f83d5;
+  flex-shrink: 0;
+}
+.capture-scope > div {
+  min-width: 0;
+}
+.capture-scope strong {
+  display: block;
+  color: #3e5c8d;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.capture-scope small {
+  display: block;
+  margin-top: 3px;
+  color: #6d80a0;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.scope-summary {
+  padding: 0 2px;
+  margin-top: 12px;
+  color: #6c7d95;
+  font-size: 12px;
+  line-height: 1.95;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 520px) {
+  .capture-scope {
+    padding: 15px;
+    gap: 11px;
+  }
+  .capture-scope small {
+    font-size: 12px;
+  }
+  .scope-summary {
+    line-height: 1.85;
+  }
+}
