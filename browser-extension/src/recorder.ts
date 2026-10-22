@@ -64,7 +64,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.1.0",
+      plugin: "0.2.0",
       stats: {
         observed: 0,
         pending: 0,
@@ -608,7 +608,8 @@ export class Recorder {
     }
   }
   async pause() {
-    if (!this.scan) throw Error("没有任务");
+    if (!this.scan || this.scan.state !== "recording")
+      throw Error("只有采集中的任务可以暂停");
     this.scan.state = "paused";
     gap(this.scan, "pause", "用户暂停：新请求不纳入；在途关联继续处理");
     await this.flush();
@@ -627,7 +628,11 @@ export class Recorder {
     await this.flush();
   }
   async update(config: Config) {
-    if (!this.scan) throw Error("没有任务");
+    if (
+      !this.scan ||
+      !["recording", "paused", "interrupted"].includes(this.scan.state)
+    )
+      throw Error("当前任务状态不能修改配置");
     this.scan.config = structuredClone(config);
     this.scan.versions.push({
       version: this.scan.versions.length + 1,
@@ -637,7 +642,8 @@ export class Recorder {
     await this.flush();
   }
   async stop() {
-    if (!this.scan) return;
+    if (!this.scan || this.scan.state === "ended") return;
+    if (this.scan.state === "draining") throw Error("任务正在收尾，请等待完成");
     this.scan.state = "draining";
     await this.flush();
     const until = Date.now() + this.scan.config.stop_wait_ms;

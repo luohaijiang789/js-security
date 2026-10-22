@@ -18,6 +18,37 @@ let eventTail = Promise.resolve(),
   queueBytes = 0,
   maintenance = false,
   lastTransfer = 0;
+// State reads remain independent from slow stop/attach operations. Only task mutations serialize.
+let controlTail: Promise<void> = Promise.resolve();
+const controlMessages = new Set([
+  "start",
+  "pause",
+  "resume",
+  "stop",
+  "update",
+  "delete",
+]);
+const deliberateDetaches = new Map<
+  number,
+  { scanId: string | undefined; expires: number }
+>();
+async function detachIntentionally(tabId: number) {
+  const marker = { scanId: recorder.scan?.id, expires: Date.now() + 5000 };
+  deliberateDetaches.set(tabId, marker);
+  try {
+    await chrome.debugger.detach({ tabId });
+  } catch {
+    if (deliberateDetaches.get(tabId) === marker)
+      deliberateDetaches.delete(tabId);
+  }
+}
+function requireCurrent(id: unknown, states: Scan["state"][]) {
+  const scan = recorder.scan;
+  if (!scan || scan.id !== id) throw Error("任务已切换，请刷新后操作当前任务");
+  if (!states.includes(scan.state))
+    throw Error("当前任务状态不允许此操作，请刷新任务状态");
+  return scan;
+}
 const ready = (async () => {
   const scans = await db.all<Scan>("scans");
   for (const scan of scans.filter((s) =>
@@ -44,14 +75,30 @@ const ready = (async () => {
     await recorder.flush();
     scan.state = "interrupted";
     await db.put("scans", scan);
-    for (const tab of scan.tabs)
-      await chrome.debugger.detach({ tabId: tab.id }).catch(() => {});
+    for (const tab of scan.tabs) await detachIntentionally(tab.id);
   }
   recorder.scan = null;
   await chrome.alarms.create("maintenance", { periodInMinutes: 0.5 });
-})();
-chrome.action.onClicked.addListener(() => {
-  void chrome.tabs.create({ url: chrome.runtime.getURL("index.html") });
+})().catch(() => {
+  // A quota/transaction failure during recovery must not permanently reject every API call.
+  // Recorder keeps the pending safe records in memory; a later flush can retry them.
+  recorder.failure = "后台恢复未完成，已保存数据仍可查看；请释放空间后重试写盘";
+  if (recorder.scan) {
+    recorder.scan.state = "interrupted";
+    gap(recorder.scan, "background_recovery_failed", recorder.failure);
+  }
+  void chrome.alarms
+    .create("maintenance", { periodInMinutes: 0.5 })
+    .catch(() => {});
+});
+chrome.action.onClicked.addListener((tab) => {
+  const source =
+    tab.id !== undefined && /^https?:/.test(tab.url ?? "")
+      ? "?sourceTab=" + tab.id
+      : "";
+  void chrome.tabs.create({
+    url: chrome.runtime.getURL("index.html") + source,
+  });
 });
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (
@@ -92,40 +139,53 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     });
 });
 chrome.debugger.onDetach.addListener((source, reason) => {
-  void ready.then(async () => {
-    if (
-      !recorder.scan ||
-      recorder.scan.state === "ended" ||
-      !recorder.scan.tabs.some((t) => t.id === source.tabId)
-    )
-      return;
-    gap(
-      recorder.scan,
-      "debugger_detach",
-      `标签页 ${source.tabId} 调试连接断开：${reason}`,
-    );
-    recorder.scan.state = "interrupted";
-    for (const c of recorder.channels.values())
-      if (c.source.tabId === source.tabId)
-        for (const h of c.hops)
-          if (!h.done) {
-            h.record.request_state = "incomplete";
-            h.record.error = "调试连接断开";
-            recorder.finish(h);
-          }
-    await recorder.tail;
-    await recorder.flush();
-  });
+  const scan = recorder.scan,
+    tabId = source.tabId;
+  const deliberate =
+    tabId === undefined ? undefined : deliberateDetaches.get(tabId);
+  if (tabId !== undefined) deliberateDetaches.delete(tabId);
+  if (
+    deliberate &&
+    deliberate.expires >= Date.now() &&
+    reason === "canceled_by_user"
+  )
+    return;
+  // Do not let a delayed event from an old task interrupt a newly created task.
+  if (!scan || scan.state === "ended" || !scan.tabs.some((t) => t.id === tabId))
+    return;
+  void ready
+    .then(async () => {
+      if (recorder.scan !== scan || scan.state === "ended") return;
+      gap(scan, "debugger_detach", `标签页 ${tabId} 调试连接断开：${reason}`);
+      scan.state = "interrupted";
+      for (const c of recorder.channels.values())
+        if (c.source.tabId === tabId)
+          for (const h of c.hops)
+            if (!h.done) {
+              h.record.request_state = "incomplete";
+              h.record.error = "调试连接断开";
+              recorder.finish(h);
+            }
+      await recorder.tail;
+      await recorder.flush();
+    })
+    .catch(() => {});
 });
 chrome.downloads.onChanged.addListener((d) => {
   void downloadChanged(d).catch(() => {});
 });
 async function tick(force = false) {
+  await ready;
+  // Local persistence has its own flushPromise lock. A slow remote batch must never
+  // suppress the one-second request/active-snapshot writes needed by the live inspector.
+  try {
+    await recorder.flush();
+  } catch {
+    return; // Recorder already records the write failure and protects the task.
+  }
   if (maintenance) return;
   maintenance = true;
   try {
-    await ready;
-    await recorder.flush();
     if (force || Date.now() - lastTransfer >= 15000) {
       lastTransfer = Date.now();
       for (const s of await db.all<Scan>("scans"))
@@ -148,15 +208,24 @@ setInterval(() => {
 chrome.alarms.onAlarm.addListener((a) => {
   if (a.name === "maintenance") void tick();
 });
-async function attach(scan: Scan) {
+async function attach(scan: Scan, reuseOwnedSession = false) {
+  const failed: number[] = [];
   for (const t of scan.tabs) {
     try {
-      await chrome.debugger.attach({ tabId: t.id }, "1.3");
+      let owned = false;
+      if (reuseOwnedSession) {
+        try {
+          await chrome.debugger.sendCommand({ tabId: t.id }, "Network.enable");
+          owned = true;
+        } catch {}
+      }
+      if (!owned) await chrome.debugger.attach({ tabId: t.id }, "1.3");
       const targets = await chrome.debugger.getTargets();
       const target = targets.find((x) => x.tabId === t.id);
       if (target) recorder.targets.set(`${t.id}:root`, target.id);
       await recorder.configure({ tabId: t.id });
     } catch {
+      failed.push(t.id);
       gap(
         scan,
         "attach_failed",
@@ -166,10 +235,11 @@ async function attach(scan: Scan) {
     }
   }
   await recorder.flush();
+  return failed;
 }
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   if (sender.id !== chrome.runtime.id) return;
-  void (async () => {
+  const execute = async () => {
     await ready;
     switch (message.type) {
       case "state":
@@ -205,6 +275,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         return s;
       }
       case "pause":
+        requireCurrent(message.id, ["recording"]);
         await eventTail;
         await recorder.pause();
         return true;
@@ -218,11 +289,13 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         }
         const s = recorder.scan!;
         if (s.state === "interrupted") {
-          for (const t of s.tabs)
-            await chrome.debugger.detach({ tabId: t.id }).catch(() => {});
-          await attach(s);
-          if (s.gaps.at(-1)?.type === "attach_failed")
-            throw Error("仍有标签页无法附加，请停止后重建任务");
+          // Reuse our own still-attached sessions after a partial interruption.
+          // Detaching here would generate an onDetach event that can interrupt the resumed task.
+          const failed = await attach(s, true);
+          if (failed.length)
+            throw Error(
+              `仍有 ${failed.length} 个标签页无法附加，请停止后重新选择页面`,
+            );
         }
         await recorder.resume();
         return true;
@@ -238,13 +311,42 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         }
         await recorder.stop();
         for (const t of recorder.scan?.tabs ?? [])
-          await chrome.debugger.detach({ tabId: t.id }).catch(() => {});
-        if (recorder.scan) await transfer(recorder.scan, true);
+          await detachIntentionally(t.id);
+        if (recorder.scan) {
+          const completed = structuredClone(recorder.scan);
+          // Local stop/flush is complete. Remote acknowledgements and downloads have their own
+          // state and must not hold the control queue (or the next task) open for their retries.
+          void transfer(completed, true)
+            .catch(async () => {
+              await db.transact(
+                ["scans", "errors"],
+                "readwrite",
+                (tx) =>
+                  new Promise<void>((resolve, reject) => {
+                    const request = tx.objectStore("scans").get(completed.id);
+                    request.onerror = () => reject(request.error);
+                    request.onsuccess = () => {
+                      const latest = request.result as Scan | undefined;
+                      if (latest) {
+                        const error = gap(
+                          latest,
+                          "transfer_schedule",
+                          "采集已结束，归档或转存调度失败；本地数据保留，等待重试",
+                        );
+                        tx.objectStore("errors").put(error);
+                        tx.objectStore("scans").put(latest);
+                      }
+                      resolve();
+                    };
+                  }),
+              );
+            })
+            .catch(() => {});
+        }
         return true;
       }
       case "update":
-        if (recorder.scan?.id !== message.id)
-          throw Error("只能更新当前采集任务");
+        requireCurrent(message.id, ["recording", "paused", "interrupted"]);
         validateConfig(message.config as Config);
         await recorder.update(message.config);
         await chrome.storage.local.set({ last_config: message.config });
@@ -269,6 +371,14 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         if (s) await transfer(s, true);
         return true;
       }
+      case "flush": {
+        if (recorder.scan?.id === message.id) {
+          await eventTail;
+          await recorder.tail;
+          await recorder.flush();
+        }
+        return true;
+      }
       case "delete":
         if (
           recorder.scan &&
@@ -282,7 +392,16 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       default:
         throw Error("未知操作");
     }
-  })().then(
+  };
+  const pending = controlMessages.has(message.type)
+    ? controlTail.then(execute)
+    : execute();
+  if (controlMessages.has(message.type))
+    controlTail = pending.then(
+      () => {},
+      () => {},
+    );
+  void pending.then(
     (result) => respond({ ok: true, result }),
     (error) =>
       respond({

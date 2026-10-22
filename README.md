@@ -36,8 +36,20 @@ js-security/
 ├── docs/                  # 当前方案、交付规则、验证计划
 ├── Temp/                  # 候选工具与研究讨论，非实测结论
 ├── references/            # 工具、插件、项目评估与固定核查依据
-├── src/                   # MV3 后台、Vue Popup / 管理页、过滤、存储与转存
-└── tests/                 # 核心、转存、真实 CDP、页面及扩展现场测试
+└── browser-extension/     # 独立浏览器插件工程（依赖、源码、构建、测试）
+    ├── src/               # MV3 后台、管理标签页、详情侧栏与采集模块
+    ├── tests/             # 核心、转存、真实 CDP、页面与现场测试
+    └── dist/              # 构建输出，Chrome 加载此目录
 ```
 
-插件源码使用 Vue 3 + TypeScript，执行 `npm ci && npm run build` 后加载 `dist/`。`npm test` 验证核心、转存、真实 Chromium CDP 和界面；受控样例不当作用户真实资产结果。当前云环境企业策略禁止安装扩展，因此 MV3 现场加载、子目标覆盖和正式压力验收仍待目标 Chrome 执行；其余两路继续验证成熟工具。
+插件工程独立放在 [browser-extension](browser-extension/README.md)，仓库根目录保留给三路方案及共享文档，不在根目录安装插件依赖。构建环境使用 Node.js `20.19+` 或 `22.12+`。从仓库根目录执行：
+
+```bash
+cd browser-extension
+npm ci
+npm run build
+```
+
+Chrome 开发者模式加载 **`browser-extension/dist/`**。点击浏览器工具栏插件图标直接打开管理标签页；点击请求行即可在右侧查看参数、请求头、正文、调用栈和原始数据。此前从根目录 `dist/` 安装的用户，请先阅读[旧任务保留与升级说明](docs/插件界面与交互改进.md)，加载路径改变不会自动迁移扩展本地数据。
+
+在 `browser-extension/` 内执行 `npm test` 验证核心、转存、真实 Chromium CDP 和界面；受控样例不当作用户真实资产结果。当前云环境企业策略禁止安装扩展，因此 MV3 现场加载、子目标覆盖和正式压力验收仍待目标 Chrome 执行；其余两路继续验证成熟工具。

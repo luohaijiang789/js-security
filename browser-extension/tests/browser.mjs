@@ -31,7 +31,7 @@ const server = createServer(async (req, res) => {
   if (req.url === "/slow") {
     setTimeout(() => {
       res.end("slow");
-    }, 3000);
+    }, 8000);
     return;
   }
   if (req.url === "/worker.js") {
@@ -88,7 +88,7 @@ try {
   const ui = await context.newPage();
   ui.on("pageerror", (e) => failures.push(String(e)));
   await ui.goto(`chrome-extension://${id}/index.html`);
-  await ui.getByRole("heading", { name: "请求", exact: true }).waitFor();
+  await ui.getByRole("heading", { name: "请求工作台", exact: true }).waitFor();
   const rpc = (type, data = {}) =>
     ui.evaluate(
       async ({ type, data }) => {
@@ -165,14 +165,23 @@ try {
   });
   await unselected.evaluate(() => fetch("/UNAUTHORIZED"));
   await new Promise((r) => setTimeout(r, 1500));
-  await rpc("pause");
+  await rpc("pause", { id: scan.id });
   await target.evaluate(() => fetch("/PAUSED"));
-  await rpc("resume");
+  await rpc("resume", { id: scan.id });
   await target.evaluate(() => {
     void fetch("/slow");
   });
-  await new Promise((r) => setTimeout(r, 100));
-  await rpc("stop");
+  await ui.getByRole("button", { name: "查看在途请求", exact: true }).click();
+  await ui.getByRole("button", { name: "/slow", exact: true }).click();
+  const pendingDetail = ui.getByTestId("request-detail");
+  await pendingDetail
+    .getByRole("tab", { name: "原始数据", exact: true })
+    .click();
+  assert.equal(
+    JSON.parse(await pendingDetail.locator("pre").textContent()).request_state,
+    "pending",
+  );
+  await rpc("stop", { id: scan.id });
   const data = await ui.evaluate(async (scanId) => {
     const d = await new Promise((resolve, reject) => {
       const r = indexedDB.open("js-security-recorder", 1);
@@ -251,8 +260,29 @@ try {
   assert(
     data.records.find((r) => r.pathname === "/redirected").redirect_hop === 1,
   );
+  // Inspect real persisted observations through the same page a user operates.
+  await ui.getByLabel("当前任务").selectOption(scan.id);
+  await ui.getByRole("button", { name: "原始", exact: true }).click();
+  await ui.getByRole("button", { name: "/json", exact: true }).click();
+  const detail = ui.getByTestId("request-detail");
+  await detail.waitFor();
+  const heading = await detail
+    .getByRole("heading", { name: "请求详情", exact: true })
+    .boundingBox();
+  assert(
+    heading && heading.y >= 0 && heading.y < ui.viewportSize().height,
+    "request detail must be visible immediately",
+  );
+  await detail.getByRole("tab", { name: /^参数/ }).click();
+  assert.equal(await detail.locator(".key-value tbody tr").count(), 3);
+  await detail.getByRole("tab", { name: "原始数据", exact: true }).click();
+  assert.equal(
+    JSON.parse(await detail.locator("pre").textContent()).request_id,
+    post.request_id,
+  );
   const downloading = ui.waitForEvent("download");
-  await ui.getByRole("button", { name: "下载完整 ZIP", exact: true }).click();
+  await ui.getByRole("button", { name: "导出数据", exact: true }).click();
+  await ui.getByRole("button", { name: /^完整任务 ZIP/ }).click();
   const download = await downloading;
   await download.saveAs("work/browser/task.zip");
   await ui.screenshot({ path: "work/browser/ui.png", fullPage: true });
