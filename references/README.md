@@ -2,26 +2,35 @@
 
 核查日期：2026-10-22。这里保存可长期引用的选型依据；候选探索过程仍放在 [Temp](../Temp/README.md)。
 
-本轮以官方仓库 README、许可证、固定提交和关键源码为依据，只完成桌面评估，**尚未安装运行或做准确率测试**。因此，“推荐验证”表示值得进入样例测试，不表示已经选型或验证有效。
+本轮以官方仓库 README、许可证、固定提交和关键源码为依据，只完成桌面评估，**尚未在本项目试点上运行或做准确率测试**。已有成熟产品和完整实现不等于已满足本项目证据口径，仍需 PoC。
+
+先读[成熟 API 资产收集工具总览](成熟资产收集工具总览.md)。它修正了早期“主要只能复用底层组件”的判断：Vespasian、jshound、Akto、OpenAPI DevTools、Burp 插件和流量转 OpenAPI 工具已经覆盖大部分采集与资产化流程。
 
 ## 1. 按三个方案阅读
 
 | 方案 | 评估文档 | 当前最值得验证的组合 |
 |---|---|---|
-| [前端代码仓 JS 请求 API 采集](../docs/前端代码仓JS请求API采集.md) | [前端代码仓分析工具评估](前端代码仓分析工具评估.md) | jsluice 轻量基线 + CodeQL/Joern 跨文件能力对照 + 自有结果模型 |
-| [JS 请求采集浏览器插件](<../docs/JS 请求采集浏览器插件.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | Chrome `debugger` + CDP Network + 自有原始事件模型；HAR 作为兼容导出 |
-| [网站 JS 收集与静态分析](<../docs/网站 JS 收集与静态分析.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | Katana 与 Playwright 对照采集 + source map/webcrack 预处理 + jsluice 基线 |
+| [前端代码仓 JS 请求 API 采集](../docs/前端代码仓JS请求API采集.md) | [前端代码仓分析工具评估](前端代码仓分析工具评估.md) | 正式构建 + jshound 本地目录 + Vespasian 本地预览；CodeQL/Joern 只补源码语义 |
+| [JS 请求采集浏览器插件](<../docs/JS 请求采集浏览器插件.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | 先试 OpenAPI DevTools/HAR/Burp + Vespasian/mitmproxy2swagger/Akto；确有调用栈和证据缺口再开发 |
+| [网站 JS 收集与静态分析](<../docs/网站 JS 收集与静态分析.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | jshound 与 Vespasian 双基线；Katana/Playwright/jsluice 降为组件对照 |
 
 ## 2. 总体判断
 
-现成项目分别解决了“发现脚本”“识别请求调用”“跨文件数据流”“记录浏览器流量”“转换 HAR”等局部问题，但没有发现同时满足以下要求的单一项目：
+成熟工具已经解决了以下常见工作：
+
+- 浏览器/代理流量采集并归并成 API Inventory 或 OpenAPI；
+- 从网站 bundle、懒加载 chunk 和 source map 恢复未触发请求候选；
+- 从 Burp/HAR/mitmproxy 导入并合并多次观察；
+- 在平台中持续跟踪 shadow、undocumented 和新增 API/参数。
+
+尚未发现单一工具同时满足本项目的全部定制要求：
 
 - 分别接受源码仓、部署 JS、浏览器实测三类输入；
 - 还原请求 Host、URL、Method 和 Query/Header/Body 字段；
 - 保留调用上下文、版本、完整性状态及未解析缺口；
 - 将三类证据汇总到同一 Excel，且不把静态候选当成实际请求。
 
-因此合理路线是复用成熟底层能力，自行维护资产边界、统一结果模型、缺口语义和 Excel 汇总。首轮不应先建设完整平台，应先用同一批样例比较候选组件输出。
+因此合理路线是直接采用成熟工具完成采集和主要提取，自行维护来源证据、调用栈、缺口语义及 Excel 映射。首轮不建设扫描器或插件，先比较完整工具输出；只有量化差距后才补代码。
 
 ## 3. 推荐等级
 
@@ -38,6 +47,17 @@
 
 | 项目 | 固定提交 | 提交日期 | 许可证/使用约束 |
 |---|---|---|---|
+| [praetorian-inc/vespasian](https://github.com/praetorian-inc/vespasian) | `daa3dafc68f0` | 2026-10-03 | Apache-2.0；部分命令默认主动 probe，采集模式需显式核对 |
+| [AmbitSecurity/jshound](https://github.com/AmbitSecurity/jshound) | `f34f9c5dcfa0` | 2026-10-20 | MIT |
+| [akto-api-security/akto](https://github.com/akto-api-security/akto) | `a7d8693ce867` | 2026-10-22 | MIT；企业连接器/部署能力另核 |
+| [alufers/mitmproxy2swagger](https://github.com/alufers/mitmproxy2swagger) | `f432acafa590` | 2026-06-24 | MIT |
+| [Arkptz/mitm2openapi](https://github.com/Arkptz/mitm2openapi) | `afde32ac8035` | 2026-10-19 | MIT |
+| [grokify/traffic2openapi](https://github.com/grokify/traffic2openapi) | `142e33cc28e` | 2026-10-15 | MIT |
+| [jlozoya/api-network-recorder](https://github.com/jlozoya/api-network-recorder) | `2877b112c6e9` | 2026-10-08 | MIT |
+| [PortSwigger/js-miner](https://github.com/PortSwigger/js-miner) | `420c5664e2b0` | 2023-07-20 | Apache-2.0 |
+| [PortSwigger/js-link-finder](https://github.com/PortSwigger/js-link-finder) | `206371d0f938` | 2019-09-05 | MIT |
+| [xnl-h4ck3r/GAP-Burp-Extension](https://github.com/xnl-h4ck3r/GAP-Burp-Extension) | `f223016fa347` | 2026-01-08 | 仓库未见明确 LICENSE 文件，引入代码前需确认 |
+| [openclarity/apiclarity](https://github.com/openclarity/apiclarity) | `37aa37506260` | 2024-08-23 | Apache-2.0；仓库已归档 |
 | [BishopFox/jsluice](https://github.com/BishopFox/jsluice) | `0ddfab153e06` | 2024-01-10 | MIT |
 | [GerbenJavado/LinkFinder](https://github.com/GerbenJavado/LinkFinder) | `1debac5dace4` | 2024-04-13 | MIT |
 | [xnl-h4ck3r/xnLinkFinder](https://github.com/xnl-h4ck3r/xnLinkFinder) | `841ac8dddbc7` | 2026-03-08 | MIT |
@@ -64,9 +84,9 @@
 
 ## 5. 下一轮验证顺序
 
-1. 建立一组覆盖字面 URL、变量 URL、跨文件封装、Axios 实例、拦截器、未知 spread 和缺配置的固定样例。
-2. 运行 jsluice、CodeQL、Joern 和 Semgrep CE，按统一结果模型比较请求召回、字段准确性、缺口保留和接入成本。
-3. 用同一测试网站比较 Katana、getJS 和 Playwright 的脚本发现结果，单独核对登录态、懒加载、Worker、iframe 和三层引用。
-4. 用 Chrome MV3 官方 debugger 示例扩展采集原型，核对 CDP 原始事件、HAR 转换和服务端接收记录。
-5. 将三路真实样例导入 `analysis.json` 和 Excel，验证关联规则，而不是比较工具输出条数。
+1. 选一个可重复构建的真实前端，生成 `dist`、source map 并启动本地预览。
+2. 对 `dist` 跑 jshound，对预览跑 Vespasian 被动模式，先验证现成静态与动态覆盖。
+3. 用 OpenAPI DevTools/Chrome HAR/Burp 记录同一操作，分别导入 Vespasian、mitmproxy2swagger、mitm2openapi 和 Akto。
+4. 只对现成工具漏掉的源码位置、跨文件封装和拦截器运行 CodeQL/Joern 对照。
+5. 将结果映射到 `analysis.json` 和 Excel，依据差距决定是否还需自研浏览器插件。
 
