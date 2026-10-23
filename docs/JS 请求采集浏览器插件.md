@@ -77,6 +77,8 @@ flowchart TD
 | `initiator`、`initiator_parent_id`、`initiator_parent_match`、`initiator_relation` | 受保护的 Network Initiator 元数据及已解析的父请求关系；区分重定向、精确 request ID、唯一 URL 推定、歧义、缺失与无关系，不能用任意同 URL 请求补链 |
 | `capture_status` | 分别记录头/body/调用栈的完整、部分、缺失、不支持或不可解析状态及原因 |
 
+新建任务提供“保存字段”复选区，请求头、Query 参数、请求体、页面来源、发起信息与关系链、Request call stack 默认全部勾选，并支持全选或取消全选。请求 ID、时间、URL、Method、资源类型、状态码和请求状态属于定位记录所需的基础字段，始终保存。插件先用完整的浏览器可观测数据执行 Filter，再在写入 IndexedDB、导出和转存前移除未勾选字段；对应采集状态写为“任务未选择保存”，不计为采集缺口。旧任务缺少字段列表时按全部勾选兼容。
+
 未解析不等于空 body；截断、大小限制、跳过二进制/文件均须显式标记。经授权保留原始表示时，同时保存解析结果与原始记录的关联。响应正文不列为本稿的必采字段。
 
 ### 3.3 同步与异步调用栈

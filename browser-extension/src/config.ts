@@ -1,5 +1,6 @@
 import type { Config } from "./model";
 import { validateFilter } from "./filter";
+import { OPTIONAL_FIELDS } from "./field-selection";
 export function validateConfig(c: Config) {
   validateFilter(c.filter);
   if (
@@ -23,6 +24,15 @@ export function validateConfig(c: Config) {
   for (const list of [c.dynamic_query, c.dynamic_json])
     if (!Array.isArray(list) || list.some((x) => typeof x !== "string"))
       throw Error("动态参数必须为字符串数组");
+  if (
+    c.saved_fields !== undefined &&
+    (!Array.isArray(c.saved_fields) ||
+      new Set(c.saved_fields).size !== c.saved_fields.length ||
+      c.saved_fields.some(
+        (field) => !(OPTIONAL_FIELDS as readonly string[]).includes(field),
+      ))
+  )
+    throw Error("保存字段配置无效");
   if (
     !c.archive ||
     typeof c.archive.enabled !== "boolean" ||

@@ -16,6 +16,7 @@ import { parseBody, protectRecord, safeURL } from "./privacy";
 import { fingerprint } from "./group";
 import * as db from "./store";
 import { StackCapture } from "./stack";
+import { savedFieldSet, selectRecordFields } from "./field-selection";
 type Source = chrome.debugger.DebuggerSession;
 type Hop = {
   record: RecordEntry;
@@ -79,7 +80,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.3.4",
+      plugin: "0.3.5",
       stats: {
         observed: 0,
         pending: 0,
@@ -579,22 +580,32 @@ export class Recorder {
     scan.stats[r.filter_result]++;
     scan.stats.pending--;
     h.done = true;
-    this.initiatorNodes.push({
-      scan_id: r.scan_id,
-      request_id: r.request_id,
-      request_url: safeURL(r.request_url, config.value_storage !== "complete"),
-      parent_id: r.initiator_parent_id ?? null,
-      resolution: r.initiator_parent_match ?? "none",
-      relation: r.initiator_relation ?? "none",
-    });
+    if (savedFieldSet(config).has("initiator"))
+      this.initiatorNodes.push({
+        scan_id: r.scan_id,
+        request_id: r.request_id,
+        request_url: safeURL(
+          r.request_url,
+          config.value_storage !== "complete",
+        ),
+        parent_id: r.initiator_parent_id ?? null,
+        resolution: r.initiator_parent_match ?? "none",
+        relation: r.initiator_relation ?? "none",
+      });
     if (r.filter_result === "excluded" && config.retention === "matching") {
       this.checkStorageLimit(config);
       if (this.initiatorNodes.length >= 200) await this.flush();
       return;
     }
-    const safe = protectRecord(r, config.value_storage !== "complete");
+    const safe = protectRecord(
+      selectRecordFields(r, config),
+      config.value_storage !== "complete",
+    );
     for (const [carrier, status] of Object.entries(safe.capture_status))
-      if (status.state !== "complete")
+      if (
+        status.state !== "complete" &&
+        !status.reason?.startsWith("任务未选择保存")
+      )
         gap(
           scan,
           "capture_" + carrier,
@@ -750,9 +761,10 @@ export class Recorder {
             const config = scan.versions.find(
               (version) => version.version === h.record.filter_version,
             )?.config;
+            const effective = config ?? defaults();
             return protectRecord(
-              h.record,
-              config?.value_storage !== "complete",
+              selectRecordFields(h.record, effective),
+              effective.value_storage !== "complete",
             );
           }),
       );

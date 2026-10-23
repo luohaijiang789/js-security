@@ -481,6 +481,11 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       "resource-type:XHR,Fetch,Ping; -url:/health(?:check)?/i",
     );
     await dialog.getByLabel("字段值保存").selectOption("complete");
+    const fieldSelector = dialog.locator(".field-selector");
+    expect(await fieldSelector.getByRole("checkbox").count()).toBe(6);
+    for (const checkbox of await fieldSelector.getByRole("checkbox").all())
+      expect(await checkbox.isChecked()).toBe(true);
+    await fieldSelector.getByRole("checkbox", { name: /请求体/ }).uncheck();
     expect(await dialog.getByTestId("filter-summary").textContent()).toContain(
       "类型为 XHR、Fetch、Ping",
     );
@@ -499,6 +504,8 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect((message.config.filter.exclude as any).operator).toBe("regex");
     expect(message.config.retention).toBe("matching");
     expect(message.config.value_storage).toBe("complete");
+    expect(message.config.saved_fields).toHaveLength(5);
+    expect(message.config.saved_fields).not.toContain("request_body");
     await page.getByRole("button", { name: "任务设置", exact: true }).click();
     await page.getByText("高级配置 JSON", { exact: true }).click();
     await page.getByLabel("任务高级配置").fill("null");
