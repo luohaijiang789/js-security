@@ -112,9 +112,7 @@ function reset() {
       <div class="filter-syntax-grid">
         <span><code>domain:api.example.com</code> 按字段过滤</span>
         <span><code>method:GET,POST</code> 逗号表示任选一个</span>
-        <span
-          ><code>-resource-type:Image</code> 前缀 <code>-</code> 表示排除</span
-        >
+        <span><code>-resource-type:Image</code> 排除 Chrome 的 Image 类型</span>
         <span><code>url:/\/api\/v\d+/i</code> 使用正则表达式</span>
         <span><code>"order detail"</code> 双引号包住带空格的内容</span>
         <span><code>(method:POST OR method:PUT)</code> 括号内任选条件</span>
@@ -136,6 +134,9 @@ function reset() {
         参数与正文：<code>query.name:value</code>、<code>header.Name:value</code>、<code
           >body.json.path:value</code
         >
+      </p>
+      <p class="filter-fields">
+        常用资源类型：<code>XHR</code>、<code>Fetch</code>、<code>Ping</code>（Beacon）、<code>Preflight</code>、<code>Document</code>、<code>Script</code>、<code>Stylesheet</code>、<code>Image</code>、<code>Media</code>、<code>Font</code>、<code>EventSource</code>、<code>WebSocket</code>、<code>Other</code>。全部类型和区别见左侧“使用说明”。
       </p>
     </div>
     <div
