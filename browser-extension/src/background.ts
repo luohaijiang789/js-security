@@ -194,6 +194,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
       "Network.requestWillBeSent",
       "Network.requestWillBeSentExtraInfo",
       "Network.responseReceived",
+      "Network.responseReceivedExtraInfo",
       "Network.loadingFinished",
       "Network.loadingFailed",
       "Target.attachedToTarget",

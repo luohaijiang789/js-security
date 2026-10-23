@@ -35,8 +35,11 @@ const record = computed(() =>
   props.record ? recordForDisplay(props.record) : null,
 );
 const tab = ref("概览");
-const bodyAvailable = computed(() =>
+const requestBodyAvailable = computed(() =>
   bodyContentAvailable(props.record?.request_body),
+);
+const responseBodyAvailable = computed(() =>
+  bodyContentAvailable(props.record?.response_body),
 );
 const stack = computed(() => stackSegments(props.record?.initiator_stack));
 const initiatorChain = computed(() =>
@@ -48,20 +51,32 @@ const stackNotice = computed(() => {
   const quality = record.value?.capture_status.stack;
   return quality?.state !== "complete" ? quality?.reason : "";
 });
-const bodyText = computed(() => {
-  const body = record.value?.request_body;
+function capturedBodyText(body: RecordEntry["request_body"] | undefined) {
   return body?.parsed !== null && body?.parsed !== undefined
     ? pretty(body.parsed)
     : typeof body?.raw === "string"
       ? body.raw
       : "null";
+}
+const requestBodyText = computed(() => {
+  const body = record.value?.request_body;
+  return capturedBodyText(body);
 });
-const bodyBytes = computed(() =>
-  bytesText(new TextEncoder().encode(bodyText.value).length),
+const requestBodyBytes = computed(() =>
+  bytesText(new TextEncoder().encode(requestBodyText.value).length),
+);
+const responseBodyText = computed(() =>
+  capturedBodyText(record.value?.response_body),
+);
+const responseBodyBytes = computed(() =>
+  bytesText(new TextEncoder().encode(responseBodyText.value).length),
 );
 const carrierLabels: Record<string, string> = {
   headers: "请求头",
   body: "请求体",
+  response_headers: "响应头",
+  response_body: "响应体",
+  response_metadata: "响应元数据",
   stack: "调用栈",
   page: "页面归属",
 };
@@ -182,6 +197,8 @@ onUnmounted(() => window.removeEventListener("keydown", key));
             '参数',
             '请求头',
             '请求体',
+            '响应头',
+            '响应体',
             '调用栈',
             '原始数据',
           ]"
@@ -193,8 +210,9 @@ onUnmounted(() => window.removeEventListener("keydown", key));
         >
           {{ t
           }}<span v-if="t === '参数'">{{ record.query_params.length }}</span
-          ><span v-if="t === '请求头'">{{
-            record.request_headers.length
+          ><span v-if="t === '请求头'">{{ record.request_headers.length }}</span
+          ><span v-if="t === '响应头'">{{
+            record.response_headers.length
           }}</span>
         </button>
       </div>
@@ -225,6 +243,42 @@ onUnmounted(() => window.removeEventListener("keydown", key));
               {{ record.request_state
               }}{{ record.error ? " · " + record.error : "" }}
             </dd>
+            <dt>响应类型</dt>
+            <dd>
+              {{
+                record.response_content_type ||
+                record.response_metadata.mime_type ||
+                "未取得"
+              }}
+            </dd>
+            <dt>协议 / 远端</dt>
+            <dd>
+              {{ record.response_metadata.protocol || "未知协议" }} ·
+              {{ record.response_metadata.remote_ip_address || "未知地址"
+              }}{{
+                record.response_metadata.remote_port !== null
+                  ? ":" + record.response_metadata.remote_port
+                  : ""
+              }}
+            </dd>
+            <dt>响应来源 / 传输量</dt>
+            <dd>
+              {{
+                record.response_metadata.from_service_worker
+                  ? "Service Worker"
+                  : record.response_metadata.from_disk_cache
+                    ? "磁盘缓存"
+                    : record.response_metadata.from_prefetch_cache
+                      ? "预取缓存"
+                      : "网络或内存缓存"
+              }}
+              ·
+              {{
+                record.response_metadata.encoded_data_length === null
+                  ? "未知"
+                  : bytesText(record.response_metadata.encoded_data_length)
+              }}
+            </dd>
             <dt>Filter 结果</dt>
             <dd>{{ filterVerdict }} · v{{ record.filter_version }}</dd>
           </dl>
@@ -246,6 +300,70 @@ onUnmounted(() => window.removeEventListener("keydown", key));
               <p>{{ q.reason ?? "已保存浏览器可观测字段" }}</p>
             </div>
           </div>
+          <details class="technical-details">
+            <summary>响应网络详情</summary>
+            <dl class="metadata">
+              <dt>状态文本</dt>
+              <dd>{{ record.response_metadata.status_text || "未取得" }}</dd>
+              <dt>MIME / 协议</dt>
+              <dd>
+                {{ record.response_metadata.mime_type || "未取得" }} /
+                {{ record.response_metadata.protocol || "未取得" }}
+              </dd>
+              <dt>远端地址</dt>
+              <dd>
+                {{ record.response_metadata.remote_ip_address || "未取得"
+                }}{{
+                  record.response_metadata.remote_port !== null
+                    ? ":" + record.response_metadata.remote_port
+                    : ""
+                }}
+              </dd>
+              <dt>IP 地址空间</dt>
+              <dd>
+                {{
+                  record.response_metadata.resource_ip_address_space || "未取得"
+                }}
+              </dd>
+              <dt>缓存 / Service Worker</dt>
+              <dd>
+                磁盘缓存
+                {{ record.response_metadata.from_disk_cache ? "是" : "否" }} ·
+                预取缓存
+                {{
+                  record.response_metadata.from_prefetch_cache ? "是" : "否"
+                }}
+                · Service Worker
+                {{ record.response_metadata.from_service_worker ? "是" : "否" }}
+              </dd>
+              <dt>编码传输量</dt>
+              <dd>
+                {{
+                  record.response_metadata.encoded_data_length === null
+                    ? "未取得"
+                    : bytesText(record.response_metadata.encoded_data_length)
+                }}
+              </dd>
+              <dt>Cookie 阻止信息</dt>
+              <dd>
+                <pre class="mini-json">{{
+                  pretty(record.response_metadata.blocked_cookies ?? [])
+                }}</pre>
+              </dd>
+              <dt>Timing</dt>
+              <dd>
+                <pre class="mini-json">{{
+                  pretty(record.response_metadata.timing)
+                }}</pre>
+              </dd>
+              <dt>TLS 安全信息</dt>
+              <dd>
+                <pre class="mini-json">{{
+                  pretty(record.response_metadata.security_details)
+                }}</pre>
+              </dd>
+            </dl>
+          </details>
           <details class="technical-details">
             <summary>请求身份与关联</summary>
             <dl class="metadata">
@@ -370,14 +488,17 @@ onUnmounted(() => window.removeEventListener("keydown", key));
             <span>{{ record.content_type || "未提供 Content-Type" }}</span
             ><span>{{ record.request_body.representation }}</span>
           </div>
-          <div v-if="bodyAvailable" class="code-card">
+          <div v-if="requestBodyAvailable" class="code-card">
             <div class="code-toolbar">
-              <span>{{ bodyBytes }}</span
-              ><button class="text-button" @click="emit('copy', bodyText)">
+              <span>{{ requestBodyBytes }}</span
+              ><button
+                class="text-button"
+                @click="emit('copy', requestBodyText)"
+              >
                 <Icon name="copy" :size="14" />复制内容
               </button>
             </div>
-            <pre>{{ bodyText }}</pre>
+            <pre>{{ requestBodyText }}</pre>
           </div>
           <div v-else class="empty-state compact">
             <Icon name="file" :size="28" />
@@ -397,6 +518,92 @@ onUnmounted(() => window.removeEventListener("keydown", key));
           <p v-if="record.protection.truncated" class="field-note warning-text">
             正文或解析深度达到上限，记录为部分采集。
           </p></template
+        >
+        <template v-else-if="tab === '响应头'"
+          ><div class="section-heading">
+            <h3>Response Headers</h3>
+            <span
+              class="quality-badge"
+              :class="record.capture_status.response_headers.state"
+              >{{
+                qualityLabels[record.capture_status.response_headers.state]
+              }}</span
+            >
+          </div>
+          <p class="field-note">
+            {{
+              record.capture_status.response_headers.reason ??
+              "展示浏览器可观测的响应头；原始头文本在 Chrome 提供时保存在原始数据中。"
+            }}
+          </p>
+          <table v-if="record.response_headers.length" class="key-value">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>观察值</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="(p, i) in record.response_headers" :key="i">
+                <td>{{ p.name }}</td>
+                <td>{{ p.value === "" ? "（空字符串）" : p.value }}</td>
+              </tr>
+            </tbody>
+          </table>
+          <details
+            v-if="record.response_headers_raw"
+            class="technical-details response-headers-raw"
+          >
+            <summary>Chrome 原始响应头文本</summary>
+            <pre>{{ record.response_headers_raw }}</pre>
+          </details>
+          <div v-else class="empty-state compact">
+            <h3>未取得响应头</h3>
+            <p>{{ record.capture_status.response_headers.reason }}</p>
+          </div></template
+        >
+        <template v-else-if="tab === '响应体'"
+          ><div class="section-heading">
+            <h3>Response Body</h3>
+            <span
+              class="quality-badge"
+              :class="record.capture_status.response_body.state"
+              >{{
+                qualityLabels[record.capture_status.response_body.state]
+              }}</span
+            >
+          </div>
+          <div class="info-strip">
+            <span>{{
+              record.response_content_type || "未提供 Content-Type"
+            }}</span
+            ><span>{{ record.response_body.representation }}</span
+            ><span v-if="record.response_body.encoding === 'base64'"
+              >Base64 编码</span
+            >
+          </div>
+          <div v-if="responseBodyAvailable" class="code-card">
+            <div class="code-toolbar">
+              <span>{{ responseBodyBytes }}</span
+              ><button
+                class="text-button"
+                @click="emit('copy', responseBodyText)"
+              >
+                <Icon name="copy" :size="14" />复制内容
+              </button>
+            </div>
+            <pre>{{ responseBodyText }}</pre>
+          </div>
+          <div v-else class="empty-state compact">
+            <Icon name="file" :size="28" />
+            <h3>响应体没有可展示内容</h3>
+            <p>
+              {{
+                record.capture_status.response_body.reason ??
+                "该请求没有响应正文，或旧记录未保存响应体。"
+              }}
+            </p>
+          </div></template
         >
         <template v-else-if="tab === '调用栈'">
           <div class="initiator-view">

@@ -230,8 +230,23 @@ export function pretty(value: unknown) {
   }
 }
 
-type DisplayRecord = Omit<RecordEntry, "request_state"> & {
+type DisplayRecord = Omit<
+  RecordEntry,
+  | "request_state"
+  | "response_headers"
+  | "response_headers_raw"
+  | "response_body"
+  | "response_content_type"
+  | "response_metadata"
+  | "capture_status"
+> & {
   request_state: RecordEntry["request_state"] | "unknown";
+  response_headers: NonNullable<RecordEntry["response_headers"]>;
+  response_headers_raw: string | null;
+  response_body: NonNullable<RecordEntry["response_body"]>;
+  response_content_type: string;
+  response_metadata: NonNullable<RecordEntry["response_metadata"]>;
+  capture_status: Required<RecordEntry["capture_status"]>;
 };
 function pairList(value: unknown): Pair[] {
   return Array.isArray(value)
@@ -322,11 +337,41 @@ export function recordForDisplay(source: RecordEntry): DisplayRecord {
           }
         : { representation: "未保存", parsed: null },
     content_type: r.content_type ?? "",
+    response_headers: pairList(r.response_headers),
+    response_headers_raw:
+      typeof r.response_headers_raw === "string"
+        ? r.response_headers_raw
+        : null,
+    response_body:
+      r.response_body && typeof r.response_body === "object"
+        ? {
+            ...r.response_body,
+            representation: r.response_body.representation ?? "未知",
+            parsed: r.response_body.parsed ?? null,
+          }
+        : { representation: "未保存", parsed: null },
+    response_content_type: r.response_content_type ?? "",
+    response_metadata: r.response_metadata ?? {
+      status_text: "",
+      mime_type: "",
+      protocol: "",
+      remote_ip_address: "",
+      remote_port: null,
+      from_disk_cache: false,
+      from_service_worker: false,
+      from_prefetch_cache: false,
+      encoded_data_length: null,
+      timing: null,
+      security_details: null,
+    },
     initiator_url: r.initiator_url ?? null,
     initiator_stack: r.initiator_stack ?? null,
     capture_status: {
       headers: quality(q?.headers),
       body: quality(q?.body),
+      response_headers: quality(q?.response_headers),
+      response_body: quality(q?.response_body),
+      response_metadata: quality(q?.response_metadata),
       stack: quality(q?.stack),
       page: quality(q?.page),
     },

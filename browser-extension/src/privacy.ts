@@ -202,6 +202,51 @@ export function parseBody(
   }
 }
 
+export function parseResponseBody(
+  raw: string,
+  base64Encoded: boolean,
+  contentType: string,
+  limit: number,
+  truncate = true,
+): {
+  body: RecordEntry["request_body"];
+  quality: RecordEntry["capture_status"]["body"];
+  truncated: boolean;
+} {
+  if (!base64Encoded)
+    return parseBody(raw, contentType, true, limit, false, truncate);
+  const padding = raw.endsWith("==") ? 2 : raw.endsWith("=") ? 1 : 0;
+  const originalBytes = Math.max(0, Math.floor((raw.length * 3) / 4) - padding);
+  const characterLimit = Math.max(64, Math.ceil((limit * 4) / 3));
+  if (truncate && raw.length > characterLimit)
+    return {
+      body: {
+        representation: "base64",
+        parsed: null,
+        raw: truncateString(raw, characterLimit),
+        encoding: "base64",
+      },
+      quality: {
+        state: "partial",
+        reason: `二进制响应超过 ${limit} 字节上限，Base64 已保留首尾片段（原始约 ${originalBytes} 字节）`,
+      },
+      truncated: true,
+    };
+  return {
+    body: {
+      representation: "base64",
+      parsed: null,
+      raw,
+      encoding: "base64",
+    },
+    quality: {
+      state: "complete",
+      reason: `二进制响应以 Base64 保存（约 ${originalBytes} 字节）`,
+    },
+    truncated: false,
+  };
+}
+
 export function protectRecord(
   record: RecordEntry,
   truncate = true,
@@ -240,6 +285,9 @@ export function protectRecord(
     retained.initiator_stack = normalized.initiator_stack;
     retained.request_headers.forEach((pair, index) => {
       pair.name = normalized.request_headers[index].name;
+    });
+    retained.response_headers?.forEach((pair, index) => {
+      pair.name = normalized.response_headers?.[index]?.name ?? pair.name;
     });
     retained.query_params.forEach((pair, index) => {
       pair.name = normalized.query_params[index].name;

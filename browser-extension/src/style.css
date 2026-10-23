@@ -1161,6 +1161,16 @@ main {
 .technical-details .metadata {
   margin-top: 17px;
 }
+.mini-json,
+.response-headers-raw pre {
+  margin: 0;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: 11px/1.65 var(--mono);
+  color: #566985;
+}
 .key-value {
   width: 100%;
   border-collapse: collapse;

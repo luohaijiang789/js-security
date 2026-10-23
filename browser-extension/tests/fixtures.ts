@@ -65,6 +65,31 @@ export function workspaceFixture(options: { pending?: boolean } = {}) {
           }
         : { representation: "unavailable", parsed: null },
       content_type: order ? "application/json" : "",
+      response_headers: [
+        { name: "Content-Type", value: "application/json; charset=utf-8" },
+        { name: "X-Trace-Id", value: `trace-${ordinal}` },
+      ],
+      response_headers_raw: null,
+      response_body: {
+        representation: "json",
+        parsed: order
+          ? { ok: true, order_id: "fixture-order" }
+          : { ok: true, item: ordinal },
+      },
+      response_content_type: "application/json; charset=utf-8",
+      response_metadata: {
+        status_text: "OK",
+        mime_type: "application/json",
+        protocol: "h2",
+        remote_ip_address: "203.0.113.10",
+        remote_port: 443,
+        from_disk_cache: false,
+        from_service_worker: false,
+        from_prefetch_cache: false,
+        encoded_data_length: 128,
+        timing: { receiveHeadersEnd: 12.5 },
+        security_details: { protocol: "TLS 1.3" },
+      },
       initiator_url: order ? "https://static.example.test/orders.js" : null,
       ...(ordinal >= 99
         ? {
@@ -105,6 +130,9 @@ export function workspaceFixture(options: { pending?: boolean } = {}) {
       capture_status: {
         headers: { state: "complete", reason: "CDP ExtraInfo 可观测请求头" },
         body: { state: "complete", reason: order ? undefined : "未报告正文" },
+        response_headers: { state: "complete" },
+        response_body: { state: "complete" },
+        response_metadata: { state: "complete" },
         stack: order
           ? { state: "partial", reason: "仅 CDP 可见调用栈" }
           : { state: "missing", reason: "该请求未提供 JS 调用栈" },

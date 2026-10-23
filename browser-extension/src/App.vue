@@ -857,7 +857,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.6</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.4.0</span>
         </div>
       </div>
     </aside>
@@ -1569,7 +1569,7 @@ onUnmounted(() => {
                   placeholder="例如 metadata.traceId"
                   @change="(e) => setList('dynamic_json', e)" /></label
               ><label
-                >单条正文上限（MB）<input
+                >单条请求/响应正文上限（MB）<input
                   type="number"
                   min="0.001"
                   step="0.25"

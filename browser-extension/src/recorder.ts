@@ -12,7 +12,12 @@ import {
   type InitiatorNode,
 } from "./model";
 import { matchFilter } from "./filter";
-import { parseBody, protectRecord, safeURL } from "./privacy";
+import {
+  parseBody,
+  parseResponseBody,
+  protectRecord,
+  safeURL,
+} from "./privacy";
 import { fingerprint } from "./group";
 import * as db from "./store";
 import { StackCapture } from "./stack";
@@ -20,20 +25,41 @@ import { savedFieldSet, selectRecordFields } from "./field-selection";
 type Source = chrome.debugger.DebuggerSession;
 type Hop = {
   record: RecordEntry;
-  extra?: boolean;
+  requestExtra?: boolean;
+  responseExtra?: boolean;
   body?: Promise<void>;
+  responseBody?: Promise<void>;
   stack?: Promise<void>;
   done?: boolean;
   finishing?: boolean;
 };
 type Channel = {
   hops: Hop[];
-  extras: any[];
+  requestExtras: any[];
+  responseExtras: any[];
   source: Source;
   suppressed?: boolean;
 };
 const pairs = (h: Record<string, string> = {}) =>
   Object.entries(h).map(([name, value]) => ({ name, value: String(value) }));
+
+const responseMetadata = (response: any) => ({
+  status_text: String(response?.statusText ?? ""),
+  mime_type: String(response?.mimeType ?? ""),
+  protocol: String(response?.protocol ?? ""),
+  remote_ip_address: String(response?.remoteIPAddress ?? ""),
+  remote_port: Number.isFinite(response?.remotePort)
+    ? Number(response.remotePort)
+    : null,
+  from_disk_cache: !!response?.fromDiskCache,
+  from_service_worker: !!response?.fromServiceWorker,
+  from_prefetch_cache: !!response?.fromPrefetchCache,
+  encoded_data_length: Number.isFinite(response?.encodedDataLength)
+    ? Number(response.encodedDataLength)
+    : null,
+  timing: response?.timing ?? null,
+  security_details: response?.securityDetails ?? null,
+});
 export class Recorder {
   scan: Scan | null = null;
   channels = new Map<string, Channel>();
@@ -80,7 +106,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.3.6",
+      plugin: "0.4.0",
       stats: {
         observed: 0,
         pending: 0,
@@ -255,9 +281,17 @@ export class Recorder {
         const previous = channel.hops.at(-1);
         if (previous) {
           redirectParent = previous.record;
-          previous.extra = !!p.redirectHasExtraInfo;
-          previous.record.status_code = p.redirectResponse.status;
+          previous.responseExtra = !!p.redirectHasExtraInfo;
+          this.applyResponse(
+            previous,
+            p.redirectResponse,
+            !!p.redirectHasExtraInfo,
+          );
           previous.record.request_state = "redirect";
+          previous.record.capture_status.response_body = {
+            state: "missing",
+            reason: "重定向响应正文未读取",
+          };
           this.applyExtras(channel);
           this.finish(previous);
         }
@@ -277,7 +311,12 @@ export class Recorder {
         this.protect("请求队列达到条数上限", 1);
         return;
       }
-      channel ??= { hops: [], extras: [], source };
+      channel ??= {
+        hops: [],
+        requestExtras: [],
+        responseExtras: [],
+        source,
+      };
       channel.suppressed = false;
       this.channels.set(key, channel);
       const headers = pairs(p.request.headers),
@@ -330,6 +369,11 @@ export class Recorder {
         })),
         request_body: parsed.body,
         content_type: ct,
+        response_headers: [],
+        response_headers_raw: null,
+        response_body: { representation: "unavailable", parsed: null },
+        response_content_type: "",
+        response_metadata: responseMetadata(null),
         initiator_url: initiator,
         initiator_stack: stack,
         initiator: {
@@ -353,9 +397,21 @@ export class Recorder {
         capture_status: {
           headers: {
             state: "partial",
-            reason: "等待 ExtraInfo；CDP 可能不提供完整线头",
+            reason: "等待 ExtraInfo；CDP 可能不提供完整请求头",
           },
           body: parsed.quality,
+          response_headers: {
+            state: "missing",
+            reason: "尚未收到响应头",
+          },
+          response_body: {
+            state: "missing",
+            reason: "尚未收到响应正文",
+          },
+          response_metadata: {
+            state: "missing",
+            reason: "尚未收到响应元数据",
+          },
           stack: stack
             ? {
                 state: "partial",
@@ -376,7 +432,7 @@ export class Recorder {
         },
         filter_version: scan.versions.at(-1)!.version,
       };
-      const h: Hop = { record: r };
+      const h: Hop = { record: r, requestExtra: true };
       this.rememberInitiatorCandidate(source, p, r);
       h.stack = this.stacks
         .capture(source, p.initiator?.stack)
@@ -418,14 +474,26 @@ export class Recorder {
           this.protect("事件关联通道达到上限", 1);
           return;
         }
-        channel = { hops: [], extras: [], source };
+        channel = {
+          hops: [],
+          requestExtras: [],
+          responseExtras: [],
+          source,
+        };
         this.channels.set(key, channel);
         setTimeout(() => {
           if (channel && !channel.hops.length) this.channels.delete(key);
         }, 2000);
       }
-      if (channel.extras.length < 16) channel.extras.push(p);
+      if (channel.requestExtras.length < 16) channel.requestExtras.push(p);
       else this.protect("ExtraInfo 队列达到上限", 1);
+      this.applyExtras(channel);
+      return;
+    }
+    if (method === "Network.responseReceivedExtraInfo") {
+      if (!channel) return;
+      if (channel.responseExtras.length < 16) channel.responseExtras.push(p);
+      else this.protect("响应 ExtraInfo 队列达到上限", 1);
       this.applyExtras(channel);
       return;
     }
@@ -441,8 +509,8 @@ export class Recorder {
     const h = channel.hops.at(-1);
     if (!h) return;
     if (method === "Network.responseReceived") {
-      h.record.status_code = p.response.status;
-      h.extra = !!p.hasExtraInfo;
+      h.responseExtra = !!p.hasExtraInfo;
+      this.applyResponse(h, p.response, !!p.hasExtraInfo);
       this.applyExtras(channel);
     }
     if (
@@ -452,6 +520,48 @@ export class Recorder {
       h.record.request_state = method.endsWith("Failed")
         ? "failed"
         : "complete";
+      if (Number.isFinite(p.encodedDataLength) && h.record.response_metadata)
+        h.record.response_metadata.encoded_data_length = Number(
+          p.encodedDataLength,
+        );
+      if (method === "Network.loadingFinished") {
+        const config = scan.versions.find(
+          (version) => version.version === h.record.filter_version,
+        )?.config;
+        if (config && savedFieldSet(config).has("response_body")) {
+          if (
+            h.record.method === "HEAD" ||
+            [204, 205, 304].includes(h.record.status_code ?? 0)
+          ) {
+            h.record.response_body = {
+              representation: "empty",
+              parsed: null,
+              raw: "",
+              encoding: "utf8",
+            };
+            h.record.capture_status.response_body = {
+              state: "complete",
+              reason: "该方法或状态码没有响应正文",
+            };
+          } else if (this.bodyReads < 4) {
+            this.bodyReads++;
+            h.responseBody = this.responseBody(
+              source,
+              p.requestId,
+              h.record,
+              config.body_limit,
+            ).finally(() => this.bodyReads--);
+          } else
+            h.record.capture_status.response_body = {
+              state: "missing",
+              reason: "正文读取并发上限，未读取响应体",
+            };
+        }
+      } else
+        h.record.capture_status.response_body = {
+          state: "missing",
+          reason: "请求失败，响应正文不可用",
+        };
       if (p.errorText) {
         h.record.error = p.errorText;
         gap(
@@ -500,13 +610,70 @@ export class Recorder {
       clearTimeout(timer);
     }
   }
+  async responseBody(
+    source: Source,
+    id: string,
+    r: RecordEntry,
+    limit: number,
+  ) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const result = await Promise.race([
+        this.send(source, "Network.getResponseBody", { requestId: id }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(Error("响应正文读取超时")), 1500);
+        }),
+      ]);
+      if (typeof result?.body !== "string") throw Error("CDP 未返回响应正文");
+      const config = this.scan?.versions.find(
+        (version) => version.version === r.filter_version,
+      )?.config;
+      const parsed = parseResponseBody(
+        result.body,
+        !!result.base64Encoded,
+        r.response_content_type ?? "",
+        limit,
+        config?.value_storage !== "complete",
+      );
+      r.response_body = parsed.body;
+      if (!result.base64Encoded && !parsed.truncated)
+        r.response_body.raw = result.body;
+      r.capture_status.response_body = parsed.quality;
+      r.protection.truncated = r.protection.truncated || parsed.truncated;
+    } catch {
+      r.capture_status.response_body = {
+        state: "missing",
+        reason: "响应正文不可用、已被浏览器清理或读取超时",
+      };
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  applyResponse(h: Hop, response: any, hasExtraInfo: boolean) {
+    h.record.status_code = Number.isFinite(response?.status)
+      ? Number(response.status)
+      : h.record.status_code;
+    h.record.response_headers = pairs(response?.headers);
+    h.record.response_content_type =
+      h.record.response_headers.find(
+        (header) => header.name.toLowerCase() === "content-type",
+      )?.value ?? String(response?.mimeType ?? "");
+    h.record.response_metadata = responseMetadata(response);
+    h.record.capture_status.response_headers = hasExtraInfo
+      ? { state: "partial", reason: "等待响应 ExtraInfo" }
+      : {
+          state: "complete",
+          reason: "浏览器未声明额外响应头信息",
+        };
+    h.record.capture_status.response_metadata = { state: "complete" };
+  }
   applyExtras(c: Channel) {
     for (const h of c.hops) {
-      if (h.extra === false) continue;
-      if (h.extra === undefined) break;
-      if (c.extras.length) {
-        const extra = c.extras.shift();
-        h.extra = false;
+      if (h.requestExtra === false) continue;
+      if (h.requestExtra === undefined) break;
+      if (c.requestExtras.length) {
+        const extra = c.requestExtras.shift();
+        h.requestExtra = false;
         if (h.done) continue;
         h.record.request_headers = pairs(extra.headers);
         h.record.referer =
@@ -543,6 +710,34 @@ export class Recorder {
         }
       } else break;
     }
+    for (const h of c.hops) {
+      if (h.responseExtra === false) continue;
+      if (h.responseExtra === undefined) break;
+      if (!c.responseExtras.length) break;
+      const extra = c.responseExtras.shift();
+      h.responseExtra = false;
+      if (h.done) continue;
+      h.record.response_headers = pairs(extra.headers);
+      h.record.response_headers_raw =
+        typeof extra.headersText === "string" ? extra.headersText : null;
+      h.record.response_content_type =
+        h.record.response_headers.find(
+          (header) => header.name.toLowerCase() === "content-type",
+        )?.value ?? h.record.response_content_type;
+      if (Number.isFinite(extra.statusCode))
+        h.record.status_code = Number(extra.statusCode);
+      if (h.record.response_metadata) {
+        if (typeof extra.resourceIPAddressSpace === "string")
+          h.record.response_metadata.resource_ip_address_space =
+            extra.resourceIPAddressSpace;
+        if (Array.isArray(extra.blockedCookies))
+          h.record.response_metadata.blocked_cookies = extra.blockedCookies;
+      }
+      h.record.capture_status.response_headers = {
+        state: "complete",
+        reason: "CDP 响应 ExtraInfo 可观测头；原始头文本在可用时一并保存",
+      };
+    }
   }
   finish(h: Hop) {
     if (h.finishing) return;
@@ -551,7 +746,7 @@ export class Recorder {
     const grace = new Promise((r) => setTimeout(r, 250));
     this.tail = this.tail
       .then(async () => {
-        await Promise.all([h.body, h.stack]);
+        await Promise.all([h.body, h.responseBody, h.stack]);
         await grace;
         await this.finalize(h);
       })
@@ -571,6 +766,20 @@ export class Recorder {
     const config = scan.versions.find(
       (v) => v.version === r.filter_version,
     )!.config;
+    if (["failed", "incomplete"].includes(r.request_state)) {
+      for (const [carrier, label] of [
+        ["response_headers", "响应头"],
+        ["response_body", "响应体"],
+        ["response_metadata", "响应元数据"],
+      ] as const) {
+        const quality = r.capture_status[carrier];
+        if (quality?.state === "missing" && quality.reason?.startsWith("尚未"))
+          r.capture_status[carrier] = {
+            state: "missing",
+            reason: `请求${r.request_state === "failed" ? "失败" : "未完成"}，${label}未取得`,
+          };
+      }
+    }
     const hits: Record<string, number> = {};
     r.filter_result ??= matchFilter(config.filter, r, true, hits);
     for (const [key, count] of Object.entries(hits)) {

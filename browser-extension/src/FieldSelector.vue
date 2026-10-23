@@ -29,6 +29,21 @@ const options: Array<{
     description: "JSON、表单及浏览器提供的原始正文",
   },
   {
+    value: "response_headers",
+    label: "响应头",
+    description: "Content-Type、Set-Cookie、安全策略等",
+  },
+  {
+    value: "response_body",
+    label: "响应体",
+    description: "JSON、文本及二进制 Base64；受正文策略控制",
+  },
+  {
+    value: "response_metadata",
+    label: "响应元数据",
+    description: "MIME、协议、远端地址、缓存、Timing 与 TLS",
+  },
+  {
     value: "page_context",
     label: "页面来源",
     description: "发出请求的页面 URL 与页面采集状态",

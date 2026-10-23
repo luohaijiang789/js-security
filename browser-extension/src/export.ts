@@ -23,6 +23,11 @@ export function csv(rows: RecordEntry[]) {
     "query_params",
     "request_headers",
     "request_body",
+    "response_headers",
+    "response_headers_raw",
+    "response_body",
+    "response_content_type",
+    "response_metadata",
     "initiator_stack",
     "capture_status",
     "protection",
@@ -120,7 +125,7 @@ export async function packageFiles(
   files["scan_manifest.json"] = strToU8(
     JSON.stringify(
       {
-        schema_version: "0.1.0",
+        schema_version: "0.2.0",
         consistency: scan.state === "ended" ? "stopped_task" : "live_partial",
 
         scan,
@@ -135,7 +140,6 @@ export async function packageFiles(
             ? "retain-complete-v1"
             : "retain-truncate-v1",
         limitations: [
-          "响应正文不采集",
           ...(scan.config.value_storage === "complete"
             ? []
             : [

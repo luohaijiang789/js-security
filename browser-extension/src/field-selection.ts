@@ -4,6 +4,9 @@ export const OPTIONAL_FIELDS = [
   "request_headers",
   "query_params",
   "request_body",
+  "response_headers",
+  "response_body",
+  "response_metadata",
   "page_context",
   "initiator",
   "initiator_stack",
@@ -35,7 +38,20 @@ export function selectRecordFields(record: RecordEntry, config: Config) {
     result.request_body = { representation: "unavailable", parsed: null };
     result.content_type = "";
     result.capture_status.body = omitted("请求体");
-    result.protection.truncated = false;
+  }
+  if (!selected.has("response_headers")) {
+    result.response_headers = [];
+    result.response_headers_raw = null;
+    result.capture_status.response_headers = omitted("响应头");
+  }
+  if (!selected.has("response_body")) {
+    result.response_body = { representation: "unavailable", parsed: null };
+    result.response_content_type = "";
+    result.capture_status.response_body = omitted("响应体");
+  }
+  if (!selected.has("response_metadata")) {
+    delete result.response_metadata;
+    result.capture_status.response_metadata = omitted("响应元数据");
   }
   if (!selected.has("page_context")) {
     result.page_url = null;
@@ -52,5 +68,8 @@ export function selectRecordFields(record: RecordEntry, config: Config) {
     result.initiator_stack = null;
     result.capture_status.stack = omitted("调用栈");
   }
+  const retained = JSON.stringify(result);
+  result.protection.truncated =
+    retained.includes("[已截断，原始 ") || retained.includes("[DEPTH_LIMIT]");
   return result;
 }
