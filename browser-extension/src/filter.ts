@@ -71,6 +71,56 @@ export function validateFilter(f: Filter) {
     if (f[key as keyof Filter]) validateRule(f[key as keyof Filter]!);
   }
 }
+
+/**
+ * Group-level NOT remains valid for imported and historical JSON, but the
+ * visual editor intentionally does not expose it: inside an already-negative
+ * section such as "exclude", it creates unreadable double negatives. Direct
+ * `not_*` operators remain editable in the page and keep sections, where they
+ * read as one condition. The exclusion section rejects them because its
+ * heading would create another double negative.
+ */
+export function hasGroupNegation(rule?: Rule): boolean {
+  if (!rule || !("op" in rule)) return false;
+  return rule.op === "not" || rule.rules.some(hasGroupNegation);
+}
+
+export function hasAtomicNegation(rule?: Rule): boolean {
+  if (!rule) return false;
+  if ("op" in rule) return rule.rules.some(hasAtomicNegation);
+  return rule.operator.startsWith("not_");
+}
+
+function usesOnlyFields(rule: Rule | undefined, allowed: Set<string>): boolean {
+  if (!rule) return true;
+  if ("op" in rule)
+    return rule.rules.every((child) => usesOnlyFields(child, allowed));
+  return allowed.has(rule.field);
+}
+
+export function canEditFilterVisually(filter: Filter): boolean {
+  const pageFields = new Set(["page_url", "page_host", "referer"]),
+    requestFields = new Set([
+      "initiator_url",
+      "request_url",
+      "domain",
+      "pathname",
+      "extension",
+      "method",
+      "resource_type",
+      "status_code",
+      "query",
+      "header",
+      "body",
+    ]);
+  return (
+    ![filter.scope, filter.include, filter.exclude].some(hasGroupNegation) &&
+    !hasAtomicNegation(filter.exclude) &&
+    usesOnlyFields(filter.scope, pageFields) &&
+    usesOnlyFields(filter.include, requestFields) &&
+    usesOnlyFields(filter.exclude, requestFields)
+  );
+}
 function lookup(
   r: RecordEntry,
   rule: Extract<Rule, { field: string }>,

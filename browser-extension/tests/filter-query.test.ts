@@ -45,9 +45,8 @@ describe("Chrome-style simple filter query", () => {
 
   it("supports quoted values and reports malformed input", () => {
     const result = parseSimpleQuery('url:"red shoe" page:"customer center"');
-    expect((result.filter.include as any).rules[0].values).toEqual([
-      "red shoe",
-    ]);
+    expect((result.filter.include as any).values).toEqual(["red shoe"]);
+    expect((result.filter.scope as any).values).toEqual(["customer center"]);
     expect(() => parseSimpleQuery('url:"not closed')).toThrow("双引号没有闭合");
     expect(() => parseSimpleQuery("priority:high")).toThrow("不认识 priority:");
   });
@@ -75,6 +74,25 @@ describe("Chrome-style simple filter query", () => {
         true,
       ),
     ).toBe("excluded");
+  });
+
+  it("puts positive page conditions in the page scope", () => {
+    const result = parseSimpleQuery(
+      "page:/console/ page-domain:example.com method:POST",
+    );
+    expect((result.filter.scope as any).rules).toEqual([
+      {
+        field: "page_url",
+        operator: "contains",
+        values: ["/console/"],
+      },
+      {
+        field: "page_host",
+        operator: "domain",
+        values: ["example.com"],
+      },
+    ]);
+    expect((result.filter.include as any).field).toBe("method");
   });
 
   it("round-trips supported rules without changing their meaning", () => {
