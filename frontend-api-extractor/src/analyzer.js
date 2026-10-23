@@ -1,0 +1,530 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import ts from 'typescript';
+import glob from 'fast-glob';
+import picomatch from 'picomatch';
+import { scriptSource } from './adapters.js';
+import { validateConfig } from './config.js';
+import { TAG, UNKNOWN, unknown, hasUnknown, isUnknown, isChoice, text, dynamic, clean, mergeConditions, cloneEnv, createDomain } from './values.js';
+import { libraryClient, requestCall } from './request-clients.js';
+
+function mergeObject(target, source, label = 'spread') {
+  if (hasUnknown(source)) {
+    for (const key of Object.keys(target)) target[key] = unknown(`${label}.${key}`);
+    target[UNKNOWN] = source[UNKNOWN];
+  }
+  if (source && typeof source === 'object' && !isUnknown(source)) for (const [key,value] of Object.entries(source)) Object.defineProperty(target,key,{value,enumerable:true,writable:true,configurable:true});
+  return target;
+}
+
+function mergeConfig(base, overrides) {
+  const result = mergeObject({ ...base }, overrides, 'config');
+  for (const key of ['headers', 'params', 'query', 'searchParams']) {
+    if (base[key] && overrides?.[key] && typeof base[key] === 'object' && typeof overrides[key] === 'object') result[key] = mergeObject({ ...base[key] }, overrides[key], key);
+  }
+  return result;
+}
+
+export async function analyze(root, options = {}) {
+  root = path.resolve(root);
+  const config = validateConfig(root, options);
+  const diagnostics = [], seenDiagnostics = new Set();
+  function diagnostic(code, message, node) {
+    const location = node ? locate(node) : undefined;
+    const d = { code, message, ...location };
+    const k = JSON.stringify(d);
+    if (!seenDiagnostics.has(k)) { seenDiagnostics.add(k); diagnostics.push(d); }
+  }
+  const {choice,expand,lift} = createDomain(config.maxCandidates,diagnostic);
+  const branch = (node,outcome) => ({expression:node.getText(),outcome,...locate(node)});
+  const branchContext = (ctx,condition) => {
+    const conditions = mergeConditions(ctx.conditions ?? [],[condition]);
+    return conditions ? {...ctx,conditions} : null;
+  };
+  const files = (await glob(config.include, { cwd: root, ignore: config.exclude, absolute: true, onlyFiles: true, followSymbolicLinks: false })).sort();
+  const sources = new Map();
+  for (const file of files) {
+    try { sources.set(file, scriptSource(file, fs.readFileSync(file, 'utf8'))); }
+    catch (e) { diagnostic('FRAMEWORK_PARSE_ERROR', `${path.relative(root, file)}: ${e.message}`); }
+  }
+  let compilerOptions = {};
+  const configFile = ['tsconfig.json', 'jsconfig.json'].map(n => path.join(root, n)).find(fs.existsSync);
+  if (configFile) {
+    const parsed = ts.readConfigFile(configFile, ts.sys.readFile);
+    if (parsed.error) diagnostic('CONFIG_ERROR', ts.flattenDiagnosticMessageText(parsed.error.messageText, '\n'));
+    else {
+      const result = ts.parseJsonConfigFileContent(parsed.config, ts.sys, root);
+      compilerOptions = result.options;
+      for (const err of result.errors.filter(e => e.code !== 18003)) diagnostic('CONFIG_ERROR', ts.flattenDiagnosticMessageText(err.messageText, '\n'));
+    }
+  }
+  compilerOptions = { ...compilerOptions, allowJs: true, checkJs: false, noEmit: true, noLib: true, types: [], allowNonTsExtensions: true, jsx: ts.JsxEmit.Preserve,
+    module: ts.ModuleKind.ESNext, moduleResolution: ts.ModuleResolutionKind.Bundler,
+    ...(config.aliases ? { baseUrl: compilerOptions.baseUrl ?? root,
+      paths: { ...compilerOptions.paths, ...Object.fromEntries(Object.entries(config.aliases).map(([key, targets]) => [key, targets.map(target => path.resolve(root, target))])) } } : {}) };
+  const host = ts.createCompilerHost(compilerOptions);
+  const originalGet = host.getSourceFile.bind(host);
+  host.getSourceFile = (file, language, onError, create) => sources.has(file)
+    ? ts.createSourceFile(file, sources.get(file), language, true, /\.(jsx|js)$/.test(file) ? ts.ScriptKind.JSX : /\.(cjs|mjs)$/.test(file) ? ts.ScriptKind.JS : /\.tsx$/.test(file) ? ts.ScriptKind.TSX : ts.ScriptKind.TS)
+    : originalGet(file, language, onError, create);
+  host.resolveModuleNames = (names, containing) => names.map(name => {
+    // TypeScript's default resolver does not load .vue/.svelte modules.
+    if (/\.(vue|svelte)$/.test(name) && name.startsWith('.')) {
+      const file = path.resolve(path.dirname(containing), name);
+      if (sources.has(file)) return { resolvedFileName: file, extension: ts.Extension.Ts };
+    }
+    return ts.resolveModuleName(name, containing, compilerOptions, host).resolvedModule;
+  });
+  const program = ts.createProgram([...sources.keys()], compilerOptions, host);
+  const checker = program.getTypeChecker();
+  for (const sf of program.getSourceFiles().filter(s => sources.has(s.fileName))) {
+    for (const d of program.getSyntacticDiagnostics(sf)) diagnostic('SCRIPT_PARSE_ERROR', ts.flattenDiagnosticMessageText(d.messageText, '\n'), d.start == null ? sf : { getSourceFile: () => sf, getStart: () => d.start });
+  }
+  function locate(node) {
+    const sf = node.getSourceFile();
+    const pos = sf.getLineAndCharacterOfPosition(node.getStart());
+    const file = path.relative(root, sf.fileName).split(path.sep).join('/');
+    const layers = config.layers.filter(l => picomatch(l.match)(file)).map(l => l.name);
+    return { file, line: pos.line + 1, column: pos.character + 1, layers };
+  }
+  function symbol(node) {
+    let s = ts.isIdentifier(node) && ts.isShorthandPropertyAssignment(node.parent)
+      ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
+    if (s?.flags & ts.SymbolFlags.Alias) {
+      try { const resolved = checker.getAliasedSymbol(s); if (resolved?.declarations?.length) s = resolved; } catch {}
+    }
+    return s;
+  }
+  function lexicalDeclaration(node,name) {
+    // TS treats globalThis specially even when a script declares a local name.
+    for (let scope=node.parent; scope; scope=scope.parent) {
+      if (scope.locals?.get(name)?.declarations?.length) return true;
+    }
+    return false;
+  }
+  const endpoints = new Map();
+  const analyzedFunctions = new Map();
+  let steps = 0, exhausted = false;
+  function tick(node) {
+    if (++steps <= config.maxSteps) return true;
+    if (!exhausted) { diagnostic('BUDGET_EXCEEDED', `超过 maxSteps=${config.maxSteps}，结果不完整`, node); exhausted = true; }
+    return false;
+  }
+  function record(node, client, method, url, data, ctx) {
+    data = mergeConfig(client, data);
+    const rawUrl = clean(url ?? unknown('url'));
+    method = clean(method);
+    let effective = text(rawUrl);
+    const base = clean(data.baseURL ?? client.baseURL);
+    if (base && !/^([a-z]+:)?\/\//i.test(effective)) effective = `${text(base).replace(/\/$/, '')}/${effective.replace(/^\//, '')}`;
+    const verb = isUnknown(method) ? text(method) : String(method ?? 'GET').toUpperCase();
+    const fields = clean({ query: data.params ?? null, body: data.data !== undefined ? data.data : data.body ?? null, headers: data.headers ?? null });
+    const unresolved = [];
+    for (const [key, value] of Object.entries({ url: rawUrl, method, baseURL: base, ...fields, spread: data[UNKNOWN] })) {
+      if (dynamic(value) || key === 'spread' && value) unresolved.push(key === 'spread' ? `未知配置展开: ${value}` : `${key} 含动态值`);
+    }
+    if (ctx.conditions?.length) unresolved.push('接口属于条件分支候选');
+    const resolution = isUnknown(rawUrl) ? 'unresolved' : unresolved.length ? 'partial' : 'resolved';
+    const key = JSON.stringify([verb, effective]);
+    const usage = { entry: ctx.entry, callChain: [...ctx.chain, { symbol: node.expression.getText(), ...locate(node) }], unresolved, conditions:ctx.conditions ?? [], resolution, ...fields };
+    if (!endpoints.has(key)) endpoints.set(key, { method: verb, url: effective, resolution, ...fields, usages: [] });
+    const ep = endpoints.get(key);
+    if ({resolved:0,partial:1,unresolved:2}[resolution] > {resolved:0,partial:1,unresolved:2}[ep.resolution]) ep.resolution = resolution;
+    if (!ep.usages.some(u => JSON.stringify(u) === JSON.stringify(usage))) ep.usages.push(usage);
+  }
+  function clientImport(s) {
+    for (const d of s?.declarations ?? []) {
+      let p = d;
+      while (p && !ts.isImportDeclaration(p)) p = p.parent;
+      if (p) return libraryClient(p.moduleSpecifier.text,ts.isImportSpecifier(d) ? d.propertyName?.text ?? d.name.text : ts.isNamespaceImport(d) ? '*' : 'default');
+    }
+  }
+  function bind(pattern, value, env, ctx) {
+    if (ts.isIdentifier(pattern)) { env.set(symbol(pattern), value); return; }
+    for (const [index, element] of pattern.elements.entries()) {
+      if (!ts.isBindingElement(element)) continue;
+      const key = ts.isArrayBindingPattern(pattern) ? index : element.propertyName?.text ?? element.name.text;
+      let selected;
+      if (element.dotDotDotToken && !isUnknown(value) && value != null) {
+        selected = ts.isArrayBindingPattern(pattern) ? value.slice(index) : Object.fromEntries(Object.entries(value).filter(([k]) => !pattern.elements.some(e => !e.dotDotDotToken && (e.propertyName?.text ?? e.name?.text) === k)));
+      } else if (value?.[TAG] === 'client') selected = { ...value, member: String(key) };
+      else if (isUnknown(value) || value == null) selected = unknown(`${text(value)}.${key}`);
+      else selected = value[key];
+      if (selected === undefined && element.initializer) selected = evaluate(element.initializer, env, ctx);
+      if (selected === undefined && hasUnknown(value)) selected = unknown(`${value[UNKNOWN]}.${key}`);
+      bind(element.name, selected, env, ctx);
+    }
+  }
+  function requireModule(node, env, ctx, visiting) {
+    const name = node.arguments[0];
+    if (!name || !ts.isStringLiteralLike(name)) { diagnostic('DYNAMIC_REQUIRE', '无法解析动态 require', node); return unknown(node.getText()); }
+    const library = libraryClient(name.text);
+    if (library) return library;
+    const resolved = ts.resolveModuleName(name.text, node.getSourceFile().fileName, compilerOptions, host).resolvedModule?.resolvedFileName;
+    if (!resolved || !sources.has(resolved)) { diagnostic('UNRESOLVED_MODULE', `未扫描的 require 模块 ${name.text}`, node); return unknown(node.getText()); }
+    if (ctx.modules?.has(resolved)) { diagnostic('MODULE_CYCLE', '循环 require 已截断', node); return unknown('circular require'); }
+    const next = { ...ctx, modules: new Set(ctx.modules).add(resolved) };
+    const sf = program.getSourceFile(resolved), local = new Map();
+    let result = {};
+    // Deliberately inspect assignments without executing the target module.
+    for (const statement of sf.statements) {
+      if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression) || statement.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
+      const assignment = statement.expression, left = assignment.left.getText().replaceAll(/\s/g, '');
+      if (left === 'module.exports') result = evaluate(assignment.right, local, next, visiting);
+      else if (/^(module\.exports|exports)\.[\w$]+$/.test(left)) {
+        if (isUnknown(result)) continue;
+        result[left.split('.').at(-1)] = evaluate(assignment.right, local, next, visiting);
+      }
+    }
+    return result;
+  }
+  function evaluate(node, env, ctx, visiting = new Set()) {
+    if (!node || !tick(node)) return unknown('missing');
+    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node) || ts.isSatisfiesExpression(node) || ts.isAwaitExpression(node)) return evaluate(node.expression, env, ctx, visiting);
+    if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) return ts.isNumericLiteral(node) ? Number(node.text) : node.text;
+    if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
+    if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
+    if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+    if (ts.isIdentifier(node) && node.text === 'undefined' && !symbol(node)?.valueDeclaration) return undefined;
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) return { [TAG]: 'function', node, env };
+    if (ts.isPrefixUnaryExpression(node)) {
+      const value = evaluate(node.operand,env,ctx,visiting);
+      return lift([value],v => isUnknown(v) ? unknown(node.getText()) : node.operator === ts.SyntaxKind.ExclamationToken ? !v : node.operator === ts.SyntaxKind.MinusToken ? -v : node.operator === ts.SyntaxKind.PlusToken ? +v : unknown(node.getText()),node);
+    }
+    if (ts.isTemplateExpression(node)) {
+      let value = node.head.text;
+      for (const span of node.templateSpans) value = lift([value,evaluate(span.expression,env,ctx,visiting)],(a,b) => text(a)+text(b)+span.literal.text,node);
+      return value;
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const value = evaluate(node.right,env,ctx,visiting);
+      if (ts.isIdentifier(node.left)) env.set(symbol(node.left),value);
+      else if (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left)) {
+        const target = evaluate(node.left.expression,env,ctx,visiting);
+        const key = ts.isPropertyAccessExpression(node.left) ? node.left.name.text : evaluate(node.left.argumentExpression,env,ctx,visiting);
+        if (target && typeof target === 'object' && !isUnknown(target) && !isUnknown(key)) Object.defineProperty(target,key,{value,enumerable:true,writable:true,configurable:true});
+        else diagnostic('UNRESOLVED_ASSIGNMENT','无法精确更新属性赋值',node);
+      }
+      return value;
+    }
+    if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
+      const a = evaluate(node.left, env, ctx, visiting), b = evaluate(node.right, env, ctx, visiting);
+      return lift([a,b],(a,b) => typeof a === 'number' && typeof b === 'number' ? a+b : text(a)+text(b),node);
+    }
+    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.EqualsEqualsEqualsToken,ts.SyntaxKind.EqualsEqualsToken,ts.SyntaxKind.ExclamationEqualsEqualsToken,ts.SyntaxKind.ExclamationEqualsToken,ts.SyntaxKind.LessThanToken,ts.SyntaxKind.LessThanEqualsToken,ts.SyntaxKind.GreaterThanToken,ts.SyntaxKind.GreaterThanEqualsToken].includes(node.operatorToken.kind)) {
+      return lift([evaluate(node.left,env,ctx,visiting),evaluate(node.right,env,ctx,visiting)],(a,b) => {
+        if (isUnknown(a) || isUnknown(b)) return unknown(node.getText());
+        switch(node.operatorToken.kind) {
+          case ts.SyntaxKind.EqualsEqualsEqualsToken: return a===b;
+          case ts.SyntaxKind.EqualsEqualsToken: return a==b;
+          case ts.SyntaxKind.ExclamationEqualsEqualsToken: return a!==b;
+          case ts.SyntaxKind.ExclamationEqualsToken: return a!=b;
+          case ts.SyntaxKind.LessThanToken: return a<b;
+          case ts.SyntaxKind.LessThanEqualsToken: return a<=b;
+          case ts.SyntaxKind.GreaterThanToken: return a>b;
+          case ts.SyntaxKind.GreaterThanEqualsToken: return a>=b;
+        }
+      },node);
+    }
+    if (ts.isBinaryExpression(node) && [ts.SyntaxKind.AmpersandAmpersandToken, ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) {
+      const left = evaluate(node.left, env, ctx, visiting), op = node.operatorToken.kind;
+      const options = [];
+      for (const option of expand(left,node.left)) {
+        const base = mergeConditions(ctx.conditions ?? [],option.conditions);
+        if (!base) continue;
+        if (!isUnknown(option.value)) {
+          const useRight = op === ts.SyntaxKind.AmpersandAmpersandToken ? Boolean(option.value) : op === ts.SyntaxKind.BarBarToken ? !option.value : option.value == null;
+          options.push({value:useRight ? evaluate(node.right,env,{...ctx,conditions:base},visiting) : option.value,conditions:option.conditions});
+        } else {
+          diagnostic('DYNAMIC_BRANCH','短路表达式按潜在调用分析',node);
+          const take = op !== ts.SyntaxKind.BarBarToken;
+          const condition = outcome => ({...branch(node.left,outcome),...(op === ts.SyntaxKind.QuestionQuestionToken ? {expression:`${node.left.getText()} == null`} : {})});
+          const next = branchContext({...ctx,conditions:base},condition(take));
+          options.push({value:option.value,conditions:[...option.conditions,condition(!take)]});
+          if (next) options.push({value:evaluate(node.right,cloneEnv(env),next,visiting),conditions:[...option.conditions,condition(take)]});
+        }
+      }
+      return choice(options,node);
+    }
+    if (ts.isObjectLiteralExpression(node)) {
+      let obj = {};
+      for (const p of node.properties) {
+        if (ts.isSpreadAssignment(p)) {
+          const value = evaluate(p.expression, env, ctx, visiting);
+          obj = lift([obj,value],(base,value) => mergeObject({...base},value,p.expression.getText()),p);
+        } else if (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) {
+          const key = ts.isComputedPropertyName(p.name) ? text(evaluate(p.name.expression, env, ctx, visiting)) : p.name.text;
+          const value = evaluate(ts.isPropertyAssignment(p) ? p.initializer : p.name,env,ctx,visiting);
+          obj = lift([obj,key,value],(base,key,value) => ({...base,[key]:value}),p);
+        } else if (ts.isMethodDeclaration(p)) obj = lift([obj],base => ({...base,[p.name.text]:{[TAG]:'function',node:p,env}}),p);
+      }
+      return obj;
+    }
+    if (ts.isArrayLiteralExpression(node)) return node.elements.map(n => evaluate(n, env, ctx, visiting));
+    if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
+      const original = checker.getSymbolAtLocation(node), s = symbol(node);
+      if (env.has(s)) return env.get(s);
+      const imported = clientImport(original);
+      if (imported) return imported;
+      if (ts.isIdentifier(node) && node.text === 'fetch' && !s) return { [TAG]: 'client', kind: 'fetch' };
+      if (ts.isIdentifier(node) && node.text === '$fetch' && !s) return {[TAG]:'client',kind:'ofetch'};
+      // lib.dom's global fetch is a declaration, whereas project-local fetch is not.
+      if (ts.isIdentifier(node) && node.text === 'fetch' && s?.declarations?.every(d => program.isSourceFileDefaultLibrary(d.getSourceFile()))) return { [TAG]: 'client', kind: 'fetch' };
+      if (ts.isPropertyAccessExpression(node)) {
+        const object = evaluate(node.expression,env,ctx,visiting);
+        if (object != null && !isUnknown(object)) return lift([object],value => {
+          if (value?.[TAG] === 'client') return {...value,member:node.name.text};
+          if (Array.isArray(value) && ['map','forEach'].includes(node.name.text)) return {[TAG]:'intrinsic',method:node.name.text,receiver:value};
+          return value != null && Object.hasOwn(value,node.name.text) ? value[node.name.text] : unknown(node.getText());
+        },node);
+      }
+      const d = s?.valueDeclaration ?? s?.declarations?.[0];
+      if (d && sources.has(d.getSourceFile().fileName) && !visiting.has(d)) {
+        const next = new Set(visiting).add(d);
+        if (ts.isVariableDeclaration(d) || ts.isPropertyDeclaration(d) || ts.isPropertyAssignment(d) || ts.isParameter(d)) {
+          if (d.initializer) return evaluate(d.initializer, env, ctx, next);
+        } else if (ts.isBindingElement(d)) {
+          let declaration = d.parent;
+          while (declaration && !ts.isVariableDeclaration(declaration) && !ts.isParameter(declaration)) declaration = declaration.parent;
+          if (declaration?.initializer) {
+            const bound = new Map(env);
+            bind(declaration.name, evaluate(declaration.initializer, env, ctx, next), bound, ctx);
+            if (bound.has(s)) return bound.get(s);
+          }
+        } else if (ts.isFunctionDeclaration(d) || ts.isMethodDeclaration(d)) return { [TAG]: 'function', node: d, env };
+        else if (ts.isExportAssignment(d)) return evaluate(d.expression, env, ctx, next);
+      }
+      const configured = config.clients.find(c => c.name === node.getText());
+      if (configured) return { [TAG]: 'client', kind: configured.kind ?? 'axios' };
+      if (ts.isPropertyAccessExpression(node)) {
+        if (node.name.text === 'fetch' && ts.isIdentifier(node.expression) && ['globalThis', 'window', 'self'].includes(node.expression.text) && !symbol(node.expression)?.valueDeclaration && !lexicalDeclaration(node,node.expression.text)) return { [TAG]: 'client', kind: 'fetch' };
+        const object = evaluate(node.expression, env, ctx, visiting);
+        return lift([object],object => {
+          if (object?.[TAG] === 'client') return {...object,member:node.name.text};
+          if (Array.isArray(object) && ['map','forEach'].includes(node.name.text)) return {[TAG]:'intrinsic',method:node.name.text,receiver:object};
+          if (object && !isUnknown(object) && Object.hasOwn(object,node.name.text)) return object[node.name.text];
+          return unknown(node.getText());
+        },node);
+      }
+      return unknown(node.getText());
+    }
+    if (ts.isElementAccessExpression(node)) {
+      const value = evaluate(node.expression, env, ctx, visiting), key = evaluate(node.argumentExpression, env, ctx, visiting);
+      return lift([value,key],(v,k) => !isUnknown(v) && v != null && !isUnknown(k) ? v[k] : unknown(node.getText()),node);
+    }
+    if (ts.isNewExpression(node)) {
+      const name = node.expression.getText();
+      const local = symbol(node.expression)?.declarations?.length || ts.isPropertyAccessExpression(node.expression) && (symbol(node.expression.expression)?.declarations?.length || env.has(symbol(node.expression.expression)) || lexicalDeclaration(node,node.expression.expression.getText()));
+      if (!local && ['URL','Request','globalThis.URL','globalThis.Request'].includes(name)) {
+        const args = (node.arguments ?? []).map(a => evaluate(a,env,ctx,visiting));
+        return lift(args,(...values) => {
+          if (name.endsWith('URL')) {
+            if (values.some(v => isUnknown(v))) return unknown(node.getText());
+            try { return new URL(values[0],values[1]).href; } catch { return unknown(node.getText()); }
+          }
+          const previous = values[0]?.[TAG] === 'request' ? values[0] : null;
+          return {[TAG]:'request',url:previous?.url ?? values[0],config:mergeObject({...previous?.config},values[1] ?? {},'request options')};
+        },node);
+      }
+      return unknown(node.getText());
+    }
+    if (ts.isCallExpression(node)) {
+      if (ts.isIdentifier(node.expression) && node.expression.text === 'require' && !symbol(node.expression)?.declarations?.some(d => sources.has(d.getSourceFile().fileName))) return requireModule(node, env, ctx, visiting);
+      const target = evaluate(node.expression, env, ctx, visiting);
+      let args = [];
+      for (const argument of node.arguments) {
+        const value = evaluate(ts.isSpreadElement(argument) ? argument.expression : argument,env,ctx,visiting);
+        args = lift([args,value],(previous,value) => {
+          if (!ts.isSpreadElement(argument)) return [...previous,value];
+          if (Array.isArray(value)) return [...previous,...value];
+          diagnostic('DYNAMIC_SPREAD','实参展开不是静态数组，后续实参位置未知',argument);
+          return [...previous,unknown('spread arguments')];
+        },argument);
+      }
+      const options = [];
+      for (const option of expand([target,args],node)) {
+        const conditions = mergeConditions(ctx.conditions ?? [],option.conditions);
+        if (!conditions) continue;
+        options.push({value:isUnknown(option.value) ? option.value : applyCall(option.value[0],option.value[1],{...ctx,conditions},node),conditions:option.conditions});
+      }
+      return choice(options,node);
+    }
+    if (ts.isConditionalExpression(node)) {
+      const condition = evaluate(node.condition, env, ctx, visiting);
+      const options = [];
+      for (const option of expand(condition,node.condition)) {
+        const base = mergeConditions(ctx.conditions ?? [],option.conditions);
+        if (!base) continue;
+        const known = !isUnknown(option.value);
+        if (!known) diagnostic('DYNAMIC_BRANCH','三元表达式保留两个候选',node);
+        for (const outcome of known ? [Boolean(option.value)] : [true,false]) {
+          const conditions = known ? option.conditions : [...option.conditions,branch(node.condition,outcome)];
+          const next = mergeConditions(base,conditions);
+          if (next) options.push({value:evaluate(outcome ? node.whenTrue : node.whenFalse,cloneEnv(env),{...ctx,conditions:next},visiting),conditions});
+        }
+      }
+      return choice(options,node);
+    }
+    return unknown(node.getText());
+  }
+  function applyCall(target,args,ctx,node) {
+    if (target?.[TAG] === 'client') {
+      const result = requestCall(target,args,mergeConfig);
+      if (Object.hasOwn(result,'value')) return result.value;
+      record(node,target,result.method,result.url,result.data,ctx);
+      return unknown('response');
+    }
+    if (target?.[TAG] === 'function') return invoke(target,args,ctx,node);
+    if (target?.[TAG] === 'intrinsic') {
+      const callback = args[0];
+      if (callback?.[TAG] !== 'function') return unknown('array callback');
+      const results = [];
+      for (const [index,value] of target.receiver.entries()) {
+        if (index >= config.maxCandidates) { diagnostic('CANDIDATE_LIMIT','静态数组回调超过候选上限',node); return unknown('array limit'); }
+        results.push(invoke(callback,[value,index,target.receiver],ctx,node));
+      }
+      return target.method === 'map' ? results : undefined;
+    }
+    for (const arg of args) if (arg?.[TAG] === 'function') invoke(arg,[],ctx,node);
+    const name = node.expression.getText();
+    if (ts.isIdentifier(node.expression) && !['require','console'].includes(name)) diagnostic('UNRESOLVED_CALL',`无法追踪调用 ${name}`,node);
+    return unknown(node.getText());
+  }
+  function invoke(fn, args, ctx, call) {
+    if (ctx.chain.length >= config.maxDepth) { diagnostic('MAX_DEPTH', '达到调用深度上限', call); return unknown('maxDepth'); }
+    if (ctx.active.has(fn.node)) { diagnostic('RECURSION', '递归调用已截断', call); return unknown('recursive'); }
+    if (!analyzedFunctions.has(fn.node)) analyzedFunctions.set(fn.node,new Set());
+    analyzedFunctions.get(fn.node).add(ctx.entry);
+    const env = new Map(fn.env);
+    fn.node.parameters.forEach((p, i) => {
+      const value = p.dotDotDotToken ? args.slice(i) : args[i] !== undefined ? args[i] : p.initializer ? evaluate(p.initializer, env, ctx) : unknown(p.name.getText());
+      bind(p.name, value, env, ctx);
+    });
+    const next = { ...ctx, active: new Set(ctx.active).add(fn.node), chain: [...ctx.chain, { symbol: fn.node.name?.getText() ?? call.expression.getText(), ...locate(call) }] };
+    return fn.node.body && ts.isBlock(fn.node.body) ? run(fn.node.body, env, next) : evaluate(fn.node.body, env, next);
+  }
+  function run(node, env, ctx) {
+    const empty = (continuations = []) => ({continuations,returns:[],breaks:[],continues:[]});
+    const combine = results => ({continuations:results.flatMap(r=>r.continuations),returns:results.flatMap(r=>r.returns),breaks:results.flatMap(r=>r.breaks),continues:results.flatMap(r=>r.continues)});
+    const sequence = (nodes,states) => {
+      const result = empty(states);
+      for (const n of nodes) {
+        if (!result.continuations.length || exhausted) break;
+        const next = combine(result.continuations.map(state=>visit(n,state)));
+        result.continuations = next.continuations;
+        for (const key of ['returns','breaks','continues']) result[key].push(...next[key]);
+        if (result.continuations.length > config.maxCandidates) {
+          diagnostic('CANDIDATE_LIMIT','控制流路径超过候选上限，结果不完整',n);
+          result.continuations = result.continuations.slice(0,config.maxCandidates);
+          result.returns.push({value:unknown('path limit'),conditions:[]});
+        }
+      }
+      return result;
+    };
+    const loop = (n,state) => {
+      if (ts.isForOfStatement(n)) {
+        const values = evaluate(n.expression,state.env,state.ctx);
+        if (Array.isArray(values)) {
+          const result = empty([state]), exits = [];
+          for (const [index,value] of values.entries()) {
+            if (index >= config.maxCandidates) { diagnostic('CANDIDATE_LIMIT','静态 for-of 超过候选上限',n); break; }
+            const next = combine(result.continuations.map(previous => {
+              const current = {...previous,env:cloneEnv(previous.env)};
+              const declaration = ts.isVariableDeclarationList(n.initializer) ? n.initializer.declarations[0] : null;
+              if (declaration) bind(declaration.name,value,current.env,current.ctx);
+              else if (ts.isIdentifier(n.initializer)) current.env.set(symbol(n.initializer),value);
+              return visit(n.statement,current);
+            }));
+            exits.push(...next.breaks);
+            result.returns.push(...next.returns);
+            result.continuations = [...next.continuations,...next.continues];
+            if (!result.continuations.length) break;
+          }
+          result.continuations.push(...exits);
+          return result;
+        }
+      }
+      if (ts.isForStatement(n) && n.initializer) visit(n.initializer,state);
+      const expression = n.expression ?? n.condition;
+      const condition = expression && !ts.isForOfStatement(n) && !ts.isForInStatement(n) ? evaluate(expression,state.env,state.ctx) : unknown('loop');
+      if (condition === false && !ts.isDoStatement(n)) return empty([state]);
+      diagnostic('APPROXIMATE_LOOP','非静态循环按零次或一次潜在执行分析，不保证循环后变量精度',n);
+      const current = {...state,env:cloneEnv(state.env),ctx:branchContext(state.ctx,branch(expression ?? n,true)) ?? state.ctx};
+      if ((ts.isForOfStatement(n) || ts.isForInStatement(n)) && ts.isVariableDeclarationList(n.initializer)) bind(n.initializer.declarations[0].name,unknown('loop item'),current.env,current.ctx);
+      const body = visit(n.statement,current);
+      const after = [...body.continuations,...body.continues,...body.breaks];
+      for (const continuation of after) for (const [key,value] of continuation.env) {
+        if (state.env.has(key) && state.env.get(key) !== value) continuation.env.set(key,unknown(`loop.${key?.name ?? 'value'}`));
+      }
+      return {...body,continuations:[...(ts.isDoStatement(n) ? [] : [state]),...after],breaks:[],continues:[]};
+    };
+    const visit = (n,state) => {
+      if (!tick(n) || ts.isFunctionLike(n)) return empty([state]);
+      if (ts.isBlock(n) || ts.isSourceFile(n)) return sequence(n.statements,[state]);
+      if (ts.isReturnStatement(n)) return {...empty(),returns:[{value:n.expression ? evaluate(n.expression,state.env,state.ctx) : undefined,conditions:state.ctx.conditions ?? []}]};
+      if (ts.isBreakStatement(n)) return {...empty(),breaks:[state]};
+      if (ts.isContinueStatement(n)) return {...empty(),continues:[state]};
+      if (ts.isVariableDeclaration(n)) {
+        bind(n.name,n.initializer ? evaluate(n.initializer,state.env,state.ctx) : undefined,state.env,state.ctx);
+        return empty([state]);
+      }
+      if (ts.isIfStatement(n)) {
+        const value = evaluate(n.expression,state.env,state.ctx), results = [];
+        for (const option of expand(value,n.expression)) {
+          const known = !isUnknown(option.value) && !isChoice(option.value);
+          const base = mergeConditions(state.ctx.conditions ?? [],option.conditions);
+          if (!base) continue;
+          if (!known) diagnostic('DYNAMIC_BRANCH','动态条件按独立候选路径分析',n);
+          for (const outcome of known ? [Boolean(option.value)] : [true,false]) {
+            const next = known ? {...state.ctx,conditions:base} : branchContext({...state.ctx,conditions:base},branch(n.expression,outcome));
+            if (!next) continue;
+            const current = {env:cloneEnv(state.env),ctx:next};
+            results.push(outcome ? visit(n.thenStatement,current) : n.elseStatement ? visit(n.elseStatement,current) : empty([current]));
+          }
+        }
+        return combine(results);
+      }
+      if (ts.isForOfStatement(n) || ts.isForInStatement(n) || ts.isForStatement(n) || ts.isWhileStatement(n) || ts.isDoStatement(n)) return loop(n,state);
+      if (ts.isExpressionStatement(n)) { evaluate(n.expression,state.env,state.ctx); return empty([state]); }
+      if (ts.isCallExpression(n) || ts.isBinaryExpression(n)) { evaluate(n,state.env,state.ctx); return empty([state]); }
+      if (ts.isThrowStatement(n)) { if (n.expression) evaluate(n.expression,state.env,state.ctx); return empty(); }
+      if (ts.isTryStatement(n) || ts.isSwitchStatement(n)) diagnostic('APPROXIMATE_CONTROL_FLOW','try/switch 尚未进行精确路径建模',n);
+      const children = [];
+      ts.forEachChild(n,child => {children.push(child);});
+      return sequence(children,[state]);
+    };
+    const result = visit(node,{env,ctx});
+    if (result.continuations.length) result.returns.push(...result.continuations.map(state=>({value:undefined,conditions:state.ctx.conditions ?? []})));
+    return result.returns.length ? choice(result.returns,node) : unknown('return');
+  }
+  const entryMatch = config.entries.length ? picomatch(config.entries) : () => true;
+  let entryCount = 0;
+  for (const file of sources.keys()) {
+    const relative = path.relative(root, file).split(path.sep).join('/');
+    if (!entryMatch(relative)) continue;
+    entryCount++;
+    const sf = program.getSourceFile(file);
+    const ctx = { entry: relative, chain: [], active: new Set() };
+    // Explore top-level execution, and potential function bodies without assuming lifecycle execution.
+    run(sf, new Map(), ctx);
+    const visit = n => {
+      if (ts.isFunctionLike(n) && n.body && !analyzedFunctions.get(n)?.has(relative)) {
+        invoke({ node: n, env: new Map() }, [], ctx, { expression: n.name ?? n, getSourceFile: () => sf, getStart: () => n.getStart() });
+      }
+      ts.forEachChild(n, visit);
+    };
+    visit(sf);
+    if (exhausted) break;
+  }
+  if (!entryCount) diagnostic('NO_ENTRIES', '没有匹配的入口文件');
+  return { schemaVersion: 1, mode: config.entries.length ? 'entries' : 'inventory', stats: { files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
+    endpoints: [...endpoints.values()].sort((a, b) => `${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), diagnostics };
+}
+
+export function markdown(report) {
+  const escape = v => String(v).replaceAll('|', '\\|').replaceAll('\n', ' ');
+  return `# 前端接口提取\n\n模式：${report.mode}；文件：${report.stats.files}；接口：${report.endpoints.length}；诊断：${report.diagnostics.length}。\n\n静态潜在调用结果，不代表运行时覆盖率。参数及每条调用链见 JSON。条件之间的 AND/OR 关系以 JSON 中每条 usage 为准。\n\n| 方法 | URL | 解析状态 | 条件 | 调用位置 |\n| --- | --- | --- | --- | --- |\n` + report.endpoints.map(e => {
+    const conditions = [...new Set(e.usages.flatMap(u=>(u.conditions ?? []).map(c=>`${c.expression} = ${c.outcome}`)))].join('; ') || '—';
+    return `| ${escape(e.method)} | ${escape(e.url)} | ${e.resolution} | ${escape(conditions)} | ${escape(e.usages.map(u => { const p = u.callChain.at(-1); return `${p.file}:${p.line}`; }).join(', '))} |`;
+  }).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
+}

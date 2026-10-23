@@ -16,6 +16,10 @@
 
 三路可以独立运行。结果分别标记“仓库静态 / 网站 JS 静态 / 插件实测”，可关联而不抹平版本、调用和字段差异。工作簿包含 API 总表、参数明细、分析缺口，另保留 `analysis.json` 证据底稿。
 
+## 源码分析 PoC
+
+[frontend-api-extractor](frontend-api-extractor/README.md) 为独立的 JS/TS 源码接口提取验证工程，支持自定义层次、跨文件请求封装和多框架脚本。安装与测试在该子目录执行；这是源码方法验证，不替代白盒按固定提交构建的正式流程。[外部试跑记录](frontend-api-extractor/docs/alibaba-real-world.md)仅保存测试仓库链接与结果，外部源码和扫描产物不纳入 Git。
+
 ## 文档与目录
 
 从[文档导航](docs/README.md)开始；[总方案](docs/API资产收集总方案.md)说明整体关系，[交付约定](docs/结果模型与Excel交付.md)说明统一模型，[验证计划](docs/验证计划.md)列出下一步。[工具与项目评估](references/README.md)记录三个方案的候选组件、许可证和推荐验证组合。
