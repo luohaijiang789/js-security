@@ -7,6 +7,9 @@ import {
   type RecordEntry,
   type Config,
   type Group,
+  type InitiatorParentMatch,
+  type InitiatorRelation,
+  type InitiatorNode,
 } from "./model";
 import { matchFilter } from "./filter";
 import { parseBody, protectRecord, safeURL } from "./privacy";
@@ -45,6 +48,9 @@ export class Recorder {
   bodyReads = 0;
   finalizers = 0;
   stacks: StackCapture;
+  observedByURL = new Map<string, Map<string, string[]>>();
+  observedByCdpId = new Map<string, Map<string, string>>();
+  initiatorNodes: InitiatorNode[] = [];
   constructor(public send: (s: Source, m: string, p?: object) => Promise<any>) {
     this.stacks = new StackCapture(send);
   }
@@ -70,7 +76,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.2.1",
+      plugin: "0.3.0",
       stats: {
         observed: 0,
         pending: 0,
@@ -90,6 +96,9 @@ export class Recorder {
     this.unavailableTabs.clear();
     this.targets.clear();
     this.stacks.reset();
+    this.observedByURL.clear();
+    this.observedByCdpId.clear();
+    this.initiatorNodes = [];
     this.entries = [];
     this.groups.clear();
     this.connection = uid();
@@ -121,6 +130,68 @@ export class Recorder {
   }
   key(s: Source, id: string) {
     return `${s.tabId}:${s.sessionId ?? "root"}:${id}`;
+  }
+  initiatorContext(source: Source, loaderId: unknown) {
+    return `${source.tabId}:${source.sessionId ?? "root"}:${typeof loaderId === "string" ? loaderId : ""}`;
+  }
+  resolveInitiator(
+    source: Source,
+    event: any,
+    redirectParent?: RecordEntry,
+  ): {
+    parent: string | null;
+    match: InitiatorParentMatch;
+    relation: InitiatorRelation;
+  } {
+    if (redirectParent)
+      return {
+        parent: redirectParent.request_id,
+        match: "redirect",
+        relation: "redirect",
+      };
+    const context = this.initiatorContext(source, event.loaderId),
+      sourceRequestId = event.initiator?.requestId;
+    if (typeof sourceRequestId === "string") {
+      const parent = this.observedByCdpId.get(context)?.get(sourceRequestId);
+      return parent
+        ? {
+            parent,
+            match: "exact",
+            relation:
+              event.initiator?.type === "preflight"
+                ? "preflight"
+                : "request-id",
+          }
+        : { parent: null, match: "missing", relation: "request-id" };
+    }
+    const url =
+      event.initiator?.url ??
+      event.initiator?.stack?.callFrames?.[0]?.url ??
+      null;
+    if (!url) return { parent: null, match: "none", relation: "none" };
+    const candidates = this.observedByURL.get(context)?.get(url) ?? [];
+    return candidates.length === 1
+      ? {
+          parent: candidates[0],
+          match: "inferred",
+          relation: "initiator-url",
+        }
+      : {
+          parent: null,
+          match: candidates.length ? "ambiguous" : "missing",
+          relation: "initiator-url",
+        };
+  }
+  rememberInitiatorCandidate(source: Source, event: any, record: RecordEntry) {
+    const context = this.initiatorContext(source, event.loaderId);
+    let ids = this.observedByCdpId.get(context);
+    if (!ids) this.observedByCdpId.set(context, (ids = new Map()));
+    ids.set(record.cdp_request_id, record.request_id);
+    let urls = this.observedByURL.get(context);
+    if (!urls) this.observedByURL.set(context, (urls = new Map()));
+    const matches = urls.get(event.request.url) ?? [];
+    matches.push(record.request_id);
+    urls.set(event.request.url, matches);
   }
   async configure(source: Source) {
     await this.send(source, "Network.enable", {
@@ -174,9 +245,11 @@ export class Recorder {
     const key = this.key(source, p.requestId);
     let channel = this.channels.get(key);
     if (method === "Network.requestWillBeSent") {
+      let redirectParent: RecordEntry | undefined;
       if (p.redirectResponse && channel) {
         const previous = channel.hops.at(-1);
         if (previous) {
+          redirectParent = previous.record;
           previous.extra = !!p.redirectHasExtraInfo;
           previous.record.status_code = p.redirectResponse.status;
           previous.record.request_state = "redirect";
@@ -217,6 +290,7 @@ export class Recorder {
         initiator =
           p.initiator?.url ?? p.initiator?.stack?.callFrames?.[0]?.url ?? null;
       const hop = channel.hops.length;
+      const parent = this.resolveInitiator(source, p, redirectParent);
       const r: RecordEntry = {
         scan_id: scan.id,
         request_id: `${this.connection}:${source.tabId}:${source.sessionId ?? "root"}:${p.requestId}:${hop}`,
@@ -231,6 +305,7 @@ export class Recorder {
           : now(),
         tab_id: source.tabId!,
         frame_id: p.frameId ?? null,
+        loader_id: typeof p.loaderId === "string" ? p.loaderId : null,
         page_url: p.documentURL || null,
         referer:
           headers.find((h) => h.name.toLowerCase() === "referer")?.value ??
@@ -251,6 +326,22 @@ export class Recorder {
         content_type: ct,
         initiator_url: initiator,
         initiator_stack: stack,
+        initiator: {
+          type: String(p.initiator?.type ?? "other"),
+          url: initiator ? safeURL(initiator) : null,
+          ...(typeof p.initiator?.requestId === "string"
+            ? { request_id: p.initiator.requestId }
+            : {}),
+          ...(Number.isFinite(p.initiator?.lineNumber)
+            ? { line_number: p.initiator.lineNumber }
+            : {}),
+          ...(Number.isFinite(p.initiator?.columnNumber)
+            ? { column_number: p.initiator.columnNumber }
+            : {}),
+        },
+        initiator_parent_id: parent.parent,
+        initiator_parent_match: parent.match,
+        initiator_relation: parent.relation,
         capture_status: {
           headers: {
             state: "partial",
@@ -275,6 +366,7 @@ export class Recorder {
         filter_version: scan.versions.at(-1)!.version,
       };
       const h: Hop = { record: r };
+      this.rememberInitiatorCandidate(source, p, r);
       h.stack = this.stacks
         .capture(source, p.initiator?.stack)
         .then((result) => {
@@ -474,8 +566,19 @@ export class Recorder {
     scan.stats[r.filter_result]++;
     scan.stats.pending--;
     h.done = true;
-    if (r.filter_result === "excluded" && config.retention === "matching")
+    this.initiatorNodes.push({
+      scan_id: r.scan_id,
+      request_id: r.request_id,
+      request_url: safeURL(r.request_url),
+      parent_id: r.initiator_parent_id ?? null,
+      resolution: r.initiator_parent_match ?? "none",
+      relation: r.initiator_relation ?? "none",
+    });
+    if (r.filter_result === "excluded" && config.retention === "matching") {
+      this.checkStorageLimit(config);
+      if (this.initiatorNodes.length >= 200) await this.flush();
       return;
+    }
     const safe = protectRecord(r);
     for (const [carrier, status] of Object.entries(safe.capture_status))
       if (status.state !== "complete")
@@ -564,20 +667,9 @@ export class Recorder {
       query_params: [],
       initiator_stack: null,
     };
-    const projectedBytes =
-      scan.stats.bytes +
-      this.entries.reduce(
-        (n, r) => n + new TextEncoder().encode(JSON.stringify(r)).length,
-        0,
-      );
-    if (
-      projectedBytes >= config.storage_limit * 0.8 &&
-      !scan.gaps.some((g) => g.type === "storage_warning")
-    )
-      gap(scan, "storage_warning", "本任务数据达到配置容量的 80%");
-    if (projectedBytes >= config.storage_limit)
-      this.protect("本任务达到容量上限", 0);
-    if (this.entries.length >= 200) await this.flush();
+    this.checkStorageLimit(config);
+    if (this.entries.length >= 200 || this.initiatorNodes.length >= 200)
+      await this.flush();
   }
   pendingCount() {
     return (
@@ -588,15 +680,30 @@ export class Recorder {
     );
   }
   estimateBytes() {
-    let n = this.entries.reduce(
-      (sum, r) => sum + new TextEncoder().encode(JSON.stringify(r)).length,
-      0,
-    );
+    let n = this.bufferedPersistBytes();
     for (const c of this.channels.values())
       for (const h of c.hops)
         if (!h.done)
           n += new TextEncoder().encode(JSON.stringify(h.record)).length;
     return n;
+  }
+  bufferedPersistBytes() {
+    const encoder = new TextEncoder();
+    return [...this.entries, ...this.initiatorNodes].reduce(
+      (sum, value) => sum + encoder.encode(JSON.stringify(value)).length,
+      0,
+    );
+  }
+  checkStorageLimit(config: Config) {
+    if (!this.scan) return;
+    const projectedBytes = this.scan.stats.bytes + this.bufferedPersistBytes();
+    if (
+      projectedBytes >= config.storage_limit * 0.8 &&
+      !this.scan.gaps.some((g) => g.type === "storage_warning")
+    )
+      gap(this.scan, "storage_warning", "本任务数据达到配置容量的 80%");
+    if (projectedBytes >= config.storage_limit)
+      this.protect("本任务达到容量上限", 0);
   }
   protect(reason: string, lost: number) {
     if (!this.scan) return;
@@ -626,17 +733,20 @@ export class Recorder {
       const active = [...this.channels.values()].flatMap((c) =>
         c.hops.filter((h) => !h.done).map((h) => protectRecord(h.record)),
       );
+      const initiatorNodes = this.initiatorNodes.slice();
       const snapshot = structuredClone(scan);
-      const bytes = entries.reduce(
-        (n, r) => n + new TextEncoder().encode(JSON.stringify(r)).length,
+      const bytes = [...entries, ...initiatorNodes].reduce(
+        (n, value) =>
+          n + new TextEncoder().encode(JSON.stringify(value)).length,
         0,
       );
       snapshot.stats.persisted += entries.length;
       snapshot.stats.bytes += bytes;
-      await db.commit(snapshot, entries, groups, active);
+      await db.commit(snapshot, entries, groups, active, initiatorNodes);
       scan.stats.persisted += entries.length;
       scan.stats.bytes += bytes;
       this.entries.splice(0, entries.length);
+      this.initiatorNodes.splice(0, initiatorNodes.length);
       for (const [id, g] of groups)
         if (this.groups.get(id)?.count === g.count) this.groups.delete(id);
       if (scan.gaps.length > 200) scan.gaps.splice(0, scan.gaps.length - 100);
@@ -709,5 +819,7 @@ export class Recorder {
     this.scan.ended_at = now();
     await this.flush();
     this.channels.clear();
+    this.observedByURL.clear();
+    this.observedByCdpId.clear();
   }
 }

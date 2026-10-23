@@ -4,7 +4,7 @@ import { preview } from "vite";
 import { mkdir } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { workspaceFixture } from "./fixtures";
-import { presets } from "../src/filter";
+import { matchFilter, presets } from "../src/filter";
 
 // Real rendering and IndexedDB; privileged extension APIs are replaced. This
 // suite is not evidence of MV3 installation or debugger/worker coverage.
@@ -96,7 +96,7 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
               integrity: "observed_scope",
             };
             const db = await new Promise<IDBDatabase>((resolve, reject) => {
-              const r = indexedDB.open("js-security-recorder", 1);
+              const r = indexedDB.open("js-security-recorder");
               r.onsuccess = () => resolve(r.result);
               r.onerror = () => reject(r.error);
             });
@@ -144,7 +144,7 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
     .waitFor();
   await page.evaluate(async (fixture) => {
     const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const r = indexedDB.open("js-security-recorder", 1);
+      const r = indexedDB.open("js-security-recorder");
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });
@@ -225,17 +225,46 @@ it("100 条历史请求自动恢复；首末行点击即在视口查看所有信
     await detail.getByRole("tab", { name: "请求体", exact: true }).click();
     expect(await detail.locator("pre").textContent()).toContain("BOOK-001");
     await detail.getByRole("tab", { name: "调用栈", exact: true }).click();
-    expect(await detail.locator(".stack-frame").count()).toBe(2);
-    expect(await detail.locator(".stack-list").textContent()).toContain(
-      "orders.js:42:8",
+    await detail
+      .getByRole("heading", { name: "Request call stack", exact: true })
+      .waitFor();
+    await detail
+      .getByRole("heading", { name: "Request initiator chain", exact: true })
+      .waitFor();
+    const callStack = detail.locator(".initiator-call-stack");
+    expect(await callStack.locator(".stack-frame").count()).toBe(2);
+    expect(await callStack.textContent()).toContain("orders.js:42:8");
+    expect(await callStack.textContent()).toContain("checkout.js:12:3");
+    expect(await callStack.textContent()).toContain("submitOrder");
+    expect(await callStack.textContent()).toContain("onCheckout");
+    expect(await callStack.locator(".stack-boundary").textContent()).toContain(
+      "Promise.then",
     );
-    expect(await detail.locator(".stack-list").textContent()).toContain(
-      "异步父栈",
+    const initiatorText = await detail.textContent();
+    expect(initiatorText).not.toMatch(
+      /Script ID|Debugger|父栈 ID|fixture-script-|fixture-debugger-id|fixture-async-parent/,
     );
-    await detail.getByRole("tab", { name: "原始数据", exact: true }).click();
+    const chain = detail.locator(".initiator-chain");
+    expect(await chain.locator(".initiator-chain-node").count()).toBe(3);
+    expect(await chain.locator(".initiator-chain-node.current").count()).toBe(
+      1,
+    );
     expect(
-      JSON.parse((await detail.locator("pre").textContent())!).request_id,
-    ).toBe("ui-request-100");
+      await chain.locator(".initiator-chain-node.current").textContent(),
+    ).toContain("/api/orders");
+    await page.screenshot({
+      path: "work/redesign/chrome-initiator.png",
+      fullPage: false,
+    });
+    await detail.getByRole("tab", { name: "原始数据", exact: true }).click();
+    const rawRequest = JSON.parse((await detail.locator("pre").textContent())!);
+    expect(rawRequest.request_id).toBe("ui-request-100");
+    expect(rawRequest.initiator_stack.callFrames[0].scriptId).toBe(
+      "fixture-script-42",
+    );
+    expect(rawRequest.initiator_stack.parentId.debuggerId).toBe(
+      "fixture-debugger-id",
+    );
     await page.waitForTimeout(1700);
     expect(
       JSON.parse((await detail.locator("pre").textContent())!).request_id,
@@ -403,7 +432,21 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     ).toBe(0);
     expect(await dialog.locator(".tab-option").count()).toBe(0);
     await dialog.getByText("浏览器全局采集", { exact: true }).waitFor();
-    await dialog.getByLabel(/Filter 模板/).selectOption("XHR / Fetch / Beacon");
+    const filterInput = dialog.getByRole("textbox", {
+      name: "请求筛选",
+      exact: true,
+    });
+    await filterInput.fill('domain:"未闭合');
+    await dialog.getByRole("alert").waitFor();
+    expect(
+      await dialog
+        .getByRole("button", { name: "开始采集", exact: true })
+        .isDisabled(),
+    ).toBe(true);
+    await filterInput.fill("resource-type:XHR,Fetch,Ping");
+    expect(await dialog.getByTestId("filter-summary").textContent()).toContain(
+      "类型为 XHR、Fetch、Ping",
+    );
     await page.screenshot({
       path: "work/redesign/new-task-global.png",
       fullPage: false,
@@ -432,22 +475,23 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     );
     await page.getByLabel("任务高级配置").fill(JSON.stringify(message.config));
     await page.getByRole("button", { name: "过滤规则", exact: true }).click();
-    await page.getByText("高级 JSON 编辑器", { exact: true }).click();
+    const advancedFilter = page.locator("details.advanced-filter-settings");
+    await advancedFilter.locator(":scope > summary").click();
+    await advancedFilter.locator("details.technical-details > summary").click();
     await page
       .getByLabel("过滤规则 JSON")
       .fill('{"include":{"field":"domain","operator":"regex","values":["["]}}');
-    await page
-      .getByRole("button", { name: "预览本页结果", exact: true })
-      .click();
-    await page.getByRole("alert").waitFor();
-    expect(await page.getByRole("alert").textContent()).toMatch(
-      /regular expression|正则|Unterminated/i,
-    );
+    expect(
+      await page
+        .getByRole("button", { name: "预览本页结果", exact: true })
+        .isDisabled(),
+    ).toBe(true);
     await page.getByLabel("过滤规则 JSON").fill("null");
-    await page
-      .getByRole("button", { name: "预览本页结果", exact: true })
-      .click();
-    expect(await page.getByRole("alert").textContent()).toMatch(/Filter|对象/);
+    expect(
+      await page
+        .getByRole("button", { name: "应用到采集任务", exact: true })
+        .isDisabled(),
+    ).toBe(true);
     expect(errors).toEqual([]);
   } finally {
     await context.close();
@@ -597,7 +641,7 @@ it("在途长连接完成前可查看已取得字段，完成后已打开详情�
     await page.evaluate(async () => {
       const w = window as any;
       const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const r = indexedDB.open("js-security-recorder", 1);
+        const r = indexedDB.open("js-security-recorder");
         r.onsuccess = () => resolve(r.result);
         r.onerror = () => reject(r.error);
       });

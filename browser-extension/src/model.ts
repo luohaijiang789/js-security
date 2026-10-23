@@ -79,6 +79,8 @@ export type RecordEntry = {
   timestamp: string;
   tab_id: number;
   frame_id: string | null;
+  /** CDP loader identity used to keep initiator inference inside one navigation. */
+  loader_id?: string | null;
   page_url: string | null;
   referer: string | null;
   request_url: string;
@@ -95,6 +97,18 @@ export type RecordEntry = {
   content_type: string;
   initiator_url: string | null;
   initiator_stack: unknown;
+  /** Protected subset of Network.Initiator. Missing on legacy records. */
+  initiator?: {
+    type: string;
+    url: string | null;
+    request_id?: string | null;
+    line_number?: number;
+    column_number?: number;
+  };
+  /** Recorder request id, rather than the shorter CDP request id. */
+  initiator_parent_id?: string | null;
+  initiator_parent_match?: InitiatorParentMatch;
+  initiator_relation?: InitiatorRelation;
   capture_status: {
     headers: Quality;
     body: Quality;
@@ -108,6 +122,32 @@ export type RecordEntry = {
   group_id?: string;
   group_key?: string;
   normalized_url?: string;
+};
+export type InitiatorParentMatch =
+  "redirect" | "exact" | "inferred" | "ambiguous" | "missing" | "none";
+export type InitiatorRelation =
+  "redirect" | "preflight" | "request-id" | "initiator-url" | "none";
+export type InitiatorGraphNode = {
+  request_id: string;
+  request_url: string;
+  parent_id: string | null;
+  current: boolean;
+  depth: number;
+  resolution: InitiatorParentMatch;
+  relation: InitiatorRelation;
+};
+export type InitiatorGraph = {
+  nodes: InitiatorGraphNode[];
+  warning: string;
+  truncated: boolean;
+};
+export type InitiatorNode = {
+  scan_id: string;
+  request_id: string;
+  request_url: string;
+  parent_id: string | null;
+  resolution: InitiatorParentMatch;
+  relation: InitiatorRelation;
 };
 export type CaptureError = {
   id: string;

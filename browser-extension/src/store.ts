@@ -1,4 +1,15 @@
-import type { Scan, RecordEntry, Group, Batch, CaptureError } from "./model";
+import type {
+  Scan,
+  RecordEntry,
+  Group,
+  Batch,
+  CaptureError,
+  InitiatorGraph,
+  InitiatorGraphNode,
+  InitiatorParentMatch,
+  InitiatorRelation,
+  InitiatorNode,
+} from "./model";
 const request = <T>(r: IDBRequest<T>) =>
   new Promise<T>((resolve, reject) => {
     r.onsuccess = () => resolve(r.result);
@@ -7,21 +18,47 @@ const request = <T>(r: IDBRequest<T>) =>
 let dbPromise: Promise<IDBDatabase> | undefined;
 export function database() {
   return (dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const r = indexedDB.open("js-security-recorder", 1);
+    const r = indexedDB.open("js-security-recorder", 2);
     r.onupgradeneeded = () => {
       const d = r.result;
       for (const name of ["scans", "errors", "batches", "groups"]) {
+        if (d.objectStoreNames.contains(name)) continue;
         const s = d.createObjectStore(name, { keyPath: "id" });
         if (name !== "scans") s.createIndex("scan", "scan_id");
       }
-      const entries = d.createObjectStore("requests", {
-        keyPath: "request_id",
-      });
-      entries.createIndex("scan", ["scan_id", "request_id"]);
-      entries.createIndex("group", "group_id");
-      entries.createIndex("ordinal", ["scan_id", "ordinal"]);
-      const active = d.createObjectStore("active", { keyPath: "request_id" });
-      active.createIndex("scan", "scan_id");
+      const entries = d.objectStoreNames.contains("requests")
+        ? r.transaction!.objectStore("requests")
+        : d.createObjectStore("requests", { keyPath: "request_id" });
+      if (!entries.indexNames.contains("scan"))
+        entries.createIndex("scan", ["scan_id", "request_id"]);
+      if (!entries.indexNames.contains("group"))
+        entries.createIndex("group", "group_id");
+      if (!entries.indexNames.contains("ordinal"))
+        entries.createIndex("ordinal", ["scan_id", "ordinal"]);
+      const active = d.objectStoreNames.contains("active")
+        ? r.transaction!.objectStore("active")
+        : d.createObjectStore("active", { keyPath: "request_id" });
+      if (!active.indexNames.contains("scan"))
+        active.createIndex("scan", "scan_id");
+      if (!active.indexNames.contains("initiator_parent"))
+        active.createIndex("initiator_parent", [
+          "scan_id",
+          "initiator_parent_id",
+        ]);
+      if (!d.objectStoreNames.contains("initiator_edges")) {
+        const edges = d.createObjectStore("initiator_edges", {
+          keyPath: "child_id",
+        });
+        edges.createIndex("scan", "scan_id");
+        edges.createIndex("parent", ["scan_id", "parent_id"]);
+      }
+      if (!d.objectStoreNames.contains("initiator_nodes")) {
+        const nodes = d.createObjectStore("initiator_nodes", {
+          keyPath: "request_id",
+        });
+        nodes.createIndex("scan", "scan_id");
+        nodes.createIndex("parent", ["scan_id", "parent_id"]);
+      }
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
@@ -129,12 +166,34 @@ export async function commit(
   entries: RecordEntry[],
   groups: Map<string, Group>,
   active: RecordEntry[],
+  initiatorNodes: InitiatorNode[] = [],
 ) {
   return transact(
-    ["scans", "requests", "groups", "errors", "active"],
+    [
+      "scans",
+      "requests",
+      "groups",
+      "errors",
+      "active",
+      "initiator_edges",
+      "initiator_nodes",
+    ],
     "readwrite",
     async (tx) => {
-      for (const r of entries) tx.objectStore("requests").put(r);
+      for (const r of entries) {
+        tx.objectStore("requests").put(r);
+      }
+      for (const node of initiatorNodes) {
+        tx.objectStore("initiator_nodes").put(node);
+        if (node.parent_id)
+          tx.objectStore("initiator_edges").put({
+            scan_id: node.scan_id,
+            child_id: node.request_id,
+            parent_id: node.parent_id,
+            resolution: node.resolution,
+            relation: node.relation,
+          } satisfies InitiatorEdge);
+      }
       for (const g of groups.values()) tx.objectStore("groups").put(g);
       const old = await request(
         tx.objectStore("active").index("scan").getAllKeys(scan.id),
@@ -148,7 +207,16 @@ export async function commit(
 }
 export async function removeScan(id: string) {
   await transact(
-    ["scans", "requests", "groups", "errors", "batches", "active"],
+    [
+      "scans",
+      "requests",
+      "groups",
+      "errors",
+      "batches",
+      "active",
+      "initiator_edges",
+      "initiator_nodes",
+    ],
     "readwrite",
     async (tx) => {
       tx.objectStore("scans").delete(id);
@@ -158,6 +226,8 @@ export async function removeScan(id: string) {
         "errors",
         "batches",
         "active",
+        "initiator_edges",
+        "initiator_nodes",
       ]) {
         const index = tx.objectStore(name).index("scan");
         const range =
@@ -171,6 +241,245 @@ export async function removeScan(id: string) {
   );
 }
 export type { Scan, RecordEntry, Group, Batch, CaptureError };
+
+type InitiatorEdge = {
+  scan_id: string;
+  child_id: string;
+  parent_id: string;
+  resolution?: InitiatorParentMatch;
+  relation?: InitiatorRelation;
+};
+
+/** Indexed graph lookup: proportional to the visible chain, never to scan size. */
+export async function queryInitiatorGraph(
+  current: RecordEntry,
+  maxNodes = 200,
+): Promise<InitiatorGraph> {
+  const limit = Number.isFinite(maxNodes)
+    ? Math.min(500, Math.max(1, Math.floor(maxNodes)))
+    : 200;
+  return transact(
+    ["requests", "active", "initiator_edges", "initiator_nodes"],
+    "readonly",
+    async (tx) => {
+      const records = tx.objectStore("requests"),
+        active = tx.objectStore("active"),
+        edges = tx.objectStore("initiator_edges"),
+        compactNodes = tx.objectStore("initiator_nodes"),
+        parentIndex = edges.index("parent"),
+        activeParentIndex = active.index("initiator_parent"),
+        compactParentIndex = compactNodes.index("parent"),
+        warnings: string[] = [],
+        seen = new Set<string>([current.request_id]),
+        available = new Set<string>([current.request_id]);
+      let truncated = false;
+      const readRecord = async (id: string) => {
+        const full =
+          (await request<RecordEntry | undefined>(records.get(id))) ??
+          (await request<RecordEntry | undefined>(active.get(id)));
+        if (full) {
+          available.add(id);
+          return full;
+        }
+        const compact = await request<InitiatorNode | undefined>(
+          compactNodes.get(id),
+        );
+        return compact
+          ? ({
+              scan_id: compact.scan_id,
+              request_id: compact.request_id,
+              request_url: compact.request_url,
+              initiator_parent_id: compact.parent_id,
+              initiator_parent_match: compact.resolution,
+              initiator_relation: compact.relation,
+            } as RecordEntry)
+          : undefined;
+      };
+      const readEdge = (id: string) =>
+        request<InitiatorEdge | undefined>(edges.get(id));
+      const incoming: Array<{ record: RecordEntry; edge?: InitiatorEdge }> = [
+        {
+          record: current,
+          edge: current.initiator_parent_id
+            ? {
+                scan_id: current.scan_id,
+                child_id: current.request_id,
+                parent_id: current.initiator_parent_id,
+                resolution: current.initiator_parent_match,
+                relation: current.initiator_relation,
+              }
+            : undefined,
+        },
+      ];
+      let virtualParent: { url: string; edge: InitiatorEdge } | undefined;
+      let child = current;
+      for (;;) {
+        const edge =
+          incoming[0].edge ??
+          (child.initiator_parent_id
+            ? {
+                scan_id: child.scan_id,
+                child_id: child.request_id,
+                parent_id: child.initiator_parent_id,
+                resolution: child.initiator_parent_match,
+                relation: child.initiator_relation,
+              }
+            : await readEdge(child.request_id));
+        if (!edge) break;
+        if (edge.scan_id !== current.scan_id) {
+          warnings.push("发起链索引属于其他任务，已停止展开。");
+          break;
+        }
+        if (seen.has(edge.parent_id)) {
+          warnings.push("发起链存在循环，已停止展开。");
+          break;
+        }
+        const parent = await readRecord(edge.parent_id);
+        if (
+          !parent &&
+          edge.relation === "initiator-url" &&
+          child.initiator_url
+        ) {
+          virtualParent = {
+            url: child.initiator_url,
+            edge,
+          };
+          warnings.push(
+            "父请求未被保留，已按脱敏后的 Initiator URL 补充一层。",
+          );
+          break;
+        }
+        if (!parent || parent.scan_id !== current.scan_id) {
+          warnings.push("部分父请求未被保留，发起链无法继续向上展开。");
+          break;
+        }
+        seen.add(parent.request_id);
+        incoming.unshift({
+          record: parent,
+          edge: await readEdge(parent.request_id),
+        });
+        child = parent;
+        if (incoming.length >= limit) {
+          truncated = true;
+          break;
+        }
+      }
+      const nodes: InitiatorGraphNode[] = virtualParent
+        ? [
+            {
+              request_id: "",
+              request_url: virtualParent.url,
+              parent_id: null,
+              current: false,
+              depth: 0,
+              resolution: virtualParent.edge.resolution ?? "inferred",
+              relation: "initiator-url",
+            },
+          ]
+        : [];
+      nodes.push(
+        ...incoming.map(({ record, edge }, index) => ({
+          request_id: available.has(record.request_id) ? record.request_id : "",
+          request_url: record.request_url,
+          parent_id: index
+            ? incoming[index - 1].record.request_id
+            : virtualParent
+              ? ""
+              : null,
+          current: record.request_id === current.request_id,
+          depth: index + (virtualParent ? 1 : 0),
+          resolution:
+            edge?.resolution ?? record.initiator_parent_match ?? "none",
+          relation: edge?.relation ?? record.initiator_relation ?? "none",
+        })),
+      );
+      const appendChildren = async (parent: RecordEntry, depth: number) => {
+        if (nodes.length >= limit) {
+          truncated = true;
+          return;
+        }
+        const childEdges = await request<InitiatorEdge[]>(
+          parentIndex.getAll(
+            IDBKeyRange.only([current.scan_id, parent.request_id]),
+          ),
+        );
+        const activeChildren = await request<RecordEntry[]>(
+          activeParentIndex.getAll(
+            IDBKeyRange.only([current.scan_id, parent.request_id]),
+          ),
+        );
+        const compactChildren = await request<InitiatorNode[]>(
+          compactParentIndex.getAll(
+            IDBKeyRange.only([current.scan_id, parent.request_id]),
+          ),
+        );
+        const allChildren = [
+          ...childEdges,
+          ...activeChildren.map((record): InitiatorEdge => ({
+            scan_id: record.scan_id,
+            child_id: record.request_id,
+            parent_id: parent.request_id,
+            resolution: record.initiator_parent_match,
+            relation: record.initiator_relation,
+          })),
+          ...compactChildren.map((node): InitiatorEdge => ({
+            scan_id: node.scan_id,
+            child_id: node.request_id,
+            parent_id: node.parent_id!,
+            resolution: node.resolution,
+            relation: node.relation,
+          })),
+        ].sort((a, b) => a.child_id.localeCompare(b.child_id));
+        const childIds = new Set<string>();
+        for (const edge of allChildren) {
+          if (edge.scan_id !== current.scan_id || childIds.has(edge.child_id))
+            continue;
+          childIds.add(edge.child_id);
+          if (seen.has(edge.child_id)) continue;
+          if (nodes.length >= limit) {
+            truncated = true;
+            return;
+          }
+          const record = await readRecord(edge.child_id);
+          if (!record || record.scan_id !== current.scan_id) {
+            warnings.push("部分子请求尚未落盘或未被保留。");
+            continue;
+          }
+          seen.add(record.request_id);
+          nodes.push({
+            request_id: available.has(record.request_id)
+              ? record.request_id
+              : "",
+            request_url: record.request_url,
+            parent_id: parent.request_id,
+            current: false,
+            depth,
+            resolution:
+              edge.resolution ?? record.initiator_parent_match ?? "none",
+            relation: edge.relation ?? record.initiator_relation ?? "none",
+          });
+          await appendChildren(record, depth + 1);
+        }
+      };
+      if (!truncated) await appendChildren(current, nodes.length);
+      if (
+        !current.initiator_parent_match &&
+        !current.initiator_parent_id &&
+        !current.initiator
+      )
+        warnings.push(
+          "此记录创建于请求发起链采集之前，无法恢复其上游发起关系。",
+        );
+      const unresolved = incoming[0].record;
+      if (unresolved.initiator_parent_match === "ambiguous")
+        warnings.push("存在多个同地址候选父请求，未猜测发起关系。");
+      else if (unresolved.initiator_parent_match === "missing")
+        warnings.push("发起请求未被观测或未被保留。");
+      if (truncated) warnings.push(`发起链超过 ${limit} 个节点，已截断。`);
+      return { nodes, warning: [...new Set(warnings)].join(" "), truncated };
+    },
+  );
+}
 
 export type RequestQuery = {
   after?: string;

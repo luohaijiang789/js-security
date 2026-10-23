@@ -198,7 +198,7 @@ try {
   await rpc("stop", { id: scan.id });
   const data = await ui.evaluate(async (scanId) => {
     const d = await new Promise((resolve, reject) => {
-      const r = indexedDB.open("js-security-recorder", 1);
+      const r = indexedDB.open("js-security-recorder");
       r.onsuccess = () => resolve(r.result);
       r.onerror = () => reject(r.error);
     });

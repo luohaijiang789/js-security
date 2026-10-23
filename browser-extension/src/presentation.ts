@@ -1,4 +1,4 @@
-import type { Pair, Quality, RecordEntry } from "./model";
+import type { InitiatorGraph, Pair, Quality, RecordEntry } from "./model";
 
 export const stateLabels: Record<string, string> = {
   recording: "采集中",
@@ -154,6 +154,73 @@ export function frameLocation(frame: DisplayFrame) {
           ? ":列号未知"
           : ":" + (frame.columnNumber + 1));
   return (frame.url || "未知脚本") + ":" + position;
+}
+export function shortFrameLocation(frame: DisplayFrame) {
+  let file = frame.url;
+  try {
+    const url = new URL(frame.url);
+    file =
+      url.pathname.split("/").filter(Boolean).at(-1) || url.host || frame.url;
+  } catch {
+    file = frame.url.split(/[?#]/, 1)[0].split("/").at(-1) || frame.url;
+  }
+  return frameLocation({ ...frame, url: file });
+}
+export type InitiatorChainDisplay = {
+  nodes: Array<{
+    request_id: string;
+    request_url: string;
+    parent_id: string | null;
+    current: boolean;
+    depth: number;
+    inferred: boolean;
+    relation: string;
+  }>;
+  warning: string;
+  truncated: boolean;
+};
+export function initiatorChainForDisplay(
+  record: RecordEntry,
+  graph?: InitiatorGraph | null,
+): InitiatorChainDisplay {
+  const nodes: InitiatorChainDisplay["nodes"] = (
+    Array.isArray(graph?.nodes) ? graph.nodes : []
+  )
+    .filter((node: any) => node && typeof node.request_url === "string")
+    .map((node: any) => ({
+      request_id: typeof node.request_id === "string" ? node.request_id : "",
+      request_url: node.request_url,
+      parent_id: typeof node.parent_id === "string" ? node.parent_id : null,
+      current: node.current === true || node.request_id === record.request_id,
+      depth:
+        typeof node.depth === "number" &&
+        Number.isInteger(node.depth) &&
+        node.depth >= 0
+          ? node.depth
+          : 0,
+      inferred: node.resolution === "inferred",
+      relation: typeof node.relation === "string" ? node.relation : "",
+    }));
+  if (!nodes.some((node) => node.current))
+    nodes.push({
+      request_id: record.request_id,
+      request_url: record.request_url,
+      parent_id: null,
+      current: true,
+      depth: 0,
+      inferred: false,
+      relation: "current",
+    });
+  return {
+    nodes,
+    warning:
+      typeof graph?.warning === "string"
+        ? graph.warning
+        : nodes.length <= 1
+          ? "没有可用的请求发起链。"
+          : "",
+    truncated: graph?.truncated === true,
+  };
 }
 export function pretty(value: unknown) {
   try {
