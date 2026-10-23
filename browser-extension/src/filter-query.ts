@@ -16,11 +16,17 @@ const properties = {
     operator: "in",
     label: "类型为",
   },
-  page: { field: "page_url", operator: "contains", label: "页面包含" },
+  page: {
+    field: "page_url",
+    operator: "contains",
+    label: "页面包含",
+    section: "scope",
+  },
   "page-domain": {
     field: "page_host",
     operator: "domain",
     label: "页面域名为",
+    section: "scope",
   },
   path: { field: "pathname", operator: "contains", label: "路径包含" },
   initiator: {
@@ -95,7 +101,8 @@ function readableValues(values: string[]) {
 }
 
 export function parseSimpleQuery(input: string): SimpleQueryResult {
-  const include: Rule[] = [],
+  const scope: Rule[] = [],
+    include: Rule[] = [],
     exclude: Rule[] = [],
     summary: string[] = [];
   for (const raw of tokens(input)) {
@@ -130,13 +137,19 @@ export function parseSimpleQuery(input: string): SimpleQueryResult {
       operator: definition.operator,
       values,
     };
-    (negative ? exclude : include).push(rule);
+    (negative
+      ? exclude
+      : "section" in definition && definition.section === "scope"
+        ? scope
+        : include
+    ).push(rule);
     summary.push(
       `${negative ? "排除" : ""}${definition.label} ${readableValues(values)}`,
     );
   }
   return {
     filter: {
+      ...(scope.length ? { scope: grouped("and", scope) } : {}),
       ...(include.length ? { include: grouped("and", include) } : {}),
       ...(exclude.length ? { exclude: grouped("or", exclude) } : {}),
     },
@@ -184,7 +197,7 @@ export function simpleQueryFromFilter(filter: Filter): SimpleFilterState {
   if (!scope || !include || !exclude)
     return {
       advanced: true,
-      reason: "这条规则包含嵌套逻辑、特殊字段或区分大小写设置",
+      reason: "当前规则不能安全转换成单行筛选",
     };
   return {
     advanced: false,

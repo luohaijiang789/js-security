@@ -22,7 +22,12 @@ import {
   type InitiatorGraph,
 } from "./model";
 import { validateConfig } from "./config";
-import { presets, validateFilter, matchFilter } from "./filter";
+import {
+  presets,
+  validateFilter,
+  matchFilter,
+  canEditFilterVisually,
+} from "./filter";
 import * as db from "./store";
 import { packageFiles, csv, jsonl } from "./export";
 const name = ref("业务请求采集");
@@ -68,6 +73,9 @@ const visualFilter = computed<Filter | null>(() => {
     return null;
   }
 });
+const visualFilterEditable = computed(
+  () => !!visualFilter.value && canEditFilterVisually(visualFilter.value),
+);
 function setRule(key: keyof Filter, rule?: Rule) {
   const f = { ...(visualFilter.value ?? {}) };
   if (rule) f[key] = rule;
@@ -883,7 +891,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.0</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.1</span>
         </div>
       </div>
     </aside>
@@ -1669,6 +1677,9 @@ onUnmounted(() => {
               <p class="field-note">
                 只有需要嵌套逻辑、请求头或正文条件时才使用这里；简单筛选会继续保持有效。
               </p>
+              <p class="advanced-filter-flow">
+                系统按顺序判断：先看请求来自哪个页面，再决定要保存哪些请求，最后去掉明确不要保存的请求。
+              </p>
               <div class="template-bar">
                 <label
                   >模板<select v-model="template" @change="useTemplate">
@@ -1686,31 +1697,59 @@ onUnmounted(() => {
                   <Icon name="trash" :size="16" />
                 </button>
               </div>
-              <div v-if="visualFilter" class="visual-filter">
+              <div
+                v-if="visualFilter && !visualFilterEditable"
+                class="legacy-rule-warning"
+              >
+                <strong>这条旧版高级规则不适合可视化编辑</strong>
+                <p>
+                  它使用了反向条件，或把页面字段放在了请求条件中。为避免显示成容易误解的规则，可在下方
+                  JSON
+                  编辑器中继续维护；如果不再需要旧结构，可以先清空筛选，再按新的三个步骤重新设置。
+                </p>
+              </div>
+              <div
+                v-if="visualFilter && visualFilterEditable"
+                class="visual-filter"
+              >
                 <div
                   v-for="part in [
                     {
                       key: 'scope',
-                      label: '页面范围',
+                      step: 1,
+                      label: '请求来自哪些页面',
                       description:
-                        '在任务采集范围内，按页面 URL 等条件限定请求。',
+                        '只在这里限制来源页面；不设置时接受所有已接入页面发出的请求。',
+                      addLabel: '设置页面范围',
+                      clearLabel: '接受所有页面',
+                      emptyLabel: '所有已接入页面都在范围内',
                     },
                     {
                       key: 'include',
-                      label: '包含条件',
-                      description: '没有配置时，保留范围内的全部可观测请求。',
+                      step: 2,
+                      label: '要保存哪些请求',
+                      description:
+                        '只有匹配这里的请求才会保存；不设置时保存页面范围内的所有请求。',
+                      addLabel: '设置保存条件',
+                      clearLabel: '保存全部请求',
+                      emptyLabel: '保存页面范围内的所有请求',
                     },
                     {
                       key: 'exclude',
-                      label: '排除条件',
-                      description: '按选择排除资源和请求，不强制忽略静态资源。',
+                      step: 3,
+                      label: '哪些请求不要保存',
+                      description:
+                        '匹配这里的请求不会保存；不设置时不额外排除任何请求。',
+                      addLabel: '添加不保存条件',
+                      clearLabel: '不再额外排除',
+                      emptyLabel: '不额外排除任何请求',
                     },
                   ] as const"
                   :key="part.key"
                   class="rule-section"
                 >
                   <div class="rule-section-heading">
-                    <span class="rule-step">{{ part.key.toUpperCase() }}</span>
+                    <span class="rule-number">{{ part.step }}</span>
                     <div>
                       <h3>{{ part.label }}</h3>
                       <p>{{ part.description }}</p>
@@ -1720,32 +1759,30 @@ onUnmounted(() => {
                       class="button small"
                       @click="
                         setRule(part.key, {
-                          field: 'request_url',
+                          field:
+                            part.key === 'scope' ? 'page_url' : 'request_url',
                           operator: 'contains',
                           values: [''],
                         })
                       "
                     >
-                      <Icon name="plus" :size="14" />添加规则</button
+                      <Icon name="plus" :size="14" />{{ part.addLabel }}</button
                     ><button
                       v-else
                       class="text-button"
                       @click="setRule(part.key)"
                     >
-                      停用
+                      {{ part.clearLabel }}
                     </button>
                   </div>
                   <RuleEditor
                     v-if="visualFilter[part.key]"
                     :rule="visualFilter[part.key]!"
+                    :section="part.key"
                     @change="(r) => setRule(part.key, r)"
                   />
                   <div v-else class="rule-placeholder">
-                    {{
-                      part.key === "exclude"
-                        ? "不排除任何请求"
-                        : "未配置限制条件"
-                    }}
+                    {{ part.emptyLabel }}
                   </div>
                 </div>
               </div>

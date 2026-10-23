@@ -1610,16 +1610,14 @@ main {
   flex: 1;
   font-size: 13px;
 }
-.formula-badge {
-  font:
-    12px ui-monospace,
-    monospace;
-  letter-spacing: 0.6px;
-  color: #65758e;
-  border: 1px solid #e9edf5;
-  border-radius: 5px;
-  padding: 8px 10px;
-  background: #fafbfe;
+.advanced-filter-flow {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border-radius: 7px;
+  background: #f4f7fc;
+  color: #536987;
+  font-size: 12px;
+  line-height: 1.7;
 }
 .rule-section {
   border: 1px solid #e6edf5;
@@ -1632,15 +1630,17 @@ main {
   align-items: center;
   gap: 13px;
 }
-.rule-step {
-  font:
-    12px ui-monospace,
-    monospace;
-  padding: 5px 6px;
-  background: #eff3fc;
-  color: #65758e;
-  border-radius: 4px;
-  min-width: 58px;
+.rule-number {
+  display: grid;
+  place-items: center;
+  flex: 0 0 25px;
+  width: 25px;
+  height: 25px;
+  background: #edf3ff;
+  color: #5275c5;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 700;
   text-align: center;
 }
 .rule-section-heading > div {
@@ -1657,9 +1657,26 @@ main {
   line-height: 1.8;
 }
 .rule-placeholder {
-  padding: 12px 0 0 71px;
+  padding: 12px 0 0;
   font-size: 12px;
   color: #65758e;
+}
+.legacy-rule-warning {
+  margin: 14px 0;
+  padding: 13px 14px;
+  border: 1px solid #ead9b8;
+  border-radius: 7px;
+  background: #fffaf0;
+  color: #6f6045;
+}
+.legacy-rule-warning strong {
+  display: block;
+  font-size: 13px;
+}
+.legacy-rule-warning p {
+  margin-top: 5px;
+  font-size: 12px;
+  line-height: 1.7;
 }
 .rule-editor {
   border-left: 2px solid #d1def8;

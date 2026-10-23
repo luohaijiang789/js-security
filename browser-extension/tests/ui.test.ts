@@ -474,10 +474,63 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       /配置.*对象|对象.*配置/,
     );
     await page.getByLabel("任务高级配置").fill(JSON.stringify(message.config));
+    await page.getByRole("button", { name: "关闭错误提示" }).click();
     await page.getByRole("button", { name: "过滤规则", exact: true }).click();
     const advancedFilter = page.locator("details.advanced-filter-settings");
     await advancedFilter.locator(":scope > summary").click();
+    for (const text of [
+      "请求来自哪些页面",
+      "要保存哪些请求",
+      "哪些请求不要保存",
+      "所有已接入页面都在范围内",
+      "不额外排除任何请求",
+    ])
+      await advancedFilter.getByText(text, { exact: true }).waitFor();
+    expect(
+      await advancedFilter.locator(".advanced-filter-flow").textContent(),
+    ).toContain(
+      "先看请求来自哪个页面，再决定要保存哪些请求，最后去掉明确不要保存的请求",
+    );
+    expect(
+      await advancedFilter.locator(".rule-number").allTextContents(),
+    ).toEqual(["1", "2", "3"]);
+    expect(
+      await advancedFilter.locator(".visual-filter").textContent(),
+    ).not.toMatch(/SCOPE|INCLUDE|EXCLUDE|AND|OR|NOT/);
+    expect(await advancedFilter.locator(".rule-step").count()).toBe(0);
+    expect(await advancedFilter.locator('option[value="not"]').count()).toBe(0);
+    const pageRules = advancedFilter
+      .locator(".rule-section")
+      .filter({ hasText: "请求来自哪些页面" });
+    await pageRules
+      .getByRole("button", { name: "设置页面范围", exact: true })
+      .click();
+    expect(await pageRules.getByLabel("检查哪个内容").inputValue()).toBe(
+      "page_url",
+    );
+    expect(
+      await pageRules
+        .getByLabel("条件组合方式")
+        .locator("option")
+        .allTextContents(),
+    ).toEqual(["一个条件", "以下条件全部满足", "以下条件任一满足"]);
+    await page.screenshot({
+      path: "work/redesign/filter-natural-language.png",
+      fullPage: false,
+    });
     await advancedFilter.locator("details.technical-details > summary").click();
+    const legacyNot = JSON.stringify({
+      exclude: {
+        op: "not",
+        rules: [{ field: "method", operator: "equals", values: ["GET"] }],
+      },
+    });
+    await page.getByLabel("过滤规则 JSON").fill(legacyNot);
+    await advancedFilter
+      .getByText("这条旧版高级规则不适合可视化编辑", { exact: true })
+      .waitFor();
+    expect(await advancedFilter.locator(".visual-filter").count()).toBe(0);
+    expect(await page.getByLabel("过滤规则 JSON").inputValue()).toBe(legacyNot);
     await page
       .getByLabel("过滤规则 JSON")
       .fill('{"include":{"field":"domain","operator":"regex","values":["["]}}');

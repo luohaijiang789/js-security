@@ -53,7 +53,8 @@ watch(
       emit("validity", true);
     } catch {
       advanced.value = true;
-      advancedReason.value = "高级 JSON 当前无法解析；请在高级编辑器中修正";
+      advancedReason.value =
+        "高级 JSON 当前无法解析，请在下方 JSON 编辑器中修正";
       emit("validity", false);
     }
   },
@@ -93,7 +94,7 @@ function reset() {
         <Icon name="layers" :size="18" />
         <div>
           <strong>高级规则已启用</strong>
-          <p>{{ advancedReason }}。它仍然有效，可在下方高级编辑器中修改。</p>
+          <p>{{ advancedReason }}；当前内容不会被自动覆盖。</p>
         </div>
         <button class="button" type="button" @click="reset">
           清空并改用简单筛选
