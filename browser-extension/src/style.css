@@ -2732,6 +2732,57 @@ svg {
   border-top: 1px solid #e9eef6;
   padding-top: 14px;
 }
+.filter-action-bar {
+  position: sticky;
+  top: 81px;
+  z-index: 12;
+  display: grid;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 14px 16px;
+  border: 1px solid #dce6f7;
+  border-radius: 9px;
+  background: #f8fafff2;
+  box-shadow: 0 5px 18px #263e6b12;
+  backdrop-filter: blur(8px);
+}
+.filter-action-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #3f6d62;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.filter-action-status svg {
+  flex: 0 0 auto;
+  color: #33816e;
+}
+.filter-action-status.warning {
+  color: #986b26;
+}
+.filter-action-status.warning svg {
+  color: #b48230;
+}
+.filter-action-controls {
+  display: flex;
+  align-items: end;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.filter-template-name {
+  display: grid;
+  gap: 4px;
+  margin-left: auto;
+  color: #65758e;
+  font-size: 11px;
+}
+.filter-template-name input {
+  width: 190px;
+  min-height: 39px;
+  font-size: 13px;
+}
 .advanced-filter-settings > summary {
   color: #536987;
   font-size: 13px;
@@ -2750,6 +2801,19 @@ svg {
   grid-template-columns: minmax(0, 1fr);
 }
 @media (max-width: 620px) {
+  .filter-action-bar {
+    position: static;
+    padding: 12px;
+  }
+  .filter-action-controls,
+  .filter-action-controls .button,
+  .filter-template-name,
+  .filter-template-name input {
+    width: 100%;
+  }
+  .filter-template-name {
+    margin-left: 0;
+  }
   .simple-filter-advanced {
     align-items: flex-start;
     flex-wrap: wrap;
