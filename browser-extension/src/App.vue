@@ -42,6 +42,7 @@ const detail = ref<RecordEntry | null>(null),
   configText = ref(JSON.stringify(defaults(), null, 2));
 const filterText = ref("{}"),
   filterValid = ref(true),
+  filterFeedback = ref(""),
   templateName = ref(""),
   templates = ref<Record<string, Filter>>({ ...presets }),
   template = ref("全量");
@@ -122,6 +123,32 @@ const activeTask = computed(
       scan.value.state,
     ),
 );
+const filterDirty = computed(() => {
+  try {
+    return (
+      JSON.stringify(JSON.parse(filterText.value)) !==
+      JSON.stringify(scan.value?.config.filter ?? {})
+    );
+  } catch {
+    return true;
+  }
+});
+const filterActionText = computed(() => {
+  if (!filterValid.value) return "规则有错误，修正后才能预览、保存或应用。";
+  if (filterFeedback.value) return filterFeedback.value;
+  if (!scan.value) return "尚未选择任务；可以先保存为模板，之后从本页载入。";
+  if (!activeTask.value)
+    return "当前任务已经结束，不能再改变其采集结果；可以保存为模板。";
+  return filterDirty.value
+    ? "修改尚未应用。应用后只影响之后收到的请求。"
+    : "当前任务正在使用这条规则。";
+});
+const filterActionWarning = computed(
+  () => !filterValid.value || (!filterFeedback.value && !activeTask.value),
+);
+watch(filterText, () => {
+  filterFeedback.value = "";
+});
 const canStart = computed(
   () => !current.value || current.value.state === "ended",
 );
@@ -532,7 +559,14 @@ async function apply() {
   c.filter = JSON.parse(filterText.value);
   validateConfig(c);
   await rpc("update", { id: scanId.value, config: c });
-  notice.value = "新配置已生效；已接收请求继续使用原版本。";
+  if (current.value?.id === scanId.value)
+    current.value = { ...current.value, config: c };
+  history.value = history.value.map((item) =>
+    item.id === scanId.value ? { ...item, config: c } : item,
+  );
+  filterFeedback.value =
+    "已应用到当前任务，只影响之后收到的请求；已经保存的记录不会改变。";
+  notice.value = filterFeedback.value;
 }
 async function saveTemplate() {
   const f = JSON.parse(filterText.value);
@@ -541,7 +575,8 @@ async function saveTemplate() {
   templates.value[templateName.value.trim()] = f;
   await chrome.storage.local.set({ filter_templates: templates.value });
   template.value = templateName.value.trim();
-  notice.value = "模板已保存";
+  filterFeedback.value = `模板“${templateName.value.trim()}”已保存，可在其他任务中从本页载入。`;
+  notice.value = filterFeedback.value;
 }
 async function removeTemplate() {
   delete templates.value[template.value];
@@ -572,7 +607,8 @@ async function preview() {
   validateFilter(f);
   const stats = { matched: 0, excluded: 0, unknown: 0 };
   rows.value.forEach((r) => stats[matchFilter(f, r, true)]++);
-  notice.value = `本页已脱敏记录预览：命中 ${stats.matched}，排除 ${stats.excluded}，无法判定 ${stats.unknown}；原始值规则可能与实采不同。`;
+  filterFeedback.value = `当前列表预览：命中 ${stats.matched}，排除 ${stats.excluded}，无法判定 ${stats.unknown}。`;
+  notice.value = `${filterFeedback.value} 原始值规则可能与实采不同。`;
 }
 async function authorize() {
   const c = JSON.parse(configText.value);
@@ -891,7 +927,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.1</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.2</span>
         </div>
       </div>
     </aside>
@@ -1672,6 +1708,60 @@ onUnmounted(() => {
               v-model="filterText"
               @validity="filterValid = $event"
             />
+            <div class="filter-action-bar" aria-label="过滤规则操作">
+              <p
+                class="filter-action-status"
+                :class="{ warning: filterActionWarning }"
+                aria-live="polite"
+              >
+                <Icon
+                  :name="
+                    filterFeedback || (filterValid && activeTask)
+                      ? 'check'
+                      : 'alert'
+                  "
+                  :size="15"
+                />{{ filterActionText }}
+              </p>
+              <div class="filter-action-controls">
+                <button
+                  class="button"
+                  :disabled="busy || !filterValid"
+                  @click="run(preview)"
+                >
+                  <Icon name="search" :size="15" />预览当前列表
+                </button>
+                <label class="filter-template-name">
+                  <span>模板名称</span>
+                  <input
+                    v-model="templateName"
+                    placeholder="例如：订单接口"
+                    aria-label="模板名称"
+                    @keydown.enter.prevent="
+                      filterValid && templateName.trim()
+                        ? run(saveTemplate)
+                        : undefined
+                    "
+                  />
+                </label>
+                <button
+                  class="button"
+                  :disabled="busy || !filterValid || !templateName.trim()"
+                  @click="run(saveTemplate)"
+                >
+                  保存为模板
+                </button>
+                <button
+                  class="button primary"
+                  :disabled="
+                    !activeTask || busy || !filterValid || !filterDirty
+                  "
+                  @click="run(apply)"
+                >
+                  应用到当前任务
+                </button>
+              </div>
+            </div>
             <details class="advanced-filter-settings">
               <summary>高级规则与模板</summary>
               <p class="field-note">
@@ -1796,21 +1886,6 @@ onUnmounted(() => {
                 ></textarea>
               </details>
             </details>
-            <div class="panel-footer">
-              <button
-                class="button"
-                :disabled="!filterValid"
-                @click="run(preview)"
-              >
-                <Icon name="search" :size="15" />预览本页结果</button
-              ><button
-                class="button primary"
-                :disabled="!activeTask || busy || !filterValid"
-                @click="run(apply)"
-              >
-                应用到采集任务
-              </button>
-            </div>
           </div>
           <div class="panel">
             <div class="panel-heading">
@@ -1820,13 +1895,7 @@ onUnmounted(() => {
               </div>
             </div>
             <div class="template-bar">
-              <input
-                v-model="templateName"
-                placeholder="新模板 / 复制后的名称"
-                aria-label="模板名称"
-              /><button class="button" @click="run(saveTemplate)">
-                保存模板</button
-              ><button class="button" @click="run(exportTemplates)">
+              <button class="button" @click="run(exportTemplates)">
                 <Icon name="download" :size="15" />导出模板</button
               ><label class="button file-import"
                 ><Icon name="plus" :size="15" />导入模板<input

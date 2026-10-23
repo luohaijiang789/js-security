@@ -40,6 +40,7 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
       storage: Record<string, unknown> = {};
     w.downloads = [];
     w.messages = [];
+    w.localStorageState = storage;
     w.activeScan = JSON.parse(
       sessionStorage.getItem("fixtureActiveScan") ?? "null",
     );
@@ -111,6 +112,32 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
           }
           if (message.type === "stop" && w.activeScan)
             w.activeScan.state = "ended";
+          if (message.type === "update" && w.activeScan) {
+            const config = JSON.parse(JSON.stringify(message.config));
+            w.activeScan = {
+              ...w.activeScan,
+              config,
+              versions: [
+                ...w.activeScan.versions,
+                {
+                  version: w.activeScan.versions.length + 1,
+                  effective_at: new Date().toISOString(),
+                  config,
+                },
+              ],
+            };
+            const db = await new Promise<IDBDatabase>((resolve, reject) => {
+              const r = indexedDB.open("js-security-recorder");
+              r.onsuccess = () => resolve(r.result);
+              r.onerror = () => reject(r.error);
+            });
+            const tx = db.transaction("scans", "readwrite");
+            tx.objectStore("scans").put(w.activeScan);
+            await new Promise<void>((resolve, reject) => {
+              tx.oncomplete = () => resolve();
+              tx.onerror = () => reject(tx.error);
+            });
+          }
           return { ok: true, result: true };
         },
       },
@@ -406,6 +433,14 @@ it("单条 JSONL 与完整 ZIP 导出包含实际已保存记录", async () => {
 it("默认全局采集无需选择页面，Filter正确传递且非法配置有明确反馈", async () => {
   const { context, page, errors } = await openWorkspace();
   try {
+    await page.getByRole("button", { name: "过滤规则", exact: true }).click();
+    const inactiveActions = page.getByLabel("过滤规则操作");
+    await inactiveActions.getByText(/当前任务已经结束/).waitFor();
+    expect(
+      await inactiveActions
+        .getByRole("button", { name: "应用到当前任务", exact: true })
+        .isDisabled(),
+    ).toBe(true);
     await page
       .getByRole("button", { name: "新建采集任务", exact: true })
       .first()
@@ -514,35 +549,90 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
         .locator("option")
         .allTextContents(),
     ).toEqual(["一个条件", "以下条件全部满足", "以下条件任一满足"]);
+    const filterActions = page.getByLabel("过滤规则操作");
+    await filterActions
+      .getByText("修改尚未应用。应用后只影响之后收到的请求。", {
+        exact: true,
+      })
+      .waitFor();
+    const applyButton = filterActions.getByRole("button", {
+      name: "应用到当前任务",
+      exact: true,
+    });
+    expect(await applyButton.isDisabled()).toBe(false);
+    await applyButton.click();
+    await page
+      .getByRole("status")
+      .getByText(/已应用到当前任务/)
+      .waitFor();
+    const updateMessage = await page.evaluate(() =>
+      (window as any).messages.findLast((m: any) => m.type === "update"),
+    );
+    expect(updateMessage.config.filter.scope).toEqual({
+      field: "page_url",
+      operator: "contains",
+      values: [""],
+    });
+    expect(await applyButton.isDisabled()).toBe(true);
+    await filterActions.getByLabel("模板名称").fill("订单接口");
+    const saveTemplate = filterActions.getByRole("button", {
+      name: "保存为模板",
+      exact: true,
+    });
+    expect(await saveTemplate.isDisabled()).toBe(false);
+    await saveTemplate.click();
+    await page
+      .getByRole("status")
+      .getByText(/模板“订单接口”已保存/)
+      .waitFor();
+    expect(
+      await page.evaluate(
+        () => (window as any).localStorageState.filter_templates["订单接口"],
+      ),
+    ).toEqual(updateMessage.config.filter);
+    await filterActions
+      .getByRole("button", { name: "预览当前列表", exact: true })
+      .click();
+    await page
+      .getByRole("status")
+      .getByText(/命中 \d+，排除 \d+，无法判定 \d+/)
+      .waitFor();
     await page.screenshot({
       path: "work/redesign/filter-natural-language.png",
       fullPage: false,
     });
     await advancedFilter.locator("details.technical-details > summary").click();
+    const filterJson = page.getByLabel("过滤规则 JSON");
+    await filterJson.scrollIntoViewIfNeeded();
+    const stickyActions = await filterActions.boundingBox();
+    expect(stickyActions).not.toBeNull();
+    expect(stickyActions!.y).toBeGreaterThanOrEqual(69);
+    expect(stickyActions!.y + stickyActions!.height).toBeLessThan(1000);
     const legacyNot = JSON.stringify({
       exclude: {
         op: "not",
         rules: [{ field: "method", operator: "equals", values: ["GET"] }],
       },
     });
-    await page.getByLabel("过滤规则 JSON").fill(legacyNot);
+    await filterJson.fill(legacyNot);
     await advancedFilter
       .getByText("这条旧版高级规则不适合可视化编辑", { exact: true })
       .waitFor();
     expect(await advancedFilter.locator(".visual-filter").count()).toBe(0);
-    expect(await page.getByLabel("过滤规则 JSON").inputValue()).toBe(legacyNot);
-    await page
-      .getByLabel("过滤规则 JSON")
-      .fill('{"include":{"field":"domain","operator":"regex","values":["["]}}');
+    expect(await filterJson.inputValue()).toBe(legacyNot);
+    await filterJson.fill(
+      '{"include":{"field":"domain","operator":"regex","values":["["]}}',
+    );
     expect(
       await page
-        .getByRole("button", { name: "预览本页结果", exact: true })
+        .getByRole("button", { name: "预览当前列表", exact: true })
         .isDisabled(),
     ).toBe(true);
-    await page.getByLabel("过滤规则 JSON").fill("null");
+    expect(await saveTemplate.isDisabled()).toBe(true);
+    await filterJson.fill("null");
     expect(
       await page
-        .getByRole("button", { name: "应用到采集任务", exact: true })
+        .getByRole("button", { name: "应用到当前任务", exact: true })
         .isDisabled(),
     ).toBe(true);
     expect(errors).toEqual([]);
