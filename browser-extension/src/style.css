@@ -2647,6 +2647,72 @@ svg {
 .new-task-filter {
   margin-top: 22px;
 }
+.field-selector {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid #e1e8f2;
+  border-radius: 9px;
+  background: #fbfcff;
+}
+.field-selector-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 13px;
+}
+.field-selector legend {
+  padding: 0;
+  color: #273b59;
+  font-size: 14px;
+  font-weight: 650;
+}
+.field-selector-heading p {
+  margin-top: 4px;
+  color: #6f7f96;
+  font-size: 12px;
+  line-height: 1.6;
+}
+.field-selector-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.field-selector-grid label {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px;
+  border: 1px solid #e5ebf4;
+  border-radius: 7px;
+  background: white;
+  cursor: pointer;
+}
+.field-selector-grid input {
+  width: 15px;
+  height: 15px;
+  margin: 2px 0 0;
+}
+.field-selector-grid span,
+.field-selector-grid strong,
+.field-selector-grid small {
+  display: block;
+}
+.field-selector-grid strong {
+  color: #334a6b;
+  font-size: 12px;
+}
+.field-selector-grid small {
+  margin-top: 3px;
+  color: #78879c;
+  font-size: 11px;
+  line-height: 1.45;
+}
+@media (max-width: 620px) {
+  .field-selector-grid {
+    grid-template-columns: 1fr;
+  }
+}
 .new-task-filter .section-heading {
   margin-bottom: 10px;
 }

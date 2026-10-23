@@ -516,6 +516,45 @@ describe("任务关联、持久化与导出", () => {
     expect(active).toContain("secret");
     expect(active).toContain("Authorization");
   });
+  it("未勾选的大字段在持久化前移除且不登记采集缺口", async () => {
+    await r.update({
+      ...r.scan!.config,
+      saved_fields: ["query_params"],
+    });
+    await r.event(
+      { tabId: 1 },
+      "Network.requestWillBeSent",
+      event("selected-fields", {
+        initiator: { type: "script", url: "https://page.test/app.js" },
+        request: {
+          url: "https://a.test/p?q=kept",
+          method: "POST",
+          hasPostData: true,
+          postData: '{"large":"removed"}',
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: "removed",
+          },
+        },
+      }),
+    );
+    await r.event({ tabId: 1 }, "Network.loadingFinished", {
+      requestId: "selected-fields",
+    });
+    await r.tail;
+    await r.flush();
+    const saved = (await db.page(r.scan!.id)).find(
+      (item) => item.cdp_request_id === "selected-fields",
+    )!;
+    expect(saved.query_params).toEqual([{ name: "q", value: "kept" }]);
+    expect(saved.request_headers).toEqual([]);
+    expect(saved.request_body.parsed).toBeNull();
+    expect(saved.page_url).toBeNull();
+    expect(saved.initiator).toBeUndefined();
+    expect(saved.initiator_stack).toBeNull();
+    expect(await db.all("initiator_nodes", r.scan!.id)).toEqual([]);
+    expect(r.scan!.gaps).toEqual([]);
+  });
   it("完整保留任务忽略字段值和正文截断上限", async () => {
     const config = {
       ...r.scan!.config,

@@ -18,6 +18,8 @@ export type Config = {
   retention: "matching" | "all";
   /** Missing on legacy tasks means truncate. */
   value_storage?: "complete" | "truncate";
+  /** Missing on legacy tasks means every optional field. */
+  saved_fields?: string[];
   merge: "none" | "exact" | "normalized" | "representative";
   dynamic_query: string[];
   dynamic_json: string[];
@@ -47,6 +49,14 @@ export const defaults = (): Config => ({
   filter: {},
   retention: "matching",
   value_storage: "truncate",
+  saved_fields: [
+    "request_headers",
+    "query_params",
+    "request_body",
+    "page_context",
+    "initiator",
+    "initiator_stack",
+  ],
   merge: "normalized",
   dynamic_query: [],
   dynamic_json: [],

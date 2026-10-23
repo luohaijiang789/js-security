@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import SimpleFilter from "./SimpleFilter.vue";
+import FieldSelector from "./FieldSelector.vue";
 import Icon from "./Icon.vue";
 import RequestDetail from "./RequestDetail.vue";
 import {
@@ -855,7 +856,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.4</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.5</span>
         </div>
       </div>
     </aside>
@@ -1586,6 +1587,11 @@ onUnmounted(() => {
                   @change="(e) => setNumber('stop_wait_ms', e, 1000)"
               /></label>
             </div>
+            <FieldSelector
+              :model-value="configForm.saved_fields"
+              :disabled="busy || !activeTask || scan?.state === 'draining'"
+              @update:model-value="setConfig('saved_fields', $event)"
+            />
             <div class="toggle-row">
               <div>
                 <strong>归一化 UUID 路径段</strong>
@@ -2145,6 +2151,7 @@ onUnmounted(() => {
               @validity="draftFilterValid = $event"
             />
           </div>
+          <FieldSelector v-model="draftConfig.saved_fields" />
           <label class="archive-choice"
             ><input
               type="checkbox"
