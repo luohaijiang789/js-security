@@ -2,7 +2,7 @@ import "fake-indexeddb/auto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { defaults, type RecordEntry, type Rule } from "../src/model";
 import { evaluate, matchFilter, validateFilter } from "../src/filter";
-import { parseBody, protectRecord } from "../src/privacy";
+import { MAX_STRING_CHARS, parseBody, protectRecord } from "../src/privacy";
 import { fingerprint } from "../src/group";
 import { Recorder } from "../src/recorder";
 import { csvCell, packageFiles } from "../src/export";
@@ -214,7 +214,7 @@ describe("Filter 三值逻辑与输入验证", () => {
     expect(hits).toHaveProperty("exclude.0", 1);
   });
 });
-describe("脱敏、解析与归并", () => {
+describe("原值留存、截断、解析与归并", () => {
   it("深层 JSON 明确标记截断，避免宣称完整", () => {
     let value: unknown = "leaf";
     for (let i = 0; i < 40; i++) value = { child: value };
@@ -227,7 +227,7 @@ describe("脱敏、解析与归并", () => {
     expect(parsed.quality.state).toBe("partial");
     expect(parsed.truncated).toBe(true);
   });
-  it("保护 URL/认证/body，保留结构和重复 query", () => {
+  it("完整保留 URL 用户信息、认证字段、正文结构和重复 query", () => {
     const r = record({
       request_url: "https://user:pass@api.test/p?token=secret&x=1&x=2",
       request_headers: [{ name: "Cookie", value: "session=secret" }],
@@ -236,27 +236,94 @@ describe("脱敏、解析与归并", () => {
         parsed: { nested: [{ password: "secret" }], safe: "yes" },
       },
     });
-    const safe = protectRecord(r);
-    expect(JSON.stringify(safe)).not.toContain("secret");
-    expect(safe.request_body.parsed).toEqual({
-      nested: [{ password: "[REDACTED]" }],
+    const saved = protectRecord(r);
+    expect(saved.request_url).toContain("user:pass@");
+    expect(saved.request_url).toContain("token=secret");
+    expect(saved.request_headers[0].value).toBe("session=secret");
+    expect(saved.request_body.parsed).toEqual({
+      nested: [{ password: "secret" }],
       safe: "yes",
     });
-    expect(new URL(safe.request_url).searchParams.getAll("x")).toEqual([
+    expect(saved.protection).toMatchObject({
+      version: "retain-truncate-v1",
+      redacted: false,
+      truncated: false,
+    });
+    expect(new URL(saved.request_url).searchParams.getAll("x")).toEqual([
       "1",
       "2",
     ]);
   });
-  it("正文按 UTF-8 字节限额，不泄露文本或解析失败原值", () => {
+  it("仅截断超长字符串并保留首尾及原始长度", () => {
+    const long = `HEAD-${"x".repeat(MAX_STRING_CHARS)}-TAIL`;
+    const longName = `X-${"n".repeat(MAX_STRING_CHARS)}`;
+    const saved = protectRecord(
+      record({ request_headers: [{ name: longName, value: long }] }),
+    );
+    expect(saved.request_headers[0].name).toBe(longName);
+    const value = saved.request_headers[0].value;
+    expect(value.length).toBeLessThanOrEqual(MAX_STRING_CHARS);
+    expect(value).toMatch(/^HEAD-/);
+    expect(value).toMatch(/-TAIL$/);
+    expect(value).toContain(`原始 ${long.length} 字符`);
+    expect(saved.protection.truncated).toBe(true);
+    const url = protectRecord(
+      record({
+        request_url: `https://api.test/p?${encodeURIComponent(longName)}=${encodeURIComponent(long)}`,
+        query_params: [{ name: longName, value: long }],
+      }),
+    );
+    expect(url.query_params[0].name).toBe(longName);
+    expect(url.query_params[0].value).toContain("已截断");
+    expect([...new URL(url.request_url).searchParams][0][0]).toBe(longName);
+    expect([...new URL(url.request_url).searchParams][0][1]).toContain(
+      "已截断",
+    );
+    expect(url.protection.truncated).toBe(true);
+  });
+  it("完整保留模式不截断字段值或正文，字段名始终不变", () => {
+    const long = `HEAD-${"x".repeat(MAX_STRING_CHARS)}-TAIL`;
+    const saved = protectRecord(
+      record({ request_headers: [{ name: "Authorization", value: long }] }),
+      false,
+    );
+    expect(saved.request_headers).toEqual([
+      { name: "Authorization", value: long },
+    ]);
+    expect(saved.protection).toMatchObject({
+      version: "retain-complete-v1",
+      redacted: false,
+      truncated: false,
+    });
+    const body = parseBody(
+      JSON.stringify({ token: long }),
+      "application/json",
+      true,
+      20,
+      true,
+      false,
+    );
+    expect(body.quality.state).toBe("complete");
+    expect(body.body.parsed).toEqual({ token: long });
+    expect(body.truncated).toBe(false);
+  });
+  it("正文超出 UTF-8 字节限额时保留片段，文本与解析失败原值继续保存", () => {
+    const large = parseBody("中".repeat(10), "application/json", true, 20);
+    expect(large.quality.state).toBe("partial");
+    expect(large.body.representation).toBe("truncated");
+    expect(large.body.raw).toContain("已截断");
+    expect(new TextEncoder().encode(large.body.raw).length).toBeLessThanOrEqual(
+      20,
+    );
     expect(
-      parseBody("中".repeat(10), "application/json", true, 20).quality.state,
-    ).toBe("partial");
+      parseBody("{secret", "application/json", true, 100).quality,
+    ).toMatchObject({
+      state: "unparseable",
+      reason: "正文解析失败，已保留原始文本",
+    });
     expect(
-      parseBody("{secret", "application/json", true, 100).quality.state,
-    ).toBe("unparseable");
-    expect(
-      JSON.stringify(parseBody("plaintext-secret", "text/plain", true, 100)),
-    ).not.toContain("plaintext-secret");
+      parseBody("plaintext-secret", "text/plain", true, 100).quality.state,
+    ).toBe("complete");
   });
   it("无 body、未知 body 与空 JSON 分开", () => {
     expect(parseBody(undefined, "", false, 100).quality.state).toBe("complete");
@@ -322,16 +389,29 @@ describe("脱敏、解析与归并", () => {
       (await fingerprint(make([2, 1]), c)).id,
     );
   });
-  it("脱敏后只能标候选分组", async () => {
+  it("历史脱敏值只能标候选分组，新采集完整值可精确分组", async () => {
     const c = defaults();
+    const completeHeaders = { state: "complete" as const };
+    const retained = record({
+      request_headers: [{ name: "Authorization", value: "secret" }],
+      capture_status: {
+        ...record().capture_status,
+        headers: completeHeaders,
+      },
+    });
+    expect((await fingerprint(protectRecord(retained), c)).candidate).toBe(
+      false,
+    );
     expect(
       (
         await fingerprint(
-          protectRecord(
-            record({
-              request_headers: [{ name: "Authorization", value: "secret" }],
-            }),
-          ),
+          record({
+            request_headers: [{ name: "Authorization", value: "[REDACTED]" }],
+            capture_status: {
+              ...record().capture_status,
+              headers: completeHeaders,
+            },
+          }),
           c,
         )
       ).candidate,
@@ -414,7 +494,7 @@ describe("任务关联、持久化与导出", () => {
     expect(records[0].status_code).toBe(302);
     expect(records[0].request_state).toBe("redirect");
   });
-  it("在途快照不保留未经保护的原值", async () => {
+  it("在途快照保留浏览器可观测原值", async () => {
     await r.event(
       { tabId: 1 },
       "Network.requestWillBeSent",
@@ -432,9 +512,54 @@ describe("任务关联、持久化与导出", () => {
       }),
     );
     await r.flush();
-    expect(JSON.stringify(await db.all("active", r.scan!.id))).not.toContain(
-      "secret",
+    const active = JSON.stringify(await db.all("active", r.scan!.id));
+    expect(active).toContain("secret");
+    expect(active).toContain("Authorization");
+  });
+  it("完整保留任务忽略字段值和正文截断上限", async () => {
+    const config = {
+      ...r.scan!.config,
+      value_storage: "complete" as const,
+      body_limit: 1024,
+    };
+    await r.update(config);
+    const long = `HEAD-${"x".repeat(MAX_STRING_CHARS)}-TAIL`;
+    const raw = JSON.stringify({ token: long });
+    await r.event(
+      { tabId: 1 },
+      "Network.requestWillBeSent",
+      event("complete-values", {
+        request: {
+          url: `https://a.test/p?token=${long}`,
+          method: "POST",
+          hasPostData: true,
+          postData: raw,
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: long,
+          },
+        },
+      }),
     );
+    await r.event({ tabId: 1 }, "Network.loadingFinished", {
+      requestId: "complete-values",
+    });
+    await r.tail;
+    await r.flush();
+    const saved = (await db.page(r.scan!.id)).find(
+      (item) => item.cdp_request_id === "complete-values",
+    )!;
+    expect(
+      saved.request_headers.find((item) => item.name === "Authorization")
+        ?.value,
+    ).toBe(long);
+    expect(saved.request_body.raw).toBe(raw);
+    expect(saved.request_body.parsed).toEqual({ token: long });
+    expect(saved.protection).toMatchObject({
+      version: "retain-complete-v1",
+      redacted: false,
+      truncated: false,
+    });
   });
   it("不同会话/重定向身份独立，终态后原始记录保留", async () => {
     await r.event({ tabId: 1 }, "Network.requestWillBeSent", event("id"));

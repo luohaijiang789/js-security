@@ -1,55 +1,134 @@
 import type { Pair, RecordEntry } from "./model";
+
+/** Kept for reading historical records created by sensitive-v1. */
 export const REDACTED = "[REDACTED]";
-const sensitive =
-  /(cookie|authorization|token|secret|password|passwd|credential|api[-_]?key|session|cna|account[-_]?id|tenant[-_]?id|^uid$)/i;
+export const MAX_STRING_CHARS = 64 * 1024;
+
+function marker(original: number, unit: "字符" | "字节") {
+  return `\n…[已截断，原始 ${original} ${unit}]…\n`;
+}
+
+export function truncateString(value: string, limit = MAX_STRING_CHARS) {
+  if (value.length <= limit) return value;
+  const note = marker(value.length, "字符");
+  const available = Math.max(0, limit - note.length);
+  const head = Math.ceil(available * 0.75);
+  return (
+    value.slice(0, head) + note + value.slice(value.length - (available - head))
+  );
+}
+
+function truncateUtf8(value: string, limit: number) {
+  const encoder = new TextEncoder();
+  const prefix = (input: string, budget: number) => {
+    let result = "";
+    let used = 0;
+    for (const character of input) {
+      const size = encoder.encode(character).length;
+      if (used + size > budget) break;
+      result += character;
+      used += size;
+    }
+    return result;
+  };
+  const originalBytes = encoder.encode(value).length;
+  if (originalBytes <= limit) return value;
+  const note = marker(originalBytes, "字节");
+  const noteBytes = encoder.encode(note).length;
+  if (limit <= noteBytes) return prefix(note, limit);
+  const budget = limit - noteBytes;
+  const headBudget = Math.ceil(budget * 0.75);
+  const tailBudget = budget - headBudget;
+  let head = "";
+  let headBytes = 0;
+  for (const character of value) {
+    const size = encoder.encode(character).length;
+    if (headBytes + size > headBudget) break;
+    head += character;
+    headBytes += size;
+  }
+  let tail = "";
+  let tailBytes = 0;
+  for (const character of [...value].reverse()) {
+    const size = encoder.encode(character).length;
+    if (tailBytes + size > tailBudget) break;
+    tail = character + tail;
+    tailBytes += size;
+  }
+  return head + note + tail;
+}
+
 function limitDepth(value: unknown, depth = 0): unknown {
   if (depth > 32) return "[DEPTH_LIMIT]";
-  if (Array.isArray(value)) return value.map((x) => limitDepth(x, depth + 1));
+  if (Array.isArray(value))
+    return value.map((item) => limitDepth(item, depth + 1));
   if (value && typeof value === "object")
     return Object.fromEntries(
-      Object.entries(value).map(([k, v]) => [k, limitDepth(v, depth + 1)]),
+      Object.entries(value).map(([key, item]) => [
+        key,
+        limitDepth(item, depth + 1),
+      ]),
     );
   return value;
 }
-export function protectValue(v: unknown, depth = 0): unknown {
+
+export function protectValue(value: unknown, depth = 0): unknown {
   if (depth > 32) return "[DEPTH_LIMIT]";
-  if (Array.isArray(v)) return v.map((x) => protectValue(x, depth + 1));
-  if (v && typeof v === "object")
+  if (typeof value === "string") return truncateString(value);
+  if (Array.isArray(value))
+    return value.map((item) => protectValue(item, depth + 1));
+  if (value && typeof value === "object")
     return Object.fromEntries(
-      Object.entries(v).map(([k, x]) => [
-        k,
-        sensitive.test(k) ? REDACTED : protectValue(x, depth + 1),
+      Object.entries(value).map(([key, item]) => [
+        key,
+        protectValue(item, depth + 1),
       ]),
     );
-  return v;
+  return value;
 }
-export function protectPairs(p: Pair[]): Pair[] {
-  return p.map((x) => ({
-    ...x,
-    value: sensitive.test(x.name) ? REDACTED : x.value,
+
+function truncateValue(value: unknown): unknown {
+  if (typeof value === "string") return truncateString(value);
+  if (Array.isArray(value)) return value.map(truncateValue);
+  if (value && typeof value === "object")
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, truncateValue(item)]),
+    );
+  return value;
+}
+
+export function protectPairs(pairs: Pair[]): Pair[] {
+  return pairs.map((pair) => ({
+    name: pair.name,
+    value: truncateString(pair.value),
   }));
 }
-export function safeURL(s: string): string {
+
+export function safeURL(value: string, truncate = true): string {
+  if (!truncate || value.length <= MAX_STRING_CHARS) return value;
   try {
-    const u = new URL(s);
-    u.username = "";
-    u.password = "";
-    u.hash = "";
-    const pairs = [...u.searchParams];
-    u.search = "";
-    for (const [k, v] of pairs)
-      u.searchParams.append(k, sensitive.test(k) ? REDACTED : v);
-    return u.href;
+    const url = new URL(value);
+    url.username = truncateString(url.username);
+    url.password = truncateString(url.password);
+    url.pathname = truncateString(url.pathname);
+    url.hash = url.hash ? `#${truncateString(url.hash.slice(1))}` : "";
+    const pairs = [...url.searchParams];
+    url.search = "";
+    for (const [name, item] of pairs)
+      url.searchParams.append(name, truncateString(item));
+    return url.href;
   } catch {
-    return "[INVALID_URL]";
+    return truncateString(value);
   }
 }
+
 export function parseBody(
   raw: string | undefined,
   contentType: string,
   hasBody: boolean,
   limit: number,
   protect = true,
+  truncate = true,
 ): {
   body: RecordEntry["request_body"];
   quality: RecordEntry["capture_status"]["body"];
@@ -63,25 +142,31 @@ export function parseBody(
         : { state: "complete", reason: "未报告正文" },
       truncated: false,
     };
-  if (new TextEncoder().encode(raw).length > limit)
+  const bytes = new TextEncoder().encode(raw).length;
+  if (truncate && bytes > limit) {
+    const partial = truncateUtf8(raw, limit);
     return {
-      body: { representation: "omitted", parsed: null },
-      quality: { state: "partial", reason: "正文超过字节上限，未持久化原值" },
+      body: { representation: "truncated", parsed: null, raw: partial },
+      quality: {
+        state: "partial",
+        reason: `正文超过 ${limit} 字节上限，已保留首尾片段（原始 ${bytes} 字节）`,
+      },
       truncated: true,
     };
+  }
   try {
     if (contentType.includes("json")) {
-      const limited = limitDepth(JSON.parse(raw));
-      const truncated = JSON.stringify(limited).includes("[DEPTH_LIMIT]");
+      const decoded = JSON.parse(raw);
+      const limited = truncate ? limitDepth(decoded) : decoded;
+      const parsed = protect && truncate ? protectValue(limited) : limited;
+      const depthTruncated =
+        truncate && JSON.stringify(parsed).includes("[DEPTH_LIMIT]");
       return {
-        body: {
-          representation: "json",
-          parsed: protect ? protectValue(limited) : limited,
-        },
-        quality: truncated
+        body: { representation: "json", parsed },
+        quality: depthTruncated
           ? { state: "partial", reason: "JSON 解析深度超过 32 层" }
           : { state: "complete" },
-        truncated,
+        truncated: depthTruncated,
       };
     }
     if (contentType.includes("application/x-www-form-urlencoded")) {
@@ -92,7 +177,7 @@ export function parseBody(
       return {
         body: {
           representation: "form",
-          parsed: protect ? protectPairs(pairs) : pairs,
+          parsed: protect && truncate ? protectPairs(pairs) : pairs,
         },
         quality: { state: "complete" },
         truncated: false,
@@ -105,43 +190,79 @@ export function parseBody(
           : "text",
         parsed: null,
       },
-      quality: {
-        state: "unsupported",
-        reason: "不持久化未结构化文本、二进制或文件原值",
-      },
+      quality: { state: "complete" },
       truncated: false,
     };
   } catch {
     return {
       body: { representation: "unparseable", parsed: null },
-      quality: { state: "unparseable", reason: "正文解析失败，未持久化原值" },
+      quality: { state: "unparseable", reason: "正文解析失败，已保留原始文本" },
       truncated: false,
     };
   }
 }
-export function protectRecord(record: RecordEntry): RecordEntry {
-  const r = structuredClone(record);
-  r.request_url = safeURL(r.request_url);
-  r.page_url = r.page_url ? safeURL(r.page_url) : null;
-  r.referer = r.referer ? safeURL(r.referer) : null;
-  r.initiator_url = r.initiator_url ? safeURL(r.initiator_url) : null;
-  r.initiator_stack = stackFrames(r.initiator_stack);
-  if (r.initiator?.url) r.initiator.url = safeURL(r.initiator.url);
-  r.request_headers = protectPairs(
-    r.request_headers.map((p) => ({
-      ...p,
-      value: /^(referer|origin)$/i.test(p.name) ? safeURL(p.value) : p.value,
-    })),
+
+export function protectRecord(
+  record: RecordEntry,
+  truncate = true,
+): RecordEntry {
+  const normalized = structuredClone(record);
+  normalized.request_url = safeURL(record.request_url, truncate);
+  normalized.page_url = record.page_url
+    ? safeURL(record.page_url, truncate)
+    : null;
+  normalized.referer = record.referer
+    ? safeURL(record.referer, truncate)
+    : null;
+  normalized.initiator_url = record.initiator_url
+    ? safeURL(record.initiator_url, truncate)
+    : null;
+  if (normalized.initiator?.url)
+    normalized.initiator.url = safeURL(normalized.initiator.url, truncate);
+  normalized.initiator_stack = stackFrames(
+    record.initiator_stack,
+    0,
+    new Set(),
+    truncate,
   );
-  r.query_params = protectPairs(r.query_params);
-  r.request_body.parsed =
-    r.request_body.representation === "form"
-      ? protectPairs((r.request_body.parsed ?? []) as Pair[])
-      : protectValue(r.request_body.parsed);
-  delete r.request_body.raw;
-  r.protection.redacted = JSON.stringify(r) !== JSON.stringify(record);
-  return r;
+  const before = JSON.stringify(normalized);
+  const markedTruncated = before.includes("[已截断，原始 ");
+  const retained = (
+    truncate ? truncateValue(normalized) : normalized
+  ) as RecordEntry;
+  if (truncate) {
+    retained.request_url = normalized.request_url;
+    retained.page_url = normalized.page_url;
+    retained.referer = normalized.referer;
+    retained.initiator_url = normalized.initiator_url;
+    if (retained.initiator && normalized.initiator)
+      retained.initiator.url = normalized.initiator.url;
+    retained.initiator_stack = normalized.initiator_stack;
+    retained.request_headers.forEach((pair, index) => {
+      pair.name = normalized.request_headers[index].name;
+    });
+    retained.query_params.forEach((pair, index) => {
+      pair.name = normalized.query_params[index].name;
+    });
+    if (
+      retained.request_body.representation === "form" &&
+      Array.isArray(retained.request_body.parsed) &&
+      Array.isArray(normalized.request_body.parsed)
+    )
+      (retained.request_body.parsed as Pair[]).forEach((pair, index) => {
+        pair.name = (normalized.request_body.parsed as Pair[])[index].name;
+      });
+  }
+  const valueTruncated = before !== JSON.stringify(retained);
+  retained.protection.version = truncate
+    ? "retain-truncate-v1"
+    : "retain-complete-v1";
+  retained.protection.redacted = false;
+  retained.protection.truncated =
+    retained.protection.truncated || valueTruncated || markedTruncated;
+  return retained;
 }
+
 export type SavedStack = {
   callFrames: Array<{
     scriptId?: string;
@@ -155,10 +276,12 @@ export type SavedStack = {
   parentId: { id: string; debuggerId?: string } | null;
   truncated_reason?: string;
 };
+
 export function stackFrames(
   stack: any,
   depth = 0,
   seen = new Set<unknown>(),
+  truncate = true,
 ): SavedStack | null {
   if (!stack || typeof stack !== "object") return null;
   if (depth > 32 || seen.has(stack))
@@ -175,21 +298,28 @@ export function stackFrames(
   seen.add(stack);
   return {
     callFrames: (Array.isArray(stack.callFrames) ? stack.callFrames : [])
-      .filter((f: any) => f && typeof f === "object")
-      .map((f: any) => ({
-        scriptId: f.scriptId,
-        url: typeof f.url === "string" && f.url ? safeURL(f.url) : "",
-        functionName: f.functionName,
-        lineNumber: f.lineNumber,
-        columnNumber: f.columnNumber,
+      .filter((frame: any) => frame && typeof frame === "object")
+      .map((frame: any) => ({
+        scriptId: frame.scriptId,
+        url: typeof frame.url === "string" ? safeURL(frame.url, truncate) : "",
+        functionName:
+          truncate && typeof frame.functionName === "string"
+            ? truncateString(frame.functionName)
+            : frame.functionName,
+        lineNumber: frame.lineNumber,
+        columnNumber: frame.columnNumber,
       })),
     ...(typeof stack.description === "string"
-      ? { description: stack.description }
+      ? {
+          description: truncate
+            ? truncateString(stack.description)
+            : stack.description,
+        }
       : {}),
     ...(typeof stack.truncated_reason === "string"
       ? { truncated_reason: stack.truncated_reason }
       : {}),
-    parent: stackFrames(stack.parent, depth + 1, seen),
+    parent: stackFrames(stack.parent, depth + 1, seen, truncate),
     parentId:
       typeof stack.parentId?.id === "string"
         ? {

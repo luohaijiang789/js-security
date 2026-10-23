@@ -240,7 +240,7 @@ describe("Chrome 风格 Request initiator chain", () => {
     expect(graph.warning).toContain("父请求未被保留");
   });
 
-  it("静态父请求被 Filter 排除后仍用紧凑脱敏节点保留完整链", async () => {
+  it("静态父请求被 Filter 排除后仍用保留原始URL的紧凑节点维持完整链", async () => {
     await recorder.update({
       ...recorder.scan!.config,
       retention: "matching",
@@ -279,7 +279,7 @@ describe("Chrome 风格 Request initiator chain", () => {
     expect(graph.nodes).toEqual([
       expect.objectContaining({
         request_id: "",
-        request_url: "https://cdn.test/app.js?token=%5BREDACTED%5D",
+        request_url: "https://cdn.test/app.js?token=secret",
         current: false,
         depth: 0,
       }),
@@ -291,7 +291,7 @@ describe("Chrome 风格 Request initiator chain", () => {
     ]);
     expect(
       JSON.stringify(await db.all("initiator_nodes", recorder.scan!.id)),
-    ).not.toContain("secret");
+    ).toContain("token=secret");
   });
 
   it("没有紧凑节点的过渡记录仍按 initiator URL 补出不可点击父项", async () => {

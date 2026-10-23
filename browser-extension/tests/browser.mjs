@@ -257,7 +257,10 @@ try {
     "secret-pass",
     "plain-sensitive-value",
   ])
-    assert(!JSON.stringify(data).includes(value), `privacy leak ${value}`);
+    assert(
+      JSON.stringify(data).includes(value),
+      `missing retained value ${value}`,
+    );
   assert.equal(
     data.records.find((r) => r.pathname === "/large").capture_status.body.state,
     "partial",

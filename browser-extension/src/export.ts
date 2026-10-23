@@ -130,10 +130,18 @@ export async function packageFiles(
         shards: chunks,
         batches,
         lossy: scan.config.merge === "representative",
-        protection_version: "sensitive-v1",
+        protection_version:
+          scan.config.value_storage === "complete"
+            ? "retain-complete-v1"
+            : "retain-truncate-v1",
         limitations: [
           "响应正文不采集",
-          "未结构化正文不保存原值",
+          ...(scan.config.value_storage === "complete"
+            ? []
+            : [
+                "字段名完整保存；单个字段值超过 64K 字符时只保留首尾片段",
+                "请求正文超过任务字节上限时只保留首尾片段",
+              ]),
           "ZIP 导出内存上限 64 MB",
           "WebSocket 帧增强未实现",
           "调用栈与 Worker 覆盖依赖 Chrome 可观测性",

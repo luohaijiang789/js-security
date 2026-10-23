@@ -68,7 +68,7 @@ it("可选 gzip 压缩的接收方获得原始 JSON 批次及正确编码头", a
     "complete",
   );
 });
-it("文件必须确认完成，服务必须确认持久化；数据不包含敏感原值", async () => {
+it("文件必须确认完成，服务必须确认持久化并包含采集到的原始值", async () => {
   const payloads: string[] = [];
   vi.stubGlobal(
     "fetch",
@@ -90,7 +90,8 @@ it("文件必须确认完成，服务必须确认持久化；数据不包含敏�
   expect(file.state).toBe("downloading");
   await downloadChanged({ id: 11, state: { current: "complete" } });
   expect((await db.get<Batch>("batches", file.id))?.state).toBe("complete");
-  expect(payloads.join("")).not.toContain("secret");
+  expect(payloads.join("")).toContain("secret");
+  expect(payloads.join("")).toContain("Authorization");
   await transfer(recorder.scan!, true);
   expect(await db.all("batches", recorder.scan!.id)).toHaveLength(2);
 });

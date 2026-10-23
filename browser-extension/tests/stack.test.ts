@@ -32,7 +32,7 @@ describe("bounded CDP stack capture", () => {
     );
     const output = await capture.capture(root, { callFrames: [frame()] });
     expect(output.quality.state).toBe("complete");
-    expect(JSON.stringify(output.stack)).not.toContain("private");
+    expect(JSON.stringify(output.stack)).toContain("token=private");
   });
   it("resolves parent IDs in their same-tab debugger session and preserves Promise segments", async () => {
     const send = vi.fn(async (source: any, method: string) => {

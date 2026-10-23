@@ -83,8 +83,10 @@ const protectionText = computed(() =>
   !props.record?.protection
     ? "保护策略未知"
     : record.value?.protection.redacted
-      ? "已脱敏"
-      : "按保护策略保存",
+      ? "历史记录已脱敏"
+      : record.value?.protection.truncated
+        ? "超长内容已截断"
+        : "原始值已保留",
 );
 const refererText = computed(() =>
   record.value?.referer !== null
@@ -511,7 +513,7 @@ onUnmounted(() => window.removeEventListener("keydown", key));
             </button>
           </div>
           <p class="field-note">
-            这里包含所有已保存字段及采集状态，敏感值保留脱敏标记。
+            这里包含所有已保存字段及采集状态；字段名完整保存，字段值按任务选择完整保留或自动截断。
           </p>
           <pre class="raw-record">{{ pretty(props.record) }}</pre>
         </template>

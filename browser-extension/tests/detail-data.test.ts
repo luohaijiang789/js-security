@@ -86,7 +86,7 @@ describe("调用栈分段保存与展示", () => {
     lineNumber: 0,
     columnNumber: 7,
   };
-  it("保留Promise分段、重复匿名和库帧、父标识及脚本坐标，同时脱敏所有段URL", () => {
+  it("保留Promise分段、重复匿名、库帧、父标识、脚本坐标和完整URL", () => {
     const saved = stackFrames({
       callFrames: [frame, frame],
       parent: {
@@ -107,7 +107,7 @@ describe("调用栈分段保存与展示", () => {
       lineNumber: 0,
       columnNumber: 7,
     });
-    expect(JSON.stringify(saved)).not.toContain("secret");
+    expect(JSON.stringify(saved)).toContain("token=secret");
     expect(saved.parent?.callFrames[0].url).toContain("v=2");
     const segments = stackSegments(saved);
     expect(segments.map((s) => s.description)).toEqual([
@@ -119,15 +119,15 @@ describe("调用栈分段保存与展示", () => {
     expect(frames(saved)[0].scriptId).toBe("42");
     expect(frameLocation(frames(saved)[0])).toContain(":1:8");
   });
-  it("protectRecord也保护后来解析的父栈，且不修改原对象", () => {
+  it("protectRecord保留后来解析父栈的原始URL，且不修改原对象", () => {
     const source = entry("stack-safe", "request", 1, {
       initiator_stack: {
         callFrames: [],
         parent: { description: "setTimeout", callFrames: [frame] },
       },
     });
-    expect(JSON.stringify(protectRecord(source).initiator_stack)).not.toContain(
-      "secret",
+    expect(JSON.stringify(protectRecord(source).initiator_stack)).toContain(
+      "token=secret",
     );
     expect(JSON.stringify(source.initiator_stack)).toContain("secret");
   });
