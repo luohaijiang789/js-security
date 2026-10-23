@@ -6,7 +6,7 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { Recorder } from "../src/recorder";
 import { defaults } from "../src/model";
 import * as db from "../src/store";
-it("真实 Chromium CDP：受控请求、重定向、脱敏、在途停止和标签页隔离", async () => {
+it("真实 Chromium CDP：受控请求、重定向、原值留存、在途停止和标签页隔离", async () => {
   const received: { url: string; method: string }[] = [];
   const server = createServer(async (req, res) => {
     for await (const _ of req) {
@@ -155,7 +155,7 @@ it("真实 Chromium CDP：受控请求、重定向、脱敏、在途停止和标
       "secret-pass",
       "plain-sensitive-value",
     ])
-      expect(JSON.stringify(rows)).not.toContain(secret);
+      expect(JSON.stringify(rows)).toContain(secret);
     expect(
       rows.find((r) => r.pathname === "/large")?.capture_status.body.state,
     ).toBe("partial");

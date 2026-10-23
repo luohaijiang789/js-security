@@ -344,9 +344,7 @@ export async function queryInitiatorGraph(
             url: child.initiator_url,
             edge,
           };
-          warnings.push(
-            "父请求未被保留，已按脱敏后的 Initiator URL 补充一层。",
-          );
+          warnings.push("父请求未被保留，已按保存的 Initiator URL 补充一层。");
           break;
         }
         if (!parent || parent.scan_id !== current.scan_id) {

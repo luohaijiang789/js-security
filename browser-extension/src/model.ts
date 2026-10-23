@@ -16,6 +16,8 @@ export type Filter = { scope?: Rule; include?: Rule; exclude?: Rule };
 export type Config = {
   filter: Filter;
   retention: "matching" | "all";
+  /** Missing on legacy tasks means truncate. */
+  value_storage?: "complete" | "truncate";
   merge: "none" | "exact" | "normalized" | "representative";
   dynamic_query: string[];
   dynamic_json: string[];
@@ -44,6 +46,7 @@ export type Config = {
 export const defaults = (): Config => ({
   filter: {},
   retention: "matching",
+  value_storage: "truncate",
   merge: "normalized",
   dynamic_query: [],
   dynamic_json: [],

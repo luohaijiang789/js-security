@@ -70,13 +70,16 @@ export class Recorder {
       started_at: time,
       heartbeat: time,
       tab_scope: tabScope,
-      tabs: tabs.map((t) => ({ ...t, url: safeURL(t.url) })),
+      tabs: tabs.map((tab) => ({
+        ...tab,
+        url: safeURL(tab.url, config.value_storage !== "complete"),
+      })),
       config: structuredClone(config),
       versions: [
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.3.3",
+      plugin: "0.3.4",
       stats: {
         observed: 0,
         pending: 0,
@@ -108,8 +111,9 @@ export class Recorder {
   includeTab(tab: { id: number; url: string }) {
     if (!this.scan) return;
     const previous = this.scan.tabs.find((t) => t.id === tab.id);
-    if (previous) previous.url = safeURL(tab.url);
-    else this.scan.tabs.push({ id: tab.id, url: safeURL(tab.url) });
+    const url = safeURL(tab.url, this.scan.config.value_storage !== "complete");
+    if (previous) previous.url = url;
+    else this.scan.tabs.push({ id: tab.id, url });
     this.unavailableTabs.delete(tab.id);
   }
   async interruptTab(tabId: number, reason: string) {
@@ -285,6 +289,7 @@ export class Recorder {
         !!p.request.hasPostData,
         scan.config.body_limit,
         false,
+        scan.config.value_storage !== "complete",
       );
       const stack = this.stacks.snapshot(p.initiator?.stack),
         initiator =
@@ -328,7 +333,9 @@ export class Recorder {
         initiator_stack: stack,
         initiator: {
           type: String(p.initiator?.type ?? "other"),
-          url: initiator ? safeURL(initiator) : null,
+          url: initiator
+            ? safeURL(initiator, scan.config.value_storage !== "complete")
+            : null,
           ...(typeof p.initiator?.requestId === "string"
             ? { request_id: p.initiator.requestId }
             : {}),
@@ -359,7 +366,10 @@ export class Recorder {
             : { state: "missing", reason: "无 documentURL，不回填当前标签页" },
         },
         protection: {
-          version: "sensitive-v1",
+          version:
+            scan.config.value_storage === "complete"
+              ? "retain-complete-v1"
+              : "retain-truncate-v1",
           redacted: false,
           truncated: parsed.truncated,
         },
@@ -472,6 +482,8 @@ export class Recorder {
         true,
         limit,
         false,
+        this.scan?.versions.find((v) => v.version === r.filter_version)?.config
+          .value_storage !== "complete",
       );
       r.request_body = parsed.body;
       if (typeof result.postData === "string" && !parsed.truncated)
@@ -522,6 +534,7 @@ export class Recorder {
             true,
             config?.body_limit ?? 1048576,
             false,
+            config?.value_storage !== "complete",
           );
           h.record.request_body = { ...parsed.body, raw };
           h.record.content_type = ct;
@@ -569,7 +582,7 @@ export class Recorder {
     this.initiatorNodes.push({
       scan_id: r.scan_id,
       request_id: r.request_id,
-      request_url: safeURL(r.request_url),
+      request_url: safeURL(r.request_url, config.value_storage !== "complete"),
       parent_id: r.initiator_parent_id ?? null,
       resolution: r.initiator_parent_match ?? "none",
       relation: r.initiator_relation ?? "none",
@@ -579,7 +592,7 @@ export class Recorder {
       if (this.initiatorNodes.length >= 200) await this.flush();
       return;
     }
-    const safe = protectRecord(r);
+    const safe = protectRecord(r, config.value_storage !== "complete");
     for (const [carrier, status] of Object.entries(safe.capture_status))
       if (status.state !== "complete")
         gap(
@@ -731,7 +744,17 @@ export class Recorder {
         [...this.groups].map(([id, g]) => [id, structuredClone(g)]),
       );
       const active = [...this.channels.values()].flatMap((c) =>
-        c.hops.filter((h) => !h.done).map((h) => protectRecord(h.record)),
+        c.hops
+          .filter((h) => !h.done)
+          .map((h) => {
+            const config = scan.versions.find(
+              (version) => version.version === h.record.filter_version,
+            )?.config;
+            return protectRecord(
+              h.record,
+              config?.value_storage !== "complete",
+            );
+          }),
       );
       const initiatorNodes = this.initiatorNodes.slice();
       const snapshot = structuredClone(scan);

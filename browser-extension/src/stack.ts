@@ -108,7 +108,7 @@ export class StackCapture {
         parent: visit(node.parent),
       };
     };
-    return stackFrames(visit(raw));
+    return stackFrames(visit(raw), 0, new Set(), false);
   }
   async capture(
     source: Source,
@@ -199,7 +199,7 @@ export class StackCapture {
       return out;
     };
     try {
-      const stack = stackFrames(await walk(raw, source));
+      const stack = stackFrames(await walk(raw, source), 0, new Set(), false);
       return {
         stack,
         quality: {

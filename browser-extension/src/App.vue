@@ -151,6 +151,11 @@ const draftConfig = ref(defaults()),
   draftFilterText = ref("{}"),
   draftFilterValid = ref(true);
 const selectedTabCount = computed(() => scan.value?.tabs.length ?? 0);
+const valueStorageText = computed(() =>
+  scan.value?.config.value_storage === "complete"
+    ? "字段值完整保留"
+    : "超长字段值自动截断",
+);
 const attention = computed(() => {
   const s = scan.value;
   if (!s || !["paused", "interrupted"].includes(s.state)) return "";
@@ -845,11 +850,12 @@ onUnmounted(() => {
         <div class="privacy-note">
           <Icon name="shield" :size="19" />
           <div>
-            <strong>数据保存在本地</strong><span>敏感字段按策略脱敏</span>
+            <strong>数据保存在本地</strong
+            ><span>字段名完整 · 值按任务设置保存</span>
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.3</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.4</span>
         </div>
       </div>
     </aside>
@@ -1432,7 +1438,7 @@ onUnmounted(() => {
                   ? "历史指定范围 · 已接入"
                   : "浏览器全局 · 已接入"
               }}
-              {{ selectedTabCount }} 个标签页 · 敏感字段按策略保护</span
+              {{ selectedTabCount }} 个标签页 · {{ valueStorageText }}</span
             ><span
               >队列 {{ queued }} 个事件 · {{ pending }} 条请求 / 待写记录<span
                 v-if="scan?.stats.lost"
@@ -1524,6 +1530,20 @@ onUnmounted(() => {
                   <option value="all">全量留存 · Filter 用于查看和导出</option>
                 </select></label
               ><label
+                >字段值保存<select
+                  :value="configForm.value_storage"
+                  @change="
+                    (e) =>
+                      setConfig(
+                        'value_storage',
+                        (e.target as HTMLSelectElement).value,
+                      )
+                  "
+                >
+                  <option value="complete">完整保留 · 不截断字段值</option>
+                  <option value="truncate">自动截断 · 快速保存分析</option>
+                </select></label
+              ><label
                 >归并模式<select
                   :value="configForm.merge"
                   @change="
@@ -1551,8 +1571,12 @@ onUnmounted(() => {
                   type="number"
                   min="0.001"
                   step="0.25"
+                  :disabled="configForm.value_storage === 'complete'"
                   :value="configForm.body_limit / 1048576"
-                  @change="(e) => setNumber('body_limit', e, 1048576)" /></label
+                  @change="(e) => setNumber('body_limit', e, 1048576)"
+                /><small
+                  >仅“自动截断”模式使用；字段名在两种模式下都完整保存。</small
+                ></label
               ><label
                 >停止时等待在途请求（秒）<input
                   type="number"
@@ -2026,9 +2050,8 @@ onUnmounted(() => {
             <h2>理解采集边界</h2>
             <div class="guide-notes">
               <p>
-                <Icon name="shield" />Cookie、认证 Token
-                等默认脱敏；不提供敏感原值恢复。URL
-                路径和其他业务字段仍需按授权范围使用。
+                <Icon name="shield" />两种模式都保留字段名，也不按 Cookie、Token
+                等名称脱敏。“完整保留”保存所有值；“自动截断”只裁剪超长值并标记原始长度。
               </p>
               <p>
                 <Icon name="code" />调用栈、Worker
@@ -2091,6 +2114,25 @@ onUnmounted(() => {
             覆盖当前浏览器所有窗口的普通网页。阿里云等业务跳转到新页面后，会自动继续采集。可以先开始任务，再打开网站；用
             Filter 筛选需要保存的请求。
           </p>
+          <div class="form-grid">
+            <label
+              >字段值保存<select v-model="draftConfig.value_storage">
+                <option value="complete">完整保留 · 所有字段值原样保存</option>
+                <option value="truncate">
+                  自动截断 · 适合快速保存分析
+                </option></select
+              ><small
+                >字段名始终完整；两种模式都不按敏感字段名脱敏。</small
+              ></label
+            ><label
+              >归并模式<select v-model="draftConfig.merge">
+                <option value="none">不归并</option>
+                <option value="exact">精确归并</option>
+                <option value="normalized">智能归并 · 保留原始观察</option>
+                <option value="representative">仅代表记录（有损）</option>
+              </select></label
+            >
+          </div>
           <div class="new-task-filter">
             <div class="section-heading">
               <div>
@@ -2102,16 +2144,6 @@ onUnmounted(() => {
               v-model="draftFilterText"
               @validity="draftFilterValid = $event"
             />
-          </div>
-          <div class="form-grid single-field">
-            <label
-              >归并模式<select v-model="draftConfig.merge">
-                <option value="none">不归并</option>
-                <option value="exact">精确归并</option>
-                <option value="normalized">智能归并 · 保留原始观察</option>
-                <option value="representative">仅代表记录（有损）</option>
-              </select></label
-            >
           </div>
           <label class="archive-choice"
             ><input
@@ -2127,7 +2159,7 @@ onUnmounted(() => {
           <p class="permission-note">
             <Icon name="shield" :size="15" /><span
               >跳过浏览器内部页面与扩展页面。Chrome
-              会显示调试提示；保存符合上方筛选的请求，无法判定的请求会保留并标注。敏感字段按策略保护。</span
+              会显示调试提示；保存符合上方筛选的请求，无法判定的请求会保留并标注。字段值按上方模式保存。</span
             >
           </p>
         </div>

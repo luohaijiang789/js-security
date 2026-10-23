@@ -65,6 +65,7 @@ export async function fingerprint(r: RecordEntry, c: Config) {
     normalized_url: u.href,
     candidate:
       key.includes(REDACTED) ||
+      r.protection.truncated ||
       r.capture_status.body.state !== "complete" ||
       r.capture_status.headers.state !== "complete",
   };

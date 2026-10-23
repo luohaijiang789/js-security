@@ -480,6 +480,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     await filterInput.fill(
       "resource-type:XHR,Fetch,Ping; -url:/health(?:check)?/i",
     );
+    await dialog.getByLabel("字段值保存").selectOption("complete");
     expect(await dialog.getByTestId("filter-summary").textContent()).toContain(
       "类型为 XHR、Fetch、Ping",
     );
@@ -497,6 +498,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect((message.config.filter.include as any).field).toBe("resource_type");
     expect((message.config.filter.exclude as any).operator).toBe("regex");
     expect(message.config.retention).toBe("matching");
+    expect(message.config.value_storage).toBe("complete");
     await page.getByRole("button", { name: "任务设置", exact: true }).click();
     await page.getByText("高级配置 JSON", { exact: true }).click();
     await page.getByLabel("任务高级配置").fill("null");

@@ -4,9 +4,11 @@ export function validateConfig(c: Config) {
   validateFilter(c.filter);
   if (
     !["matching", "all"].includes(c.retention) ||
+    (c.value_storage !== undefined &&
+      !["complete", "truncate"].includes(c.value_storage)) ||
     !["none", "exact", "normalized", "representative"].includes(c.merge)
   )
-    throw Error("非法留存或归并模式");
+    throw Error("非法留存、字段值保存或归并模式");
   for (const [k, min, max] of [
     ["body_limit", 1024, 10485760],
     ["queue_count", 10, 10000],
