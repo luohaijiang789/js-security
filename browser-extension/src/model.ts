@@ -3,6 +3,27 @@ export type Quality = {
   reason?: string;
 };
 export type Pair = { name: string; value: string };
+export type CapturedBody = {
+  representation: string;
+  parsed: unknown;
+  raw?: string;
+  encoding?: "utf8" | "base64";
+};
+export type ResponseMetadata = {
+  status_text: string;
+  mime_type: string;
+  protocol: string;
+  remote_ip_address: string;
+  remote_port: number | null;
+  from_disk_cache: boolean;
+  from_service_worker: boolean;
+  from_prefetch_cache: boolean;
+  encoded_data_length: number | null;
+  timing: unknown | null;
+  security_details: unknown | null;
+  resource_ip_address_space?: string;
+  blocked_cookies?: unknown[];
+};
 export type Rule =
   | { op: "and" | "or" | "not"; rules: Rule[] }
   | {
@@ -53,6 +74,9 @@ export const defaults = (): Config => ({
     "request_headers",
     "query_params",
     "request_body",
+    "response_headers",
+    "response_body",
+    "response_metadata",
     "page_context",
     "initiator",
     "initiator_stack",
@@ -106,8 +130,14 @@ export type RecordEntry = {
   error?: string;
   request_headers: Pair[];
   query_params: Pair[];
-  request_body: { representation: string; parsed: unknown; raw?: string };
+  request_body: CapturedBody;
   content_type: string;
+  /** Missing on records created before response capture was introduced. */
+  response_headers?: Pair[];
+  response_headers_raw?: string | null;
+  response_body?: CapturedBody;
+  response_content_type?: string;
+  response_metadata?: ResponseMetadata;
   initiator_url: string | null;
   initiator_stack: unknown;
   /** Protected subset of Network.Initiator. Missing on legacy records. */
@@ -125,6 +155,9 @@ export type RecordEntry = {
   capture_status: {
     headers: Quality;
     body: Quality;
+    response_headers?: Quality;
+    response_body?: Quality;
+    response_metadata?: Quality;
     stack: Quality;
     page: Quality;
   };

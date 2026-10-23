@@ -73,13 +73,16 @@ flowchart TD
 | `request_headers` | 可取得的请求头及浏览器返回的原始值；字段名始终完整，字段值按任务选择完整保存或超长截断 |
 | `query_params` | Query 名称和值，保留同名参数的多个值 |
 | `request_body`、`content_type` | JSON、Form、URL-encoded、文本等；保留表示类型与解析结果 |
+| `response_headers`、`response_headers_raw` | Chrome 可观测的响应头；ExtraInfo 可用时保存其头集合及原始头文本，保留 Set-Cookie、CORS、CSP、缓存策略等分析依据 |
+| `response_body`、`response_content_type` | 请求完成后通过 `Network.getResponseBody` 读取；JSON 解析、文本保留原文、二进制以 Base64 保存，并记录编码与截断状态 |
+| `response_metadata` | 状态文本、MIME、协议、远端 IP/端口、缓存与 Service Worker 来源、传输字节数、Timing、TLS 安全信息、IP 地址空间及可观测的 Cookie 阻止原因 |
 | `initiator_url`、`initiator_stack` | 发起 JS 地址与可取得的调用栈；保留脚本 URL、函数、行列、同步帧、异步父段 `description`、`parent` 与未解析的 `parentId`，不能将未解析父链当作不存在 |
 | `initiator`、`initiator_parent_id`、`initiator_parent_match`、`initiator_relation` | 受保护的 Network Initiator 元数据及已解析的父请求关系；区分重定向、精确 request ID、唯一 URL 推定、歧义、缺失与无关系，不能用任意同 URL 请求补链 |
-| `capture_status` | 分别记录头/body/调用栈的完整、部分、缺失、不支持或不可解析状态及原因 |
+| `capture_status` | 分别记录请求头/正文、响应头/正文/元数据、调用栈和页面归属的完整、部分、缺失、不支持或不可解析状态及原因 |
 
-新建任务提供“保存字段”复选区，请求头、Query 参数、请求体、页面来源、发起信息与关系链、Request call stack 默认全部勾选，并支持全选或取消全选。请求 ID、时间、URL、Method、资源类型、状态码和请求状态属于定位记录所需的基础字段，始终保存。插件先用完整的浏览器可观测数据执行 Filter，再在写入 IndexedDB、导出和转存前移除未勾选字段；对应采集状态写为“任务未选择保存”，不计为采集缺口。旧任务缺少字段列表时按全部勾选兼容。
+新建任务提供“保存字段”复选区，请求头、Query 参数、请求体、响应头、响应体、响应元数据、页面来源、发起信息与关系链、Request call stack 默认全部勾选，并支持全选或取消全选。请求 ID、时间、URL、Method、资源类型、状态码和请求状态属于定位记录所需的基础字段，始终保存。插件先用完整的浏览器可观测请求数据执行 Filter，再在写入 IndexedDB、导出和转存前移除未勾选字段；响应体未勾选时不执行昂贵的 CDP 正文读取。对应采集状态写为“任务未选择保存”，不计为采集缺口。旧任务缺少字段列表时按全部勾选兼容；已明确保存旧字段列表的任务不自动新增响应字段。
 
-未解析不等于空 body；截断、大小限制、跳过二进制/文件均须显式标记。经授权保留原始表示时，同时保存解析结果与原始记录的关联。响应正文不列为本稿的必采字段。
+未解析不等于空 body；截断、大小限制和二进制编码均须显式标记。经授权保留原始表示时，同时保存解析结果与原始记录的关联。响应正文仅在成功完成后读取；失败、取消、重定向跳次、尚未结束、浏览器缓存已清理或 CDP 不支持的响应保留缺失原因。自动截断模式对请求和响应正文使用同一任务上限；完整保留模式不主动截断。
 
 ### 3.3 同步与异步调用栈
 

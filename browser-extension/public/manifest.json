@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "JS 请求采集",
-  "version": "0.3.6",
+  "version": "0.4.0",
   "minimum_chrome_version": "125",
-  "description": "浏览器全局采集网页请求，按 Filter 留存原始观察、调用栈及采集缺口。",
+  "description": "浏览器全局采集网页请求与响应，按 Filter 留存头、正文、调用栈及采集缺口。",
   "permissions": [
     "debugger",
     "tabs",

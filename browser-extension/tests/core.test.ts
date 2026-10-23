@@ -2,7 +2,12 @@ import "fake-indexeddb/auto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { defaults, type RecordEntry, type Rule } from "../src/model";
 import { evaluate, matchFilter, validateFilter } from "../src/filter";
-import { MAX_STRING_CHARS, parseBody, protectRecord } from "../src/privacy";
+import {
+  MAX_STRING_CHARS,
+  parseBody,
+  parseResponseBody,
+  protectRecord,
+} from "../src/privacy";
 import { fingerprint } from "../src/group";
 import { Recorder } from "../src/recorder";
 import { csvCell, packageFiles } from "../src/export";
@@ -215,6 +220,26 @@ describe("Filter 三值逻辑与输入验证", () => {
   });
 });
 describe("原值留存、截断、解析与归并", () => {
+  it("响应 JSON 可解析，二进制以 Base64 保存并按策略截断", () => {
+    const json = parseResponseBody(
+      '{"ok":true}',
+      false,
+      "application/json",
+      1024,
+    );
+    expect(json.body.parsed).toEqual({ ok: true });
+    expect(json.quality.state).toBe("complete");
+    const binary = parseResponseBody(
+      "A".repeat(4096),
+      true,
+      "application/octet-stream",
+      128,
+    );
+    expect(binary.body.representation).toBe("base64");
+    expect(binary.body.encoding).toBe("base64");
+    expect(binary.quality.state).toBe("partial");
+    expect(binary.truncated).toBe(true);
+  });
   it("深层 JSON 明确标记截断，避免宣称完整", () => {
     let value: unknown = "leaf";
     for (let i = 0; i < 40; i++) value = { child: value };
@@ -446,6 +471,85 @@ describe("任务关联、持久化与导出", () => {
       stop_wait_ms: 0,
     });
   });
+  it("采集响应头、响应正文、网络元数据和响应 ExtraInfo", async () => {
+    r.send = vi.fn(async (_source, method) => {
+      if (method === "Network.getResponseBody")
+        return {
+          body: JSON.stringify({ ok: true, token: "response-secret" }),
+          base64Encoded: false,
+        };
+      return {};
+    });
+    await r.event(
+      { tabId: 1 },
+      "Network.requestWillBeSent",
+      event("response-capture"),
+    );
+    await r.event({ tabId: 1 }, "Network.responseReceived", {
+      requestId: "response-capture",
+      hasExtraInfo: true,
+      response: {
+        status: 201,
+        statusText: "Created",
+        mimeType: "application/json",
+        protocol: "h2",
+        remoteIPAddress: "203.0.113.8",
+        remotePort: 443,
+        fromDiskCache: false,
+        fromServiceWorker: true,
+        encodedDataLength: 64,
+        timing: { receiveHeadersEnd: 18.5 },
+        securityDetails: { protocol: "TLS 1.3" },
+        headers: { "Content-Type": "application/json" },
+      },
+    });
+    await r.event({ tabId: 1 }, "Network.responseReceivedExtraInfo", {
+      requestId: "response-capture",
+      statusCode: 201,
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Set-Cookie": "session=complete-value",
+      },
+      headersText:
+        "HTTP/2 201 Created\r\nContent-Type: application/json; charset=utf-8\r\nSet-Cookie: session=complete-value\r\n\r\n",
+      resourceIPAddressSpace: "Public",
+      blockedCookies: [{ blockedReasons: ["SecureOnly"] }],
+    });
+    await r.event({ tabId: 1 }, "Network.loadingFinished", {
+      requestId: "response-capture",
+      encodedDataLength: 321,
+    });
+    await r.tail;
+    await r.flush();
+    const saved = (await db.page(r.scan!.id)).find(
+      (item) => item.cdp_request_id === "response-capture",
+    )!;
+    expect(saved.status_code).toBe(201);
+    expect(saved.response_headers).toContainEqual({
+      name: "Set-Cookie",
+      value: "session=complete-value",
+    });
+    expect(saved.response_headers_raw).toContain("HTTP/2 201 Created");
+    expect(saved.response_body?.parsed).toEqual({
+      ok: true,
+      token: "response-secret",
+    });
+    expect(saved.capture_status.response_body?.state).toBe("complete");
+    expect(saved.response_metadata).toMatchObject({
+      status_text: "Created",
+      mime_type: "application/json",
+      protocol: "h2",
+      remote_ip_address: "203.0.113.8",
+      remote_port: 443,
+      from_service_worker: true,
+      encoded_data_length: 321,
+      resource_ip_address_space: "Public",
+    });
+    expect(saved.response_metadata?.security_details).toEqual({
+      protocol: "TLS 1.3",
+    });
+    expect(saved.response_metadata?.blocked_cookies).toHaveLength(1);
+  });
   it("100 次相同请求保留全部原始记录和准确组计数", async () => {
     for (let i = 0; i < 100; i++) {
       await r.event(
@@ -517,6 +621,8 @@ describe("任务关联、持久化与导出", () => {
     expect(active).toContain("Authorization");
   });
   it("未勾选的大字段在持久化前移除且不登记采集缺口", async () => {
+    const send = vi.fn(async (_source: unknown, _method: string) => ({}));
+    r.send = send;
     await r.update({
       ...r.scan!.config,
       saved_fields: ["query_params"],
@@ -552,6 +658,11 @@ describe("任务关联、持久化与导出", () => {
     expect(saved.page_url).toBeNull();
     expect(saved.initiator).toBeUndefined();
     expect(saved.initiator_stack).toBeNull();
+    expect(
+      send.mock.calls.some(
+        ([, method]) => method === "Network.getResponseBody",
+      ),
+    ).toBe(false);
     expect(await db.all("initiator_nodes", r.scan!.id)).toEqual([]);
     expect(r.scan!.gaps).toEqual([]);
   });

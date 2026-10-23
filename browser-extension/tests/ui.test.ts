@@ -233,6 +233,9 @@ it("100 条历史请求自动恢复；首末行点击即在视口查看所有信
         .getByText("https://console.example.test/orders", { exact: true })
         .count(),
     ).toBeGreaterThan(0);
+    await detail.getByText("响应网络详情", { exact: true }).click();
+    expect(await detail.textContent()).toContain("203.0.113.10:443");
+    expect(await detail.textContent()).toContain("TLS 1.3");
     await detail.getByRole("tab", { name: /^参数/ }).click();
     expect(await detail.locator(".key-value tbody tr").count()).toBe(4);
     expect(
@@ -250,6 +253,18 @@ it("100 条历史请求自动恢复；首末行点击即在视口查看所有信
     ).toContain("Authorization[REDACTED]");
     await detail.getByRole("tab", { name: "请求体", exact: true }).click();
     expect(await detail.locator("pre").textContent()).toContain("BOOK-001");
+    await detail.getByRole("tab", { name: /^响应头/ }).click();
+    expect(await detail.locator(".key-value tbody").textContent()).toContain(
+      "X-Trace-Id",
+    );
+    await detail.getByRole("tab", { name: "响应体", exact: true }).click();
+    expect(await detail.locator("pre").textContent()).toContain(
+      '"order_id": "fixture-order"',
+    );
+    await page.screenshot({
+      path: "work/redesign/response-detail.png",
+      fullPage: false,
+    });
     await detail.getByRole("tab", { name: "调用栈", exact: true }).click();
     await detail
       .getByRole("heading", { name: "Request call stack", exact: true })
@@ -482,7 +497,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     );
     await dialog.getByLabel("字段值保存").selectOption("complete");
     const fieldSelector = dialog.locator(".field-selector");
-    expect(await fieldSelector.getByRole("checkbox").count()).toBe(6);
+    expect(await fieldSelector.getByRole("checkbox").count()).toBe(9);
     for (const checkbox of await fieldSelector.getByRole("checkbox").all())
       expect(await checkbox.isChecked()).toBe(true);
     await fieldSelector.getByRole("checkbox", { name: /请求体/ }).uncheck();
@@ -504,7 +519,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect((message.config.filter.exclude as any).operator).toBe("regex");
     expect(message.config.retention).toBe("matching");
     expect(message.config.value_storage).toBe("complete");
-    expect(message.config.saved_fields).toHaveLength(5);
+    expect(message.config.saved_fields).toHaveLength(8);
     expect(message.config.saved_fields).not.toContain("request_body");
     await page.getByRole("button", { name: "任务设置", exact: true }).click();
     await page.getByText("高级配置 JSON", { exact: true }).click();

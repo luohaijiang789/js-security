@@ -22,6 +22,7 @@ it("真实 Chromium CDP：受控请求、重定向、原值留存、在途停止
       return;
     }
     res.setHeader("Content-Type", req.url === "/" ? "text/html" : "text/plain");
+    res.setHeader("X-Response-Fixture", "captured");
     if (req.method === "OPTIONS") res.statusCode = 204;
     res.end(
       req.url === "/" ? "<!doctype html><title>CDP fixture</title>" : "ok",
@@ -61,6 +62,7 @@ it("真实 Chromium CDP：受控请求、重定向、原值留存、在途停止
       "Network.requestWillBeSent",
       "Network.requestWillBeSentExtraInfo",
       "Network.responseReceived",
+      "Network.responseReceivedExtraInfo",
       "Network.loadingFinished",
       "Network.loadingFailed",
     ] as const)
@@ -159,6 +161,18 @@ it("真实 Chromium CDP：受控请求、重定向、原值留存、在途停止
     expect(
       rows.find((r) => r.pathname === "/large")?.capture_status.body.state,
     ).toBe("partial");
+    const jsonResponse = rows.find((r) => r.pathname === "/json")!;
+    expect(
+      jsonResponse.response_headers?.some(
+        (header) =>
+          header.name.toLowerCase() === "x-response-fixture" &&
+          header.value === "captured",
+      ),
+    ).toBe(true);
+    expect(jsonResponse.response_body?.raw).toBe("ok");
+    expect(jsonResponse.capture_status.response_body?.state).toBe("complete");
+    expect(jsonResponse.response_metadata?.protocol).toBeTruthy();
+    expect(jsonResponse.response_metadata?.remote_ip_address).toBe("127.0.0.1");
     expect(
       (await db.all<any>("groups", recorder.scan!.id)).some(
         (g) => g.count === 2 && g.normalized_url.includes("/same?"),

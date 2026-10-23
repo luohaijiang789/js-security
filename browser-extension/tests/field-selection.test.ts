@@ -35,6 +35,14 @@ describe("optional saved fields", () => {
       representation: "unavailable",
       parsed: null,
     });
+    expect(selected.response_headers).toEqual([]);
+    expect(selected.response_headers_raw).toBeNull();
+    expect(selected.response_body).toEqual({
+      representation: "unavailable",
+      parsed: null,
+    });
+    expect(selected.response_content_type).toBe("");
+    expect(selected.response_metadata).toBeUndefined();
     expect(selected.content_type).toBe("");
     expect(selected.page_url).toBeNull();
     expect(selected.initiator).toBeUndefined();
@@ -42,6 +50,15 @@ describe("optional saved fields", () => {
     expect(selected.initiator_stack).toBeNull();
     expect(selected.capture_status.headers.reason).toBe("任务未选择保存请求头");
     expect(selected.capture_status.body.reason).toBe("任务未选择保存请求体");
+    expect(selected.capture_status.response_headers?.reason).toBe(
+      "任务未选择保存响应头",
+    );
+    expect(selected.capture_status.response_body?.reason).toBe(
+      "任务未选择保存响应体",
+    );
+    expect(selected.capture_status.response_metadata?.reason).toBe(
+      "任务未选择保存响应元数据",
+    );
     expect(selected.capture_status.page.reason).toBe("任务未选择保存页面来源");
     expect(selected.capture_status.stack.reason).toBe("任务未选择保存调用栈");
     expect(original.request_headers.length).toBeGreaterThan(0);
