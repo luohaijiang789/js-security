@@ -2,6 +2,7 @@
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import SimpleFilter from "./SimpleFilter.vue";
 import FieldSelector from "./FieldSelector.vue";
+import UsageGuide from "./UsageGuide.vue";
 import Icon from "./Icon.vue";
 import RequestDetail from "./RequestDetail.vue";
 import {
@@ -856,7 +857,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.5</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.6</span>
         </div>
       </div>
     </aside>
@@ -2012,69 +2013,7 @@ onUnmounted(() => {
             <p>新建采集任务后，数据会持续保存在此浏览器中。</p>
           </div>
         </section>
-        <section v-else class="settings-layout guide">
-          <div class="panel">
-            <div class="panel-heading">
-              <div>
-                <h2>完成一次可回查的采集</h2>
-                <p>测试人员操作业务页面，插件记录请求及可取得的上下文。</p>
-              </div>
-              <span class="metric-icon blue"
-                ><Icon name="bolt" :size="20"
-              /></span>
-            </div>
-            <div
-              v-for="(step, i) in [
-                {
-                  title: '设置 Filter，开始任务',
-                  text: '点击“新建采集任务”，默认纳入全部网页及新打开的网页，通过 Filter 限定要保留的请求，无需选择标签页。',
-                },
-                {
-                  title: '正常执行业务操作',
-                  text: '切换到测试页面触发场景。返回请求工作台，可看到保存数量与实时列表。',
-                },
-                {
-                  title: '点击请求，检查采集信息',
-                  text: '右侧详情可查看完整 URL、重复参数、请求头、正文、调用栈及缺失原因。切换“聚合”可回查同组原始观察。',
-                },
-                {
-                  title: '停止并导出',
-                  text: '停止时处理在途请求；之后从右上角导出 JSONL 任务包、CSV 或分片目录。',
-                },
-              ]"
-              :key="i"
-              class="guide-step"
-            >
-              <span>{{ i + 1 }}</span>
-              <div>
-                <h3>{{ step.title }}</h3>
-                <p>{{ step.text }}</p>
-              </div>
-            </div>
-          </div>
-          <div class="panel">
-            <h2>理解采集边界</h2>
-            <div class="guide-notes">
-              <p>
-                <Icon name="shield" />两种模式都保留字段名，也不按 Cookie、Token
-                等名称脱敏。“完整保留”保存所有值；“自动截断”只裁剪超长值并标记原始长度。
-              </p>
-              <p>
-                <Icon name="code" />调用栈、Worker
-                和子框架受浏览器可观测性影响，缺失会标记原因，不由模型补写。
-              </p>
-              <p>
-                <Icon
-                  name="activity"
-                />暂停后不纳入新请求；关闭管理页后后台继续采集。调试断开和后台重启会登记缺口，恢复不代表中断时段已采集。
-              </p>
-              <p>
-                <Icon name="file" />当前采集请求正文，响应正文和 WebSocket
-                消息帧未纳入。大任务建议使用目录分片导出。
-              </p>
-            </div>
-          </div>
-        </section>
+        <UsageGuide v-else />
       </main>
     </div>
     <div

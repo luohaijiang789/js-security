@@ -1758,6 +1758,194 @@ main {
   flex-shrink: 0;
   margin-top: 2px;
 }
+.usage-manual {
+  gap: 18px;
+}
+.usage-manual h2 {
+  color: #243a59;
+  font-size: 18px;
+}
+.usage-manual code {
+  padding: 2px 5px;
+  border-radius: 4px;
+  background: #edf3fc;
+  color: #345b94;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+  overflow-wrap: anywhere;
+}
+.usage-intro .panel-heading {
+  margin-bottom: 10px;
+}
+.usage-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+  margin: 20px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: usage-step;
+}
+.usage-steps li {
+  min-width: 0;
+  padding: 13px;
+  border: 1px solid #e5ebf4;
+  border-radius: 8px;
+  background: #fbfcff;
+  counter-increment: usage-step;
+}
+.usage-steps li::before {
+  content: counter(usage-step, decimal-leading-zero);
+  display: block;
+  margin-bottom: 9px;
+  color: #7692c4;
+  font:
+    12px ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
+}
+.usage-steps strong,
+.usage-steps span {
+  display: block;
+}
+.usage-steps strong {
+  color: #3e5575;
+  font-size: 12px;
+}
+.usage-steps span {
+  margin-top: 5px;
+  color: #6e7e95;
+  font-size: 11px;
+  line-height: 1.6;
+}
+.usage-highlight > p,
+.usage-manual > .panel > .field-note {
+  margin-top: 10px;
+  color: #65758e;
+  font-size: 13px;
+  line-height: 1.8;
+}
+.usage-callout {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid #dce7f8;
+  border-radius: 8px;
+  background: #f7faff;
+  color: #63748d;
+  font-size: 12px;
+}
+.usage-callout strong {
+  color: #425a7d;
+}
+.usage-callout span {
+  margin-left: auto;
+}
+.usage-table-wrap {
+  margin-top: 17px;
+  overflow-x: auto;
+  border: 1px solid #e3e9f2;
+  border-radius: 9px;
+}
+.usage-table {
+  width: 100%;
+  min-width: 700px;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.usage-table th,
+.usage-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid #e9eef5;
+  text-align: left;
+  vertical-align: top;
+  line-height: 1.65;
+}
+.usage-table th {
+  background: #f6f8fc;
+  color: #62748e;
+  font-weight: 650;
+}
+.usage-table td {
+  color: #576a84;
+}
+.usage-table tr:last-child td {
+  border-bottom: 0;
+}
+.usage-table th:first-child,
+.usage-table td:first-child {
+  width: 150px;
+}
+.field-reference th:last-child,
+.field-reference td:last-child {
+  width: 290px;
+}
+.usage-notes {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+.usage-notes p {
+  padding: 10px 12px;
+  border-left: 2px solid #c9d8f2;
+  background: #fafbfe;
+  color: #62738c;
+  font-size: 12px;
+  line-height: 1.75;
+}
+.usage-notes strong {
+  color: #405a7f;
+}
+.usage-examples {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 16px;
+}
+.usage-examples > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e4eaf3;
+  border-radius: 8px;
+  background: #fbfcff;
+}
+.usage-examples strong {
+  color: #526783;
+  font-size: 12px;
+}
+.usage-troubleshooting {
+  display: grid;
+  gap: 8px;
+  margin: 16px 0 0;
+  padding-left: 25px;
+  color: #60718a;
+  font-size: 13px;
+  line-height: 1.75;
+}
+@media (max-width: 1100px) {
+  .usage-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 700px) {
+  .usage-steps,
+  .usage-examples {
+    grid-template-columns: 1fr;
+  }
+  .usage-callout {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .usage-callout span {
+    margin-left: 0;
+  }
+}
 .modal-backdrop {
   position: fixed;
   inset: 0;

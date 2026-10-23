@@ -107,6 +107,8 @@ flowchart TD
 
 搜索语句统一表达页面、请求和排除条件：`;` 为 AND，`OR` 为任选，`-` 为排除，括号控制组合范围。页面字段使用 `page:`、`page-domain:`、`referer:`，请求字段使用 `url:`、`domain:`、`path:`、`method:`、`status-code:`、`resource-type:`、`initiator:`、`extension:`；内容字段使用 `query.参数名:`、`header.请求头名:`、`body.JSON路径:`。
 
+`resource-type` 必须填写 Chrome CDP 返回的资源类型，采用完全匹配，不能填写业务概念 `API`、内容格式 `JSON` 或俗称 `Beacon`。常见接口使用 `XHR`、`Fetch`，`navigator.sendBeacon()` 通常为 `Ping`，CORS 预检为 `Preflight`；其他可见值包括 `Document`、`Script`、`Stylesheet`、`Image`、`Media`、`Font`、`TextTrack`、`EventSource`、`WebSocket`、`Manifest`、`Prefetch`、`SignedExchange`、`CSPViolationReport`、`FedCM`、`Other`。浏览器新增值按原值记录。界面使用说明须列出这些值、含义和示例，并提示用户以请求列表“类型”列的实测值为准。
+
 底层继续使用原有 Filter 规则树执行，保证旧任务语义不变；界面只展示规范化后的搜索语句。旧规则转写后内部组路径或操作符名称可以规范化，但对请求的命中、排除和无法判定结果必须等价。
 
 | 情况 | 行为 |
@@ -128,6 +130,8 @@ flowchart TD
 
 - 域名按精确主机名或真实子域边界匹配，不能用字符串包含替代。
 - 后缀按 pathname 匹配，避免 query 干扰；`.js`、`.png` 等排除规则由任务选择，不作为强制默认。
+- `extension:` 的值不带点；Header 名称不区分大小写，Query 参数名、JSON 路径和表单字段名区分大小写。
+- `status-code` 在请求终态才确定；依赖尚未取得的完整 Header 或 Body 时保持 Pending，终态无法取得再记无法判定。
 - 过滤掉资源或请求意味着该部分不进入匹配留存结果，导出须保留规则和排除统计。
 
 示例：

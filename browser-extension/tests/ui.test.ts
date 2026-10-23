@@ -605,6 +605,37 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       (window as any).messages.findLast((m: any) => m.type === "update"),
     );
     expect(clearMessage.config.filter).toEqual({});
+    await page.getByRole("button", { name: "使用说明", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "完整使用说明", exact: true })
+      .waitFor();
+    const guide = page.locator(".usage-manual");
+    expect(await guide.textContent()).toContain("resource-type 后面到底填什么");
+    for (const type of [
+      "XHR",
+      "Fetch",
+      "Ping",
+      "Preflight",
+      "Document",
+      "Script",
+      "Stylesheet",
+      "Image",
+      "Media",
+      "Font",
+      "EventSource",
+      "WebSocket",
+      "Other",
+    ])
+      expect(
+        await guide.getByText(type, { exact: true }).count(),
+      ).toBeGreaterThan(0);
+    expect(await guide.textContent()).toContain("不要填写 API、JSON 或 Beacon");
+    expect(await guide.textContent()).toContain("英文分号");
+    expect(await guide.textContent()).toContain("全部可用过滤字段");
+    await page.screenshot({
+      path: "work/redesign/usage-guide.png",
+      fullPage: false,
+    });
     expect(errors).toEqual([]);
   } finally {
     await context.close();
