@@ -66,20 +66,34 @@ export function workspaceFixture(options: { pending?: boolean } = {}) {
         : { representation: "unavailable", parsed: null },
       content_type: order ? "application/json" : "",
       initiator_url: order ? "https://static.example.test/orders.js" : null,
+      ...(ordinal >= 99
+        ? {
+            initiator_parent_id: `ui-request-${String(ordinal - 1).padStart(3, "0")}`,
+            initiator_parent_match: "exact" as const,
+            initiator_relation: "request-id" as const,
+          }
+        : {}),
       initiator_stack: order
         ? {
             callFrames: [
               {
                 functionName: "submitOrder",
+                scriptId: "fixture-script-42",
                 url: "https://static.example.test/orders.js",
                 lineNumber: 41,
                 columnNumber: 7,
               },
             ],
+            parentId: {
+              id: "fixture-async-parent",
+              debuggerId: "fixture-debugger-id",
+            },
             parent: {
+              description: "Promise.then",
               callFrames: [
                 {
                   functionName: "onCheckout",
+                  scriptId: "fixture-script-11",
                   url: "https://static.example.test/checkout.js",
                   lineNumber: 11,
                   columnNumber: 2,

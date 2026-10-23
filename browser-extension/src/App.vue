@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
 import RuleEditor from "./RuleEditor.vue";
+import SimpleFilter from "./SimpleFilter.vue";
 import Icon from "./Icon.vue";
 import RequestDetail from "./RequestDetail.vue";
 import {
@@ -18,6 +19,7 @@ import {
   type Group,
   type Batch,
   type Filter,
+  type InitiatorGraph,
 } from "./model";
 import { validateConfig } from "./config";
 import { presets, validateFilter, matchFilter } from "./filter";
@@ -34,6 +36,7 @@ const detail = ref<RecordEntry | null>(null),
   selected = ref<string[]>([]),
   configText = ref(JSON.stringify(defaults(), null, 2));
 const filterText = ref("{}"),
+  filterValid = ref(true),
   templateName = ref(""),
   templates = ref<Record<string, Filter>>({ ...presets }),
   template = ref("全量");
@@ -80,6 +83,7 @@ const resource = ref("all"),
   live = ref(true),
   groupFilter = ref("");
 const detailGroup = ref<Group | null>(null),
+  initiatorGraph = ref<InitiatorGraph | null>(null),
   detailLoading = ref(false),
   detailError = ref(""),
   detailId = ref(""),
@@ -139,7 +143,8 @@ const configForm = computed<ReturnType<typeof defaults>>(() => {
   }
 });
 const draftConfig = ref(defaults()),
-  draftTemplate = ref("全量");
+  draftFilterText = ref("{}"),
+  draftFilterValid = ref(true);
 const selectedTabCount = computed(() => scan.value?.tabs.length ?? 0);
 const attention = computed(() => {
   const s = scan.value;
@@ -211,13 +216,25 @@ function closeDetail() {
   detailId.value = "";
   detail.value = null;
   detailGroup.value = null;
+  initiatorGraph.value = null;
   detailError.value = "";
   detailLoading.value = false;
+}
+async function loadInitiatorGraph(record: RecordEntry, seq: number) {
+  try {
+    const graph = await db.queryInitiatorGraph(record);
+    if (seq === detailSequence && detailId.value === record.request_id)
+      initiatorGraph.value = graph;
+  } catch {
+    if (seq === detailSequence && detailId.value === record.request_id)
+      initiatorGraph.value = null;
+  }
 }
 async function openDetail(record: RecordEntry, group: Group | null = null) {
   const seq = ++detailSequence;
   detailId.value = record.request_id;
   detail.value = record;
+  initiatorGraph.value = null;
   detailGroup.value = group;
   detailError.value = "";
   detailLoading.value = false;
@@ -227,10 +244,18 @@ async function openDetail(record: RecordEntry, group: Group | null = null) {
       (await db.get<RecordEntry>("active", record.request_id));
     if (seq !== detailSequence) return;
     if (saved) detail.value = saved;
+    await loadInitiatorGraph(saved ?? record, seq);
   } catch (e) {
     if (seq === detailSequence)
       detailError.value = "已显示列表快照；完整记录暂时读取失败：" + String(e);
   }
+}
+async function inspectRequest(requestId: string) {
+  const record =
+    (await db.get<RecordEntry>("requests", requestId)) ??
+    (await db.get<RecordEntry>("active", requestId));
+  if (!record) throw Error("这条关联请求已被清理，无法打开详情。");
+  await openDetail(record);
 }
 async function copyText(text: string) {
   try {
@@ -257,7 +282,7 @@ function groupMembers(group: Group) {
 async function openNewTask() {
   name.value = "业务采集 " + timeText(new Date().toISOString());
   draftConfig.value = defaults();
-  draftTemplate.value = "全量";
+  draftFilterText.value = "{}";
   newTaskOpen.value = true;
 }
 function navigate(value: string) {
@@ -317,6 +342,7 @@ async function viewGroup(g: Group) {
   detailId.value = g.representative_id;
   detailGroup.value = g;
   detail.value = null;
+  initiatorGraph.value = null;
   detailLoading.value = true;
   detailError.value = "";
   try {
@@ -324,6 +350,7 @@ async function viewGroup(g: Group) {
     if (seq !== detailSequence) return;
     if (!r) throw Error("代表请求不存在或已删除；请检查任务数据。");
     detail.value = r;
+    await loadInitiatorGraph(r, seq);
   } catch (e) {
     if (seq === detailSequence) detailError.value = String(e);
   } finally {
@@ -381,6 +408,7 @@ async function loadPage() {
         if (finished && seq === loadSequence && selection === detailSequence)
           detail.value = finished;
       }
+      if (detail.value) void loadInitiatorGraph(detail.value, detailSequence);
     }
   } finally {
     if (seq === loadSequence) loadingRows.value = false;
@@ -449,9 +477,7 @@ async function choose(id: string) {
 }
 async function start() {
   const c = JSON.parse(JSON.stringify(draftConfig.value));
-  c.filter = JSON.parse(
-    JSON.stringify(templates.value[draftTemplate.value] ?? {}),
-  );
+  c.filter = JSON.parse(draftFilterText.value);
   validateConfig(c);
   if (
     c.merge === "representative" &&
@@ -857,7 +883,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.2.0</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.0</span>
         </div>
       </div>
     </aside>
@@ -1421,6 +1447,7 @@ onUnmounted(() => {
             <RequestDetail
               v-if="detailId"
               :record="detail"
+              :initiator-graph="initiatorGraph"
               :group="detailGroup"
               :loading="detailLoading"
               :error="detailError"
@@ -1429,6 +1456,7 @@ onUnmounted(() => {
               @copy="copyText"
               @download="(r) => run(() => downloadRecord(r))"
               @members="groupMembers"
+              @inspect="(id) => run(() => inspectRequest(id))"
             />
           </div>
           <div class="workspace-footer">
@@ -1625,104 +1653,122 @@ onUnmounted(() => {
           <div class="panel">
             <div class="panel-heading">
               <div>
-                <h2>统一过滤规则</h2>
+                <h2>请求过滤</h2>
                 <p>
-                  范围与包含条件满足，同时不命中排除项；未知字段不会被当作不存在。
+                  像 Chrome Network
+                  一样输入关键词或属性，立即看懂会保留哪些请求。
                 </p>
               </div>
-              <span class="formula-badge">SCOPE ∩ INCLUDE − EXCLUDE</span>
             </div>
-            <div class="template-bar">
-              <label
-                >模板<select v-model="template" @change="useTemplate">
-                  <option v-for="(_, k) in templates" :key="k">{{ k }}</option>
-                </select></label
-              ><button class="button" @click="useTemplate">
-                <Icon name="layers" :size="15" />载入模板</button
-              ><button
-                class="button icon-only"
-                aria-label="删除模板"
-                @click="run(removeTemplate)"
-              >
-                <Icon name="trash" :size="16" />
-              </button>
-            </div>
-            <div v-if="visualFilter" class="visual-filter">
-              <div
-                v-for="part in [
-                  {
-                    key: 'scope',
-                    label: '页面范围',
-                    description:
-                      '在任务采集范围内，按页面 URL 等条件限定请求。',
-                  },
-                  {
-                    key: 'include',
-                    label: '包含条件',
-                    description: '没有配置时，保留范围内的全部可观测请求。',
-                  },
-                  {
-                    key: 'exclude',
-                    label: '排除条件',
-                    description: '按选择排除资源和请求，不强制忽略静态资源。',
-                  },
-                ] as const"
-                :key="part.key"
-                class="rule-section"
-              >
-                <div class="rule-section-heading">
-                  <span class="rule-step">{{ part.key.toUpperCase() }}</span>
-                  <div>
-                    <h3>{{ part.label }}</h3>
-                    <p>{{ part.description }}</p>
+            <SimpleFilter
+              v-model="filterText"
+              @validity="filterValid = $event"
+            />
+            <details class="advanced-filter-settings">
+              <summary>高级规则与模板</summary>
+              <p class="field-note">
+                只有需要嵌套逻辑、请求头或正文条件时才使用这里；简单筛选会继续保持有效。
+              </p>
+              <div class="template-bar">
+                <label
+                  >模板<select v-model="template" @change="useTemplate">
+                    <option v-for="(_, k) in templates" :key="k">
+                      {{ k }}
+                    </option>
+                  </select></label
+                ><button class="button" @click="useTemplate">
+                  <Icon name="layers" :size="15" />载入模板</button
+                ><button
+                  class="button icon-only"
+                  aria-label="删除模板"
+                  @click="run(removeTemplate)"
+                >
+                  <Icon name="trash" :size="16" />
+                </button>
+              </div>
+              <div v-if="visualFilter" class="visual-filter">
+                <div
+                  v-for="part in [
+                    {
+                      key: 'scope',
+                      label: '页面范围',
+                      description:
+                        '在任务采集范围内，按页面 URL 等条件限定请求。',
+                    },
+                    {
+                      key: 'include',
+                      label: '包含条件',
+                      description: '没有配置时，保留范围内的全部可观测请求。',
+                    },
+                    {
+                      key: 'exclude',
+                      label: '排除条件',
+                      description: '按选择排除资源和请求，不强制忽略静态资源。',
+                    },
+                  ] as const"
+                  :key="part.key"
+                  class="rule-section"
+                >
+                  <div class="rule-section-heading">
+                    <span class="rule-step">{{ part.key.toUpperCase() }}</span>
+                    <div>
+                      <h3>{{ part.label }}</h3>
+                      <p>{{ part.description }}</p>
+                    </div>
+                    <button
+                      v-if="!visualFilter[part.key]"
+                      class="button small"
+                      @click="
+                        setRule(part.key, {
+                          field: 'request_url',
+                          operator: 'contains',
+                          values: [''],
+                        })
+                      "
+                    >
+                      <Icon name="plus" :size="14" />添加规则</button
+                    ><button
+                      v-else
+                      class="text-button"
+                      @click="setRule(part.key)"
+                    >
+                      停用
+                    </button>
                   </div>
-                  <button
-                    v-if="!visualFilter[part.key]"
-                    class="button small"
-                    @click="
-                      setRule(part.key, {
-                        field: 'request_url',
-                        operator: 'contains',
-                        values: [''],
-                      })
-                    "
-                  >
-                    <Icon name="plus" :size="14" />添加规则</button
-                  ><button
-                    v-else
-                    class="text-button"
-                    @click="setRule(part.key)"
-                  >
-                    停用
-                  </button>
-                </div>
-                <RuleEditor
-                  v-if="visualFilter[part.key]"
-                  :rule="visualFilter[part.key]!"
-                  @change="(r) => setRule(part.key, r)"
-                />
-                <div v-else class="rule-placeholder">
-                  {{
-                    part.key === "exclude" ? "不排除任何请求" : "未配置限制条件"
-                  }}
+                  <RuleEditor
+                    v-if="visualFilter[part.key]"
+                    :rule="visualFilter[part.key]!"
+                    @change="(r) => setRule(part.key, r)"
+                  />
+                  <div v-else class="rule-placeholder">
+                    {{
+                      part.key === "exclude"
+                        ? "不排除任何请求"
+                        : "未配置限制条件"
+                    }}
+                  </div>
                 </div>
               </div>
-            </div>
-            <details class="technical-details">
-              <summary>高级 JSON 编辑器</summary>
-              <textarea
-                v-model="filterText"
-                rows="22"
-                spellcheck="false"
-                aria-label="过滤规则 JSON"
-              ></textarea>
+              <details class="technical-details">
+                <summary>JSON 编辑器</summary>
+                <textarea
+                  v-model="filterText"
+                  rows="22"
+                  spellcheck="false"
+                  aria-label="过滤规则 JSON"
+                ></textarea>
+              </details>
             </details>
             <div class="panel-footer">
-              <button class="button" @click="run(preview)">
+              <button
+                class="button"
+                :disabled="!filterValid"
+                @click="run(preview)"
+              >
                 <Icon name="search" :size="15" />预览本页结果</button
               ><button
                 class="button primary"
-                :disabled="!activeTask || busy"
+                :disabled="!activeTask || busy || !filterValid"
                 @click="run(apply)"
               >
                 应用到采集任务
@@ -2202,12 +2248,20 @@ onUnmounted(() => {
             覆盖当前浏览器所有窗口的普通网页。阿里云等业务跳转到新页面后，会自动继续采集。可以先开始任务，再打开网站；用
             Filter 筛选需要保存的请求。
           </p>
-          <div class="form-grid">
+          <div class="new-task-filter">
+            <div class="section-heading">
+              <div>
+                <h3>只保留你关心的请求</h3>
+                <p>直接输入网址关键词，也可以点下面的常用筛选。</p>
+              </div>
+            </div>
+            <SimpleFilter
+              v-model="draftFilterText"
+              @validity="draftFilterValid = $event"
+            />
+          </div>
+          <div class="form-grid single-field">
             <label
-              >Filter 模板<select v-model="draftTemplate">
-                <option v-for="(_, k) in templates" :key="k">{{ k }}</option>
-              </select></label
-            ><label
               >归并模式<select v-model="draftConfig.merge">
                 <option value="none">不归并</option>
                 <option value="exact">精确归并</option>
@@ -2229,19 +2283,18 @@ onUnmounted(() => {
           >
           <p class="permission-note">
             <Icon name="shield" :size="15" /><span
-              >跳过浏览器内部页面与扩展页面。Chrome 会显示调试提示；默认保存
-              Filter
-              匹配项，无法判定的请求保留并标注。敏感字段按策略保护。</span
+              >跳过浏览器内部页面与扩展页面。Chrome
+              会显示调试提示；保存符合上方筛选的请求，无法判定的请求会保留并标注。敏感字段按策略保护。</span
             >
           </p>
         </div>
         <footer class="modal-footer">
-          <span>浏览器全局采集 · 按 Filter 留存</span
+          <span>浏览器全局采集 · 按上方条件留存</span
           ><button class="button" :disabled="busy" @click="newTaskOpen = false">
             取消</button
           ><button
             class="button primary"
-            :disabled="busy || !canStart"
+            :disabled="busy || !canStart || !draftFilterValid"
             @click="run(start)"
           >
             <Icon :name="busy ? 'refresh' : 'play'" :size="15" />{{

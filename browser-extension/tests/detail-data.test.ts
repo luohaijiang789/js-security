@@ -9,12 +9,74 @@ import {
   frames,
   stackSegments,
   frameLocation,
+  initiatorChainForDisplay,
   recordForDisplay,
   statusText,
   statusTone,
   unresolvedStackParent,
   timeText,
 } from "../src/presentation";
+
+describe("Chrome 风格 Request initiator chain", () => {
+  it("保留动态查询结果的树层级和当前请求标记", () => {
+    const current = entry("graph", "current");
+    const display = initiatorChainForDisplay(current, {
+      nodes: [
+        {
+          request_id: "graph:document",
+          request_url: "https://console.test/orders",
+          parent_id: null,
+          current: false,
+          depth: 0,
+          relation: "request-id",
+          resolution: "exact",
+        },
+        {
+          request_id: current.request_id,
+          request_url: current.request_url,
+          parent_id: "graph:document",
+          current: true,
+          depth: 1,
+          relation: "initiator-url",
+          resolution: "inferred",
+        },
+      ],
+      warning: "部分下游请求尚未完成。",
+      truncated: true,
+    });
+    expect(display.nodes).toEqual([
+      expect.objectContaining({
+        request_id: "graph:document",
+        depth: 0,
+        current: false,
+        inferred: false,
+      }),
+      expect.objectContaining({
+        request_id: current.request_id,
+        parent_id: "graph:document",
+        depth: 1,
+        current: true,
+        inferred: true,
+      }),
+    ]);
+    expect(display.warning).toBe("部分下游请求尚未完成。");
+    expect(display.truncated).toBe(true);
+  });
+
+  it("旧记录没有图时只展示当前请求，并明确没有可用发起链", () => {
+    const current = entry("legacy", "request");
+    const display = initiatorChainForDisplay(current);
+    expect(display.nodes).toEqual([
+      expect.objectContaining({
+        request_id: current.request_id,
+        request_url: current.request_url,
+        current: true,
+        depth: 0,
+      }),
+    ]);
+    expect(display.warning).toBe("没有可用的请求发起链。");
+  });
+});
 
 describe("调用栈分段保存与展示", () => {
   const frame = {

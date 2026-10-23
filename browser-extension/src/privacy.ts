@@ -126,6 +126,7 @@ export function protectRecord(record: RecordEntry): RecordEntry {
   r.referer = r.referer ? safeURL(r.referer) : null;
   r.initiator_url = r.initiator_url ? safeURL(r.initiator_url) : null;
   r.initiator_stack = stackFrames(r.initiator_stack);
+  if (r.initiator?.url) r.initiator.url = safeURL(r.initiator.url);
   r.request_headers = protectPairs(
     r.request_headers.map((p) => ({
       ...p,
