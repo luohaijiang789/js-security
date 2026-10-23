@@ -1586,134 +1586,6 @@ main {
   width: 17px;
   height: 17px;
 }
-.template-bar {
-  display: flex;
-  align-items: center;
-  gap: 11px;
-  margin: 17px 0;
-  flex-wrap: wrap;
-}
-.template-bar label:not(.button) {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  font-size: 13px;
-  color: #65758e;
-}
-.template-bar select {
-  padding: 8px 12px;
-  min-width: 180px;
-  font-size: 13px;
-}
-.template-bar > input {
-  min-width: 200px;
-  flex: 1;
-  font-size: 13px;
-}
-.advanced-filter-flow {
-  margin: 12px 0;
-  padding: 10px 12px;
-  border-radius: 7px;
-  background: #f4f7fc;
-  color: #536987;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.rule-section {
-  border: 1px solid #e6edf5;
-  border-radius: 8px;
-  padding: 17px;
-  margin: 14px 0;
-}
-.rule-section-heading {
-  display: flex;
-  align-items: center;
-  gap: 13px;
-}
-.rule-number {
-  display: grid;
-  place-items: center;
-  flex: 0 0 25px;
-  width: 25px;
-  height: 25px;
-  background: #edf3ff;
-  color: #5275c5;
-  border-radius: 50%;
-  font-size: 12px;
-  font-weight: 700;
-  text-align: center;
-}
-.rule-section-heading > div {
-  flex: 1;
-}
-.rule-section-heading h3 {
-  font-size: 13px;
-  color: #71829b;
-}
-.rule-section-heading p {
-  font-size: 12px;
-  color: #65758e;
-  margin-top: 5px;
-  line-height: 1.8;
-}
-.rule-placeholder {
-  padding: 12px 0 0;
-  font-size: 12px;
-  color: #65758e;
-}
-.legacy-rule-warning {
-  margin: 14px 0;
-  padding: 13px 14px;
-  border: 1px solid #ead9b8;
-  border-radius: 7px;
-  background: #fffaf0;
-  color: #6f6045;
-}
-.legacy-rule-warning strong {
-  display: block;
-  font-size: 13px;
-}
-.legacy-rule-warning p {
-  margin-top: 5px;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.rule-editor {
-  border-left: 2px solid #d1def8;
-  padding: 10px 12px;
-  margin: 15px 0 0 10px;
-  background: #f9fbff;
-}
-.rule-editor .toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.rule-editor input,
-.rule-editor select {
-  font-size: 12px;
-  padding: 7px 9px;
-}
-.rule-editor label {
-  font-size: 12px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: #65758e;
-}
-.rule-editor textarea {
-  margin: 10px 0;
-  font-size: 13px;
-  background: white;
-}
-.rule-editor button {
-  font-size: 12px;
-  border: 1px solid #dce5f3;
-  border-radius: 5px;
-  background: white;
-  padding: 6px 9px;
-  color: #7a91b5;
-}
 .file-import {
   position: relative;
   cursor: pointer;
@@ -2631,12 +2503,13 @@ svg {
   display: flex;
   align-items: center;
   gap: 10px;
-  min-height: 44px;
-  padding: 0 10px 0 13px;
-  border: 1px solid #cfd9ea;
-  border-radius: 8px;
+  min-height: 58px;
+  padding: 0 14px 0 17px;
+  border: 1px solid #c7d4e8;
+  border-radius: 14px;
   background: #fff;
   color: #71819a;
+  box-shadow: 0 7px 24px rgb(46 72 118 / 8%);
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
@@ -2645,6 +2518,10 @@ svg {
   border-color: #6688e8;
   box-shadow: 0 0 0 3px rgb(102 136 232 / 12%);
 }
+.simple-filter-input.disabled {
+  background: #f5f7fb;
+  box-shadow: none;
+}
 .simple-filter-input input {
   min-width: 0;
   flex: 1;
@@ -2652,42 +2529,45 @@ svg {
   outline: 0;
   background: transparent;
   font:
-    13px/1.5 ui-monospace,
+    14px/1.5 ui-monospace,
     SFMono-Regular,
     Menlo,
     Consolas,
     monospace;
   color: #263a59;
 }
-.simple-filter-examples {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 7px;
-  color: #7a899f;
+.filter-syntax-help {
+  display: grid;
+  gap: 10px;
+  padding: 15px 17px;
+  border: 1px solid #e2e8f2;
+  border-radius: 10px;
+  background: #f8faff;
+  color: #61718a;
   font-size: 12px;
+  line-height: 1.75;
 }
-.simple-filter-examples button {
-  border: 1px solid #d9e2f0;
-  border-radius: 999px;
-  padding: 5px 10px;
-  background: #f7f9fd;
-  color: #4b6284;
-  cursor: pointer;
+.filter-syntax-help p {
+  margin: 0;
 }
-.simple-filter-examples button:hover {
-  border-color: #9bb0dc;
-  background: #eef3ff;
+.filter-syntax-help strong {
+  color: #334d73;
 }
-.simple-filter-help {
-  color: #71819a;
-  font-size: 12px;
-  line-height: 1.7;
-}
-.simple-filter-help code {
-  padding: 1px 4px;
+.filter-syntax-help code {
+  padding: 2px 5px;
   border-radius: 4px;
-  background: #edf2fa;
+  background: #eaf0fa;
+  color: #385a8f;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.filter-syntax-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 18px;
+}
+.filter-fields {
+  padding-top: 8px;
+  border-top: 1px solid #e3e9f3;
 }
 .simple-filter-summary {
   display: flex;
@@ -2727,24 +2607,17 @@ svg {
   font-size: 12px;
   line-height: 1.6;
 }
-.advanced-filter-settings {
-  margin-top: 18px;
-  border-top: 1px solid #e9eef6;
-  padding-top: 14px;
-}
 .filter-action-bar {
-  position: sticky;
-  top: 81px;
-  z-index: 12;
-  display: grid;
-  gap: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   margin-top: 18px;
   padding: 14px 16px;
   border: 1px solid #dce6f7;
   border-radius: 9px;
   background: #f8fafff2;
-  box-shadow: 0 5px 18px #263e6b12;
-  backdrop-filter: blur(8px);
+  box-shadow: none;
 }
 .filter-action-status {
   display: flex;
@@ -2769,27 +2642,7 @@ svg {
   display: flex;
   align-items: end;
   gap: 9px;
-  flex-wrap: wrap;
-}
-.filter-template-name {
-  display: grid;
-  gap: 4px;
-  margin-left: auto;
-  color: #65758e;
-  font-size: 11px;
-}
-.filter-template-name input {
-  width: 190px;
-  min-height: 39px;
-  font-size: 13px;
-}
-.advanced-filter-settings > summary {
-  color: #536987;
-  font-size: 13px;
-  cursor: pointer;
-}
-.advanced-filter-settings > .field-note {
-  margin: 10px 0 14px;
+  flex: 0 0 auto;
 }
 .new-task-filter {
   margin-top: 22px;
@@ -2802,17 +2655,16 @@ svg {
 }
 @media (max-width: 620px) {
   .filter-action-bar {
-    position: static;
+    align-items: stretch;
+    flex-direction: column;
     padding: 12px;
   }
   .filter-action-controls,
-  .filter-action-controls .button,
-  .filter-template-name,
-  .filter-template-name input {
+  .filter-action-controls .button {
     width: 100%;
   }
-  .filter-template-name {
-    margin-left: 0;
+  .filter-syntax-grid {
+    grid-template-columns: 1fr;
   }
   .simple-filter-advanced {
     align-items: flex-start;
