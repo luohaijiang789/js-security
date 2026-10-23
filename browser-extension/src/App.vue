@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted, watch } from "vue";
-import RuleEditor from "./RuleEditor.vue";
 import SimpleFilter from "./SimpleFilter.vue";
 import Icon from "./Icon.vue";
 import RequestDetail from "./RequestDetail.vue";
@@ -13,21 +12,14 @@ import {
 } from "./presentation";
 import {
   defaults,
-  type Rule,
   type Scan,
   type RecordEntry,
   type Group,
   type Batch,
-  type Filter,
   type InitiatorGraph,
 } from "./model";
 import { validateConfig } from "./config";
-import {
-  presets,
-  validateFilter,
-  matchFilter,
-  canEditFilterVisually,
-} from "./filter";
+import { validateFilter, matchFilter } from "./filter";
 import * as db from "./store";
 import { packageFiles, csv, jsonl } from "./export";
 const name = ref("业务请求采集");
@@ -42,10 +34,7 @@ const detail = ref<RecordEntry | null>(null),
   configText = ref(JSON.stringify(defaults(), null, 2));
 const filterText = ref("{}"),
   filterValid = ref(true),
-  filterFeedback = ref(""),
-  templateName = ref(""),
-  templates = ref<Record<string, Filter>>({ ...presets }),
-  template = ref("全量");
+  filterFeedback = ref("");
 const section = ref("请求"),
   mode = ref("原始"),
   search = ref(""),
@@ -65,24 +54,6 @@ const scan = computed(() =>
     : history.value.find((s) => s.id === scanId.value),
 );
 const shown = computed(() => rows.value);
-const visualFilter = computed<Filter | null>(() => {
-  try {
-    const f = JSON.parse(filterText.value);
-    validateFilter(f);
-    return f;
-  } catch {
-    return null;
-  }
-});
-const visualFilterEditable = computed(
-  () => !!visualFilter.value && canEditFilterVisually(visualFilter.value),
-);
-function setRule(key: keyof Filter, rule?: Rule) {
-  const f = { ...(visualFilter.value ?? {}) };
-  if (rule) f[key] = rule;
-  else delete f[key];
-  filterText.value = JSON.stringify(f, null, 2);
-}
 const resource = ref("all"),
   direction = ref<"newest" | "oldest">("newest"),
   pageSize = ref(50),
@@ -134,11 +105,10 @@ const filterDirty = computed(() => {
   }
 });
 const filterActionText = computed(() => {
-  if (!filterValid.value) return "规则有错误，修正后才能预览、保存或应用。";
+  if (!filterValid.value) return "规则有错误，修正后才能预览或应用。";
   if (filterFeedback.value) return filterFeedback.value;
-  if (!scan.value) return "尚未选择任务；可以先保存为模板，之后从本页载入。";
-  if (!activeTask.value)
-    return "当前任务已经结束，不能再改变其采集结果；可以保存为模板。";
+  if (!scan.value) return "尚未选择任务；选择任务后可以应用过滤条件。";
+  if (!activeTask.value) return "当前任务已经结束，不能再改变其采集结果。";
   return filterDirty.value
     ? "修改尚未应用。应用后只影响之后收到的请求。"
     : "当前任务正在使用这条规则。";
@@ -392,14 +362,6 @@ async function viewGroup(g: Group) {
     if (seq === detailSequence) detailLoading.value = false;
   }
 }
-async function exportTemplates() {
-  await saveBlob(
-    new Blob([JSON.stringify(templates.value, null, 2)], {
-      type: "application/json",
-    }),
-    "filter_templates.json",
-  );
-}
 async function loadPage() {
   const seq = ++loadSequence,
     id = scanId.value;
@@ -567,40 +529,6 @@ async function apply() {
   filterFeedback.value =
     "已应用到当前任务，只影响之后收到的请求；已经保存的记录不会改变。";
   notice.value = filterFeedback.value;
-}
-async function saveTemplate() {
-  const f = JSON.parse(filterText.value);
-  validateFilter(f);
-  if (!templateName.value.trim()) throw Error("请输入模板名");
-  templates.value[templateName.value.trim()] = f;
-  await chrome.storage.local.set({ filter_templates: templates.value });
-  template.value = templateName.value.trim();
-  filterFeedback.value = `模板“${templateName.value.trim()}”已保存，可在其他任务中从本页载入。`;
-  notice.value = filterFeedback.value;
-}
-async function removeTemplate() {
-  delete templates.value[template.value];
-  await chrome.storage.local.set({ filter_templates: templates.value });
-  template.value = Object.keys(templates.value)[0] ?? "";
-}
-function useTemplate() {
-  filterText.value = JSON.stringify(
-    templates.value[template.value] ?? {},
-    null,
-    2,
-  );
-}
-async function importTemplates(event: Event) {
-  const f = (event.target as HTMLInputElement).files?.[0];
-  if (!f) return;
-  const t = JSON.parse(await f.text());
-  if (!t || typeof t !== "object" || Array.isArray(t))
-    throw Error("模板应为名称到 Filter 的对象");
-  for (const [k, v] of Object.entries(t)) {
-    validateFilter(v as Filter);
-    templates.value[k] = v as Filter;
-  }
-  await chrome.storage.local.set({ filter_templates: templates.value });
 }
 async function preview() {
   const f = JSON.parse(filterText.value);
@@ -868,13 +796,7 @@ async function deleteScan() {
 let timer: ReturnType<typeof setInterval>;
 onMounted(async () => {
   await run(async () => {
-    const saved = await chrome.storage.local.get([
-      "filter_templates",
-      "last_config",
-      "ui_scan_id",
-    ]);
-    if (saved.filter_templates)
-      templates.value = saved.filter_templates as Record<string, Filter>;
+    const saved = await chrome.storage.local.get(["last_config", "ui_scan_id"]);
     if (saved.last_config)
       configText.value = JSON.stringify(saved.last_config, null, 2);
     if (saved.ui_scan_id) scanId.value = String(saved.ui_scan_id);
@@ -927,7 +849,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.2</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.3.3</span>
         </div>
       </div>
     </aside>
@@ -1698,10 +1620,7 @@ onUnmounted(() => {
             <div class="panel-heading">
               <div>
                 <h2>请求过滤</h2>
-                <p>
-                  像 Chrome Network
-                  一样输入关键词或属性，立即看懂会保留哪些请求。
-                </p>
+                <p>只用一个搜索框决定保存哪些请求；空框保存全部请求。</p>
               </div>
             </div>
             <SimpleFilter
@@ -1731,26 +1650,6 @@ onUnmounted(() => {
                 >
                   <Icon name="search" :size="15" />预览当前列表
                 </button>
-                <label class="filter-template-name">
-                  <span>模板名称</span>
-                  <input
-                    v-model="templateName"
-                    placeholder="例如：订单接口"
-                    aria-label="模板名称"
-                    @keydown.enter.prevent="
-                      filterValid && templateName.trim()
-                        ? run(saveTemplate)
-                        : undefined
-                    "
-                  />
-                </label>
-                <button
-                  class="button"
-                  :disabled="busy || !filterValid || !templateName.trim()"
-                  @click="run(saveTemplate)"
-                >
-                  保存为模板
-                </button>
                 <button
                   class="button primary"
                   :disabled="
@@ -1762,168 +1661,6 @@ onUnmounted(() => {
                 </button>
               </div>
             </div>
-            <details class="advanced-filter-settings">
-              <summary>高级规则与模板</summary>
-              <p class="field-note">
-                只有需要嵌套逻辑、请求头或正文条件时才使用这里；简单筛选会继续保持有效。
-              </p>
-              <p class="advanced-filter-flow">
-                系统按顺序判断：先看请求来自哪个页面，再决定要保存哪些请求，最后去掉明确不要保存的请求。
-              </p>
-              <div class="template-bar">
-                <label
-                  >模板<select v-model="template" @change="useTemplate">
-                    <option v-for="(_, k) in templates" :key="k">
-                      {{ k }}
-                    </option>
-                  </select></label
-                ><button class="button" @click="useTemplate">
-                  <Icon name="layers" :size="15" />载入模板</button
-                ><button
-                  class="button icon-only"
-                  aria-label="删除模板"
-                  @click="run(removeTemplate)"
-                >
-                  <Icon name="trash" :size="16" />
-                </button>
-              </div>
-              <div
-                v-if="visualFilter && !visualFilterEditable"
-                class="legacy-rule-warning"
-              >
-                <strong>这条旧版高级规则不适合可视化编辑</strong>
-                <p>
-                  它使用了反向条件，或把页面字段放在了请求条件中。为避免显示成容易误解的规则，可在下方
-                  JSON
-                  编辑器中继续维护；如果不再需要旧结构，可以先清空筛选，再按新的三个步骤重新设置。
-                </p>
-              </div>
-              <div
-                v-if="visualFilter && visualFilterEditable"
-                class="visual-filter"
-              >
-                <div
-                  v-for="part in [
-                    {
-                      key: 'scope',
-                      step: 1,
-                      label: '请求来自哪些页面',
-                      description:
-                        '只在这里限制来源页面；不设置时接受所有已接入页面发出的请求。',
-                      addLabel: '设置页面范围',
-                      clearLabel: '接受所有页面',
-                      emptyLabel: '所有已接入页面都在范围内',
-                    },
-                    {
-                      key: 'include',
-                      step: 2,
-                      label: '要保存哪些请求',
-                      description:
-                        '只有匹配这里的请求才会保存；不设置时保存页面范围内的所有请求。',
-                      addLabel: '设置保存条件',
-                      clearLabel: '保存全部请求',
-                      emptyLabel: '保存页面范围内的所有请求',
-                    },
-                    {
-                      key: 'exclude',
-                      step: 3,
-                      label: '哪些请求不要保存',
-                      description:
-                        '匹配这里的请求不会保存；不设置时不额外排除任何请求。',
-                      addLabel: '添加不保存条件',
-                      clearLabel: '不再额外排除',
-                      emptyLabel: '不额外排除任何请求',
-                    },
-                  ] as const"
-                  :key="part.key"
-                  class="rule-section"
-                >
-                  <div class="rule-section-heading">
-                    <span class="rule-number">{{ part.step }}</span>
-                    <div>
-                      <h3>{{ part.label }}</h3>
-                      <p>{{ part.description }}</p>
-                    </div>
-                    <button
-                      v-if="!visualFilter[part.key]"
-                      class="button small"
-                      @click="
-                        setRule(part.key, {
-                          field:
-                            part.key === 'scope' ? 'page_url' : 'request_url',
-                          operator: 'contains',
-                          values: [''],
-                        })
-                      "
-                    >
-                      <Icon name="plus" :size="14" />{{ part.addLabel }}</button
-                    ><button
-                      v-else
-                      class="text-button"
-                      @click="setRule(part.key)"
-                    >
-                      {{ part.clearLabel }}
-                    </button>
-                  </div>
-                  <RuleEditor
-                    v-if="visualFilter[part.key]"
-                    :rule="visualFilter[part.key]!"
-                    :section="part.key"
-                    @change="(r) => setRule(part.key, r)"
-                  />
-                  <div v-else class="rule-placeholder">
-                    {{ part.emptyLabel }}
-                  </div>
-                </div>
-              </div>
-              <details class="technical-details">
-                <summary>JSON 编辑器</summary>
-                <textarea
-                  v-model="filterText"
-                  rows="22"
-                  spellcheck="false"
-                  aria-label="过滤规则 JSON"
-                ></textarea>
-              </details>
-            </details>
-          </div>
-          <div class="panel">
-            <div class="panel-heading">
-              <div>
-                <h2>模板与命中统计</h2>
-                <p>保存和复制为命名模板，按配置版本统计规则命中。</p>
-              </div>
-            </div>
-            <div class="template-bar">
-              <button class="button" @click="run(exportTemplates)">
-                <Icon name="download" :size="15" />导出模板</button
-              ><label class="button file-import"
-                ><Icon name="plus" :size="15" />导入模板<input
-                  type="file"
-                  accept=".json"
-                  @change="(e) => run(() => importTemplates(e))"
-              /></label>
-            </div>
-            <div
-              v-if="!Object.keys(scan?.rule_hits ?? {}).length"
-              class="inline-empty"
-            >
-              暂无规则命中记录；采集产生结果后显示。
-            </div>
-            <table v-else class="data-table">
-              <thead>
-                <tr>
-                  <th>版本与规则路径</th>
-                  <th>命中次数</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="(value, key) in scan?.rule_hits" :key="key">
-                  <td class="mono">{{ key }}</td>
-                  <td>{{ value }}</td>
-                </tr>
-              </tbody>
-            </table>
           </div>
         </section>
         <section v-else-if="section === '存储与转存'" class="settings-layout">

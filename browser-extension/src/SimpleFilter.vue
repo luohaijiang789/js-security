@@ -1,11 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import Icon from "./Icon.vue";
-import {
-  appendSimpleToken,
-  parseSimpleQuery,
-  simpleQueryFromFilter,
-} from "./filter-query";
+import { parseSimpleQuery, simpleQueryFromFilter } from "./filter-query";
 import { validateFilter } from "./filter";
 
 const filterText = defineModel<string>({ required: true });
@@ -15,17 +11,6 @@ const query = ref(""),
   advancedReason = ref(""),
   error = ref(""),
   lastOutput = ref("");
-
-const examples = [
-  { label: "接口网址", token: "url:/api/" },
-  { label: "指定域名", token: "domain:api.example.com" },
-  { label: "POST", token: "method:POST" },
-  { label: "Fetch / XHR", token: "resource-type:Fetch,XHR" },
-  {
-    label: "排除静态资源",
-    token: "-resource-type:Image,Stylesheet,Script,Font,Media",
-  },
-];
 
 const summary = computed(() => {
   try {
@@ -47,14 +32,16 @@ watch(
       validateFilter(filter);
       const state = simpleQueryFromFilter(filter);
       advanced.value = state.advanced;
-      if (state.advanced) advancedReason.value = state.reason;
-      else query.value = state.query;
+      if (state.advanced) {
+        query.value = "";
+        advancedReason.value = state.reason;
+      } else query.value = state.query;
       error.value = "";
       emit("validity", true);
     } catch {
       advanced.value = true;
-      advancedReason.value =
-        "高级 JSON 当前无法解析，请在下方 JSON 编辑器中修正";
+      query.value = "";
+      advancedReason.value = "历史过滤规则数据无效，无法安全显示为搜索语句";
       emit("validity", false);
     }
   },
@@ -76,10 +63,6 @@ function update(value = query.value) {
   }
 }
 
-function add(token: string) {
-  update(appendSimpleToken(query.value, token));
-}
-
 function reset() {
   advanced.value = false;
   advancedReason.value = "";
@@ -89,60 +72,79 @@ function reset() {
 
 <template>
   <div class="simple-filter">
-    <template v-if="advanced">
-      <div class="simple-filter-advanced">
-        <Icon name="layers" :size="18" />
-        <div>
-          <strong>高级规则已启用</strong>
-          <p>{{ advancedReason }}；当前内容不会被自动覆盖。</p>
-        </div>
-        <button class="button" type="button" @click="reset">
-          清空并改用简单筛选
-        </button>
+    <label class="simple-filter-input" :class="{ disabled: advanced }">
+      <Icon name="search" :size="18" />
+      <input
+        v-model="query"
+        aria-label="请求筛选"
+        placeholder="输入网址关键词，或 domain:api.example.com; method:POST"
+        spellcheck="false"
+        :disabled="advanced"
+        @input="update()"
+      />
+      <button
+        v-if="query && !advanced"
+        type="button"
+        class="icon-button"
+        aria-label="清空请求筛选"
+        @click="update('')"
+      >
+        <Icon name="close" :size="14" />
+      </button>
+    </label>
+    <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+    <div v-if="advanced" class="simple-filter-advanced" role="alert">
+      <Icon name="alert" :size="18" />
+      <div>
+        <strong>这条历史规则无法完整转成搜索语句</strong>
+        <p>{{ advancedReason }}。为避免改变原意，当前规则没有被覆盖。</p>
       </div>
-    </template>
-    <template v-else>
-      <label class="simple-filter-input">
-        <Icon name="filter" :size="17" />
-        <input
-          v-model="query"
-          aria-label="请求筛选"
-          placeholder="过滤网址，或输入 domain: / method: / status-code:"
-          spellcheck="false"
-          @input="update()"
-        />
-        <button
-          v-if="query"
-          type="button"
-          class="icon-button"
-          aria-label="清空请求筛选"
-          @click="update('')"
-        >
-          <Icon name="close" :size="14" />
-        </button>
-      </label>
-      <p v-if="error" class="form-error" role="alert">{{ error }}</p>
-      <div class="simple-filter-examples" aria-label="常用筛选">
-        <span>试试：</span>
-        <button type="button" @click="reset">全部请求</button>
-        <button
-          v-for="example in examples"
-          :key="example.token"
-          type="button"
-          @click="add(example.token)"
-        >
-          {{ example.label }}
-        </button>
-      </div>
-      <p class="simple-filter-help">
-        直接输入文字会匹配网址；属性和值用 <code>:</code>，同一属性多个值用
-        <code>,</code>。多个条件需同时满足，前面加 <code>-</code>
-        表示排除。
+      <button class="button" type="button" @click="reset">
+        清空规则并保存全部请求
+      </button>
+    </div>
+    <div class="filter-syntax-help" aria-label="过滤语法说明">
+      <p>
+        <strong>空框保存全部请求。</strong
+        >直接输入文字匹配请求网址。多个条件必须用英文分号
+        <code>;</code> 隔开；分号表示“并且”，所有条件需要同时满足。
       </p>
-      <div class="simple-filter-summary" data-testid="filter-summary">
-        <Icon name="check" :size="15" />
-        <span>{{ summary.join(" · ") }}</span>
+      <div class="filter-syntax-grid">
+        <span><code>domain:api.example.com</code> 按字段过滤</span>
+        <span><code>method:GET,POST</code> 逗号表示任选一个</span>
+        <span
+          ><code>-resource-type:Image</code> 前缀 <code>-</code> 表示排除</span
+        >
+        <span><code>url:/\/api\/v\d+/i</code> 使用正则表达式</span>
+        <span><code>"order detail"</code> 双引号包住带空格的内容</span>
+        <span><code>(method:POST OR method:PUT)</code> 括号内任选条件</span>
+        <span><code>header.Authorization:?</code> 问号表示字段存在</span>
+        <span><code>-header.Authorization:?</code> 表示字段不存在</span>
       </div>
-    </template>
+      <p class="filter-query-example">
+        完整示例：<code
+          >domain:example.com; method:POST,PUT; -resource-type:Image;
+          url:/\/api\//i</code
+        >
+      </p>
+      <p class="filter-fields">
+        字段：<code>url</code>、<code>domain</code>、<code>path</code>、<code>method</code>、<code>status-code</code>、<code>resource-type</code>、<code>page</code>、<code>page-domain</code>、<code>referer</code>、<code>initiator</code>、<code>extension</code>、<code>query.参数名</code>、<code>header.请求头名</code>、<code
+          >body.JSON路径</code
+        >
+      </p>
+      <p class="filter-fields">
+        参数与正文：<code>query.name:value</code>、<code>header.Name:value</code>、<code
+          >body.json.path:value</code
+        >
+      </p>
+    </div>
+    <div
+      v-if="!advanced"
+      class="simple-filter-summary"
+      data-testid="filter-summary"
+    >
+      <Icon name="check" :size="15" />
+      <span>{{ summary.join(" · ") }}</span>
+    </div>
   </div>
 </template>

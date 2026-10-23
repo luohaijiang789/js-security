@@ -1,11 +1,7 @@
 import { describe, expect, it } from "vitest";
-import {
-  appendSimpleToken,
-  parseSimpleQuery,
-  simpleQueryFromFilter,
-} from "../src/filter-query";
+import { parseSimpleQuery, simpleQueryFromFilter } from "../src/filter-query";
 import { matchFilter } from "../src/filter";
-import type { RecordEntry } from "../src/model";
+import type { Filter, RecordEntry } from "../src/model";
 
 const record = (overrides: Partial<RecordEntry> = {}) =>
   ({
@@ -28,7 +24,62 @@ const record = (overrides: Partial<RecordEntry> = {}) =>
     ...overrides,
   }) as RecordEntry;
 
-describe("Chrome-style simple filter query", () => {
+describe("single filter search syntax", () => {
+  it("uses semicolons for new queries while retaining legacy space separation", () => {
+    const modern = parseSimpleQuery(
+      "url:order detail; method:POST; -resource-type:Image,Script",
+    );
+    expect((modern.filter.include as any).rules[0].values).toEqual([
+      "order detail",
+    ]);
+    expect(matchFilter(modern.filter, record(), true)).toBe("excluded");
+    expect(
+      (parseSimpleQuery("method:POST status-code:200").filter.include as any)
+        .rules,
+    ).toHaveLength(2);
+    expect(
+      (
+        parseSimpleQuery('url:"orders;history"; method:POST').filter
+          .include as any
+      ).rules[0].values,
+    ).toEqual(["orders;history"]);
+    expect(
+      (
+        parseSimpleQuery(String.raw`url:/orders;history/; method:POST`).filter
+          .include as any
+      ).rules[0].values,
+    ).toEqual(["orders;history"]);
+  });
+
+  it("supports regular expressions and keyed request data", () => {
+    const result = parseSimpleQuery(
+      String.raw`url:/\/api\/(orders|users)$/i; query.q:/red\s+shoe/i; header.X-Trace:/^web-/; body.customer.id:/^C\d+$/`,
+    );
+    const rules = (result.filter.include as any).rules;
+    expect(rules[0]).toEqual({
+      field: "request_url",
+      operator: "regex",
+      values: [String.raw`\/api\/(orders|users)$`],
+      case_sensitive: false,
+    });
+    expect(rules[1]).toMatchObject({
+      field: "query",
+      key: "q",
+      operator: "regex",
+      case_sensitive: false,
+    });
+    expect(rules[2]).toMatchObject({
+      field: "header",
+      key: "X-Trace",
+      case_sensitive: true,
+    });
+    expect(rules[3]).toMatchObject({ field: "body", key: "customer.id" });
+    expect(() => parseSimpleQuery("url:/order/g")).toThrow(
+      "正则只支持可选的 i 标志",
+    );
+    expect(() => parseSimpleQuery("url:/[/")).toThrow("正则表达式无效");
+  });
+
   it("treats plain text and properties as AND and negative tokens as exclusions", () => {
     const result = parseSimpleQuery(
       "/api/ domain:example.com method:POST -resource-type:Image,Script status-code:200",
@@ -83,8 +134,9 @@ describe("Chrome-style simple filter query", () => {
     expect((result.filter.scope as any).rules).toEqual([
       {
         field: "page_url",
-        operator: "contains",
-        values: ["/console/"],
+        operator: "regex",
+        values: ["console"],
+        case_sensitive: true,
       },
       {
         field: "page_host",
@@ -102,37 +154,172 @@ describe("Chrome-style simple filter query", () => {
     const state = simpleQueryFromFilter(original);
     expect(state.advanced).toBe(false);
     if (state.advanced) return;
+    expect(state.query).toContain("; ");
     const roundTrip = parseSimpleQuery(state.query).filter;
     expect(matchFilter(roundTrip, record(), true)).toBe(
       matchFilter(original, record(), true),
     );
   });
 
-  it("locks unsupported nested or case-sensitive rules instead of overwriting them", () => {
-    expect(
-      simpleQueryFromFilter({
-        include: {
-          op: "or",
-          rules: [
-            { field: "method", operator: "equals", values: ["GET"] },
-            { field: "method", operator: "equals", values: ["POST"] },
-          ],
-        },
-      }).advanced,
-    ).toBe(true);
-    expect(
-      simpleQueryFromFilter({
-        include: {
-          field: "request_url",
-          operator: "contains",
-          values: ["Admin"],
-          case_sensitive: true,
-        },
-      }).advanced,
-    ).toBe(true);
+  it("rewrites legacy scope, include and exclude rules without changing outcomes", () => {
+    const legacy: Filter = {
+      scope: {
+        field: "page_host",
+        operator: "domain",
+        values: ["example.com"],
+      },
+      include: {
+        op: "and",
+        rules: [
+          {
+            field: "request_url",
+            operator: "regex",
+            values: [String.raw`/api/(?:orders|users)`],
+          },
+          { field: "method", operator: "in", values: ["POST", "PUT"] },
+        ],
+      },
+      exclude: {
+        op: "or",
+        rules: [
+          {
+            field: "resource_type",
+            operator: "in",
+            values: ["Image", "Script"],
+          },
+          {
+            field: "pathname",
+            operator: "ends_with",
+            values: ["/health"],
+          },
+        ],
+      },
+    };
+    const converted = simpleQueryFromFilter(legacy);
+    expect(converted.advanced).toBe(false);
+    if (converted.advanced) return;
+    expect(converted.query).toContain("; ");
+    const rewritten = parseSimpleQuery(converted.query).filter;
+    for (const candidate of [
+      record(),
+      record({ method: "GET" }),
+      record({ resource_type: "Image" }),
+      record({ pathname: "/health" }),
+      record({ page_url: "https://outside.test/orders" }),
+    ])
+      expect(matchFilter(rewritten, candidate, true)).toBe(
+        matchFilter(legacy, candidate, true),
+      );
   });
 
-  it("does not duplicate a chip already present", () => {
-    expect(appendSimpleToken("method:POST", "method:POST")).toBe("method:POST");
+  it("rewrites compatible advanced atoms as regular-expression query terms", () => {
+    const original = {
+      include: {
+        op: "and" as const,
+        rules: [
+          {
+            field: "request_url",
+            operator: "starts_with",
+            values: ["https://api.example.com/v1/"],
+            case_sensitive: true,
+          },
+          {
+            field: "header",
+            key: "X-Client",
+            operator: "equals",
+            values: ["console"],
+          },
+        ],
+      },
+      exclude: {
+        field: "pathname",
+        operator: "regex",
+        values: [String.raw`\.(?:png|css)$`],
+      },
+    };
+    const state = simpleQueryFromFilter(original);
+    expect(state.advanced).toBe(false);
+    if (state.advanced) return;
+    expect(state.query).toContain(
+      String.raw`url:/^https:\/\/api\.example\.com\/v1\//`,
+    );
+    expect(state.query).toContain("header.X-Client:/^console$/i");
+    expect(state.query).toContain(String.raw`-path:/\.(?:png|css)$/i`);
+    expect(() => parseSimpleQuery(state.query)).not.toThrow();
+  });
+
+  it("round-trips nested OR and only rejects conditions the query cannot express", () => {
+    const nested: Filter = {
+      include: {
+        op: "or",
+        rules: [
+          { field: "method", operator: "equals", values: ["GET"] },
+          { field: "method", operator: "equals", values: ["POST"] },
+        ],
+      },
+    };
+    const converted = simpleQueryFromFilter(nested);
+    expect(converted.advanced).toBe(false);
+    if (!converted.advanced) {
+      expect(converted.query).toContain(" OR ");
+      const roundTrip = parseSimpleQuery(converted.query).filter;
+      for (const method of ["GET", "POST", "DELETE"])
+        expect(matchFilter(roundTrip, record({ method }), true)).toBe(
+          matchFilter(nested, record({ method }), true),
+        );
+    }
+    const existence: Filter = {
+      include: { field: "header", key: "X-Trace", operator: "exists" },
+    };
+    const existenceQuery = simpleQueryFromFilter(existence);
+    expect(existenceQuery.advanced).toBe(false);
+    if (!existenceQuery.advanced) {
+      expect(existenceQuery.query).toBe("header.X-Trace:?");
+      const roundTrip = parseSimpleQuery(existenceQuery.query).filter;
+      const present = record({
+        request_headers: [{ name: "X-Trace", value: "" }],
+      });
+      const redacted = record({
+        request_headers: [{ name: "X-Trace", value: "[REDACTED]" }],
+      });
+      for (const candidate of [present, redacted, record()])
+        expect(matchFilter(roundTrip, candidate, true)).toBe(
+          matchFilter(existence, candidate, true),
+        );
+    }
+    const absence: Filter = {
+      include: { field: "header", key: "X-Trace", operator: "not_exists" },
+    };
+    const absenceQuery = simpleQueryFromFilter(absence);
+    expect(absenceQuery.advanced).toBe(false);
+    if (!absenceQuery.advanced) {
+      expect(absenceQuery.query).toBe("-header.X-Trace:?");
+      const roundTrip = parseSimpleQuery(absenceQuery.query).filter;
+      for (const candidate of [
+        record(),
+        record({
+          request_headers: [{ name: "X-Trace", value: "[REDACTED]" }],
+        }),
+      ])
+        expect(matchFilter(roundTrip, candidate, true)).toBe(
+          matchFilter(absence, candidate, true),
+        );
+    }
+    const wildcard: Filter = {
+      include: {
+        field: "pathname",
+        operator: "wildcard",
+        values: ["/api/*"],
+      },
+    };
+    const wildcardQuery = simpleQueryFromFilter(wildcard);
+    expect(wildcardQuery.advanced).toBe(false);
+    if (!wildcardQuery.advanced) {
+      const roundTrip = parseSimpleQuery(wildcardQuery.query).filter;
+      for (const pathname of ["/api/orders", "prefix/api/orders"])
+        expect(matchFilter(roundTrip, record({ pathname }), true)).toBe(
+          matchFilter(wildcard, record({ pathname }), true),
+        );
+    }
   });
 });
