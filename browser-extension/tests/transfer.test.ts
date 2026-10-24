@@ -131,3 +131,73 @@ it("取消下载保留本地待处理批次，不误标转存成功", async () =
   expect((await db.get<Batch>("batches", b.id))?.state).toBe("failed");
   expect(await db.page(recorder.scan!.id)).toHaveLength(1);
 });
+it("使用会话 STS 凭证签名批量写入 SLS，并保存请求回执", async () => {
+  recorder.scan!.config.archive.enabled = false;
+  recorder.scan!.config.service.enabled = false;
+  recorder.scan!.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "browser_requests",
+  };
+  (chrome.storage.session.get as any).mockResolvedValue({
+    sls_credentials: {
+      "https://security-project.cn-hangzhou.log.aliyuncs.com|security-project|browser_requests":
+        {
+          access_key_id: "STS.id",
+          access_key_secret: "secret",
+          security_token: "token",
+        },
+    },
+  });
+  let sent: any;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, options) => {
+      sent = { url, options, payload: JSON.parse(options.body) };
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "x-log-requestid": "sls-request-1" }),
+        text: async () => "",
+      };
+    }),
+  );
+  await transfer(recorder.scan!, true);
+  expect(sent.url).toBe(
+    "https://security-project.cn-hangzhou.log.aliyuncs.com/logstores/browser_requests",
+  );
+  expect(sent.options.headers.Authorization).toMatch(/^LOG STS\.id:/);
+  expect(sent.options.headers["x-acs-security-token"]).toBe("token");
+  expect(sent.payload.__logs__[0].record_json_chunk).toContain("Authorization");
+  const [batch] = await db.all<Batch>("batches", recorder.scan!.id);
+  expect(batch.channel).toBe("sls");
+  expect(batch.state).toBe("complete");
+  expect(batch.receipt).toBe("sls-request-1");
+});
+it("WebTracking 模式写入匿名 track 端点且不读取凭证", async () => {
+  recorder.scan!.config.archive.enabled = false;
+  recorder.scan!.config.service.enabled = false;
+  recorder.scan!.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    mode: "web_tracking",
+    endpoint: "cn-shanghai.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "browser_requests",
+  };
+  const fetch = vi.fn(async (_url: string, _options: any) => ({
+    ok: true,
+    status: 200,
+    headers: new Headers(),
+    text: async () => "",
+  }));
+  vi.stubGlobal("fetch", fetch);
+  await transfer(recorder.scan!, true);
+  expect(fetch.mock.calls[0][0]).toContain(
+    "/logstores/browser_requests/track?APIVersion=0.6.0",
+  );
+  expect(fetch.mock.calls[0][1]).not.toHaveProperty("headers");
+  expect(chrome.storage.session.get).not.toHaveBeenCalled();
+});

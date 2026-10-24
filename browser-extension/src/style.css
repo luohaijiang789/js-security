@@ -1639,7 +1639,7 @@ main {
 }
 .storage-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 20px;
 }
 .storage-summary .panel > .metric-icon {
@@ -1693,6 +1693,34 @@ main {
 .storage-summary small {
   font-size: 11px;
   color: #65758e;
+}
+.sls-config-section {
+  margin-top: 26px;
+  padding-top: 25px;
+  border-top: 1px solid var(--line);
+}
+.sls-config-section > .section-heading {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.sls-config-section > .section-heading h3 {
+  margin: 0 0 5px;
+  color: var(--ink);
+}
+.sls-config-section > .section-heading p {
+  margin: 0;
+  color: #65758e;
+  font-size: 12px;
+}
+.sls-config-section > .section-heading input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+.sls-credentials {
+  margin-top: 18px;
+}
+.sls-actions {
+  margin-top: 18px;
 }
 .warning-text {
   color: #bd9655 !important;

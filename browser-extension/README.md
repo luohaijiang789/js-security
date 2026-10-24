@@ -1,6 +1,6 @@
 # JS 请求采集浏览器插件
 
-独立的 Chrome Manifest V3 工程。点击工具栏图标直接打开管理标签页，新任务按浏览器范围采集当前浏览器所有窗口中的 HTTP/HTTPS 网页，并在详情侧栏查看参数、请求头、正文、调用栈、质量状态和原始记录。完整功能与限制见[插件开发与安装](../docs/插件开发与安装.md)，需求见[插件规格](../docs/JS%20请求采集浏览器插件.md)。
+独立的 Chrome Manifest V3 工程。点击工具栏图标直接打开管理标签页，新任务按浏览器范围采集当前浏览器所有窗口中的 HTTP/HTTPS 网页，并在详情侧栏查看参数、请求/响应头、请求/响应正文、调用栈、质量状态和原始记录；记录可保存在本地、内部接收服务或阿里云 SLS。完整功能与限制见[插件开发与安装](../docs/插件开发与安装.md)，需求见[插件规格](../docs/JS%20请求采集浏览器插件.md)。
 
 ## 构建与安装
 
@@ -78,6 +78,14 @@ resource-type:XHR,Fetch,Ping
 | `body.JSON路径` | JSON 点路径或表单字段值包含内容 | `body.customer.id:C1001` |
 
 字段名和普通文字值默认不区分大小写，只有不带 `i` 的正则区分大小写。Header 名称不区分大小写；Query 参数名、JSON 路径和表单字段名区分大小写。`extension` 的值不带 `.`。`page` 表示哪个网页发出了请求，`url` 表示请求发往哪里；`referer` 是实际 HTTP 请求头，可能缺失。依赖 `status-code`、完整 Header 或 Body 的规则可能在请求进行中暂时无法判定，终态到达后自动更新。应用过滤条件只影响之后收到的请求，不会重新筛选已保存记录。插件内“使用说明”页还提供全部 Chrome 类型解释、可复制场景和排查步骤。
+
+### 自动保存到阿里云 SLS
+
+在“存储与转存”启用阿里云 SLS，填写 Endpoint、Project 和 Logstore。推荐选择 STS 临时凭证签名，临时身份只授予目标 Logstore 的 `log:PostLogStoreLogs` 权限；AccessKey ID、AccessKey Secret 与 SecurityToken 只保存在 `chrome.storage.session`，不会进入任务、IndexedDB 或导出包。标准 Endpoint 填 `cn-hangzhou.log.aliyuncs.com` 这类地域地址，不带 Project；自定义域名须为无路径、Query、fragment 和凭据的完整 HTTPS 地址。
+
+插件按时间、条数和 3 MB 以内的请求大小分批写入。SLS 日志包含 URL、方法、状态码、资源类型、任务与请求 ID 等可检索字段，完整记录保存在 `record_json_chunk`；超大记录按 `record_sha256`、`record_chunk_index`、`record_chunk_total` 还原。投递采用至少一次语义，响应丢失后的重试可能重复，可用 `transfer_batch_id + request_id + record_chunk_index` 去重。失败批次保留本地并自动尝试 3 次，也可重新授权后手动重试。
+
+WebTracking 匿名模式无需凭证，但必须在 Logstore 开启公网匿名写入，存在第三方写入脏数据的风险。完整配置步骤、字段解释和排查方式见插件内“使用说明”。
 
 `Request call stack` 显示浏览器实际返回的同步帧和异步父段；`Request initiator chain` 显示请求之间的上游和下游关系。重定向和带 request ID 的关系精确关联；只有同一标签页、调试会话和 loader 内的发起 URL 候选唯一时才推定关系，候选歧义时不猜测。为了让排除静态资源后的链仍然连贯，插件会为被 Filter 排除的请求保留仅含原始 URL 和父关系的紧凑节点，不保存其请求头、正文或调用栈；这部分计入任务存储容量。历史记录不会因升级恢复此前已经脱敏或未保存的值、调用栈与发起链。
 

@@ -34,6 +34,23 @@ export type Rule =
       case_sensitive?: boolean;
     };
 export type Filter = { scope?: Rule; include?: Rule; exclude?: Rule };
+export type SlsConfig = {
+  enabled: boolean;
+  mode: "sts" | "web_tracking";
+  endpoint: string;
+  project: string;
+  logstore: string;
+  topic: string;
+  source: string;
+  batch_size: number;
+  batch_bytes: number;
+  interval_ms: number;
+};
+export type SlsCredentials = {
+  access_key_id: string;
+  access_key_secret: string;
+  security_token: string;
+};
 export type Config = {
   filter: Filter;
   retention: "matching" | "all";
@@ -64,6 +81,8 @@ export type Config = {
     interval_ms?: number;
     compress?: boolean;
   };
+  /** Missing on tasks created before SLS transfer support. */
+  sls?: SlsConfig;
   retention_days: number;
 };
 export const defaults = (): Config => ({
@@ -103,6 +122,18 @@ export const defaults = (): Config => ({
     batch_size: 200,
     interval_ms: 5000,
     compress: false,
+  },
+  sls: {
+    enabled: false,
+    mode: "sts",
+    endpoint: "",
+    project: "",
+    logstore: "",
+    topic: "js-security-request",
+    source: "browser-extension",
+    batch_size: 100,
+    batch_bytes: 2 * 1024 * 1024,
+    interval_ms: 10000,
   },
   retention_days: 7,
 });
@@ -249,7 +280,7 @@ export type Group = {
 export type Batch = {
   id: string;
   scan_id: string;
-  channel: "file" | "service";
+  channel: "file" | "service" | "sls";
   state: "pending" | "downloading" | "complete" | "failed";
   records: string[];
   attempts: number;
@@ -261,6 +292,8 @@ export type Batch = {
   last_ordinal?: number;
   receiver_url?: string;
   compressed?: boolean;
+  sls?: SlsConfig;
+  receipt?: string;
 };
 export const now = () => new Date().toISOString();
 export const uid = () => crypto.randomUUID();

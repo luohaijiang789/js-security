@@ -24,6 +24,7 @@ import { validateConfig } from "./config";
 import { validateFilter, matchFilter } from "./filter";
 import * as db from "./store";
 import { packageFiles, csv, jsonl } from "./export";
+import { slsBaseURL, slsCredentialKey } from "./sls";
 const name = ref("业务请求采集");
 const current = ref<Scan | null>(null),
   history = ref<Scan[]>([]),
@@ -49,7 +50,10 @@ const section = ref("请求"),
   failure = ref(""),
   queued = ref(0),
   pending = ref(0),
-  serviceToken = ref("");
+  serviceToken = ref(""),
+  slsAccessKeyId = ref(""),
+  slsAccessKeySecret = ref(""),
+  slsSecurityToken = ref("");
 const scan = computed(() =>
   current.value?.id === scanId.value
     ? current.value
@@ -302,7 +306,7 @@ function navigate(value: string) {
   exportOpen.value = false;
 }
 const counts = computed(() =>
-  ["file", "service"].map((channel) => ({
+  (["file", "service", "sls"] as const).map((channel) => ({
     channel,
     ...(Object.fromEntries(
       ["pending", "downloading", "complete", "failed"].map((state) => [
@@ -315,7 +319,9 @@ const counts = computed(() =>
     unplanned: (
       channel === "file"
         ? scan.value?.config.archive.enabled
-        : scan.value?.config.service.enabled
+        : channel === "service"
+          ? scan.value?.config.service.enabled
+          : scan.value?.config.sls?.enabled
     )
       ? Math.max(
           0,
@@ -327,6 +333,11 @@ const counts = computed(() =>
       : 0,
   })),
 );
+const channelLabels = {
+  file: "文件归档",
+  service: "内部服务转存",
+  sls: "阿里云 SLS",
+} as const;
 async function rpc(type: string, data: object = {}) {
   const r = await chrome.runtime.sendMessage({ type, ...data });
   if (!r.ok) throw Error(r.error);
@@ -560,6 +571,41 @@ async function authorize() {
   });
   serviceToken.value = "";
   notice.value = "接收服务已授权；令牌仅存当前浏览器会话，不进入导出包。";
+}
+async function authorizeSls() {
+  const config = configForm.value.sls!;
+  validateConfig(configForm.value);
+  const origin = new URL(slsBaseURL(config)).origin;
+  const ok = await chrome.permissions.request({ origins: [origin + "/*"] });
+  if (!ok) throw Error("未授权 SLS Endpoint");
+  if (config.mode === "sts") {
+    if (
+      !slsAccessKeyId.value.trim() ||
+      !slsAccessKeySecret.value ||
+      !slsSecurityToken.value
+    )
+      throw Error(
+        "STS 模式必须填写 AccessKey ID、AccessKey Secret 和 SecurityToken",
+      );
+    const stored = await chrome.storage.session.get("sls_credentials");
+    await chrome.storage.session.set({
+      sls_credentials: {
+        ...((stored.sls_credentials as object) ?? {}),
+        [slsCredentialKey(config)]: {
+          access_key_id: slsAccessKeyId.value.trim(),
+          access_key_secret: slsAccessKeySecret.value,
+          security_token: slsSecurityToken.value,
+        },
+      },
+    });
+    slsAccessKeyId.value = "";
+    slsAccessKeySecret.value = "";
+    slsSecurityToken.value = "";
+    notice.value =
+      "SLS Endpoint 已授权；STS 临时凭证仅存当前浏览器会话，不进入任务或导出包。";
+  } else
+    notice.value =
+      "SLS Endpoint 已授权；请确认 Logstore 已开启 WebTracking 匿名写入。";
 }
 async function saveBlob(blob: Blob, filename: string) {
   const u = URL.createObjectURL(blob);
@@ -857,7 +903,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.4.0</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.0</span>
         </div>
       </div>
     </aside>
@@ -1727,12 +1773,18 @@ onUnmounted(() => {
             <div v-for="c in counts" :key="c.channel" class="panel">
               <span
                 class="metric-icon"
-                :class="c.channel === 'file' ? 'blue' : 'purple'"
+                :class="
+                  c.channel === 'file'
+                    ? 'blue'
+                    : c.channel === 'sls'
+                      ? 'teal'
+                      : 'purple'
+                "
                 ><Icon
                   :name="c.channel === 'file' ? 'folder' : 'external'"
                   :size="21"
               /></span>
-              <h2>{{ c.channel === "file" ? "文件归档" : "内部服务转存" }}</h2>
+              <h2>{{ channelLabels[c.channel] }}</h2>
               <strong class="storage-number"
                 >{{ c.complete.toLocaleString() }}<em>条完成</em></strong
               >
@@ -1748,9 +1800,13 @@ onUnmounted(() => {
                   ? configForm.archive.enabled
                     ? "自动归档已开启"
                     : "自动归档已关闭"
-                  : configForm.service.enabled
-                    ? "服务转存已开启"
-                    : "服务转存未启用"
+                  : c.channel === "service"
+                    ? configForm.service.enabled
+                      ? "服务转存已开启"
+                      : "服务转存未启用"
+                    : configForm.sls?.enabled
+                      ? "SLS 自动保存已开启"
+                      : "SLS 自动保存未启用"
               }}</span>
             </div>
           </div>
@@ -1851,14 +1907,176 @@ onUnmounted(() => {
             </div>
             <div class="panel-footer">
               <button class="button" @click="run(authorize)">
-                <Icon name="shield" :size="15" />授权接收服务</button
-              ><button
-                class="button primary"
-                :disabled="busy || !activeTask"
-                @click="run(apply)"
-              >
-                保存转存策略
+                <Icon name="shield" :size="15" />授权接收服务
               </button>
+            </div>
+            <div class="sls-config-section">
+              <div class="section-heading">
+                <div>
+                  <h3>自动保存到阿里云 SLS</h3>
+                  <p>按批次写入 Logstore；本地记录始终保留，失败可重试。</p>
+                </div>
+                <input
+                  type="checkbox"
+                  aria-label="启用阿里云 SLS 自动保存"
+                  :checked="configForm.sls?.enabled"
+                  @change="
+                    (e) =>
+                      setConfig(
+                        'sls.enabled',
+                        (e.target as HTMLInputElement).checked,
+                      )
+                  "
+                />
+              </div>
+              <div class="form-grid">
+                <label
+                  >接入方式<select
+                    :value="configForm.sls?.mode"
+                    @change="
+                      (e) =>
+                        setConfig(
+                          'sls.mode',
+                          (e.target as HTMLSelectElement).value,
+                        )
+                    "
+                  >
+                    <option value="sts">STS 临时凭证签名（推荐）</option>
+                    <option value="web_tracking">WebTracking 匿名写入</option>
+                  </select></label
+                ><label
+                  >Endpoint<input
+                    :value="configForm.sls?.endpoint"
+                    placeholder="cn-hangzhou.log.aliyuncs.com"
+                    @input="
+                      (e) =>
+                        setConfig(
+                          'sls.endpoint',
+                          (e.target as HTMLInputElement).value,
+                        )
+                    "
+                /></label>
+                <label
+                  >Project<input
+                    :value="configForm.sls?.project"
+                    placeholder="your-project"
+                    @input="
+                      (e) =>
+                        setConfig(
+                          'sls.project',
+                          (e.target as HTMLInputElement).value,
+                        )
+                    "
+                /></label>
+                <label
+                  >Logstore<input
+                    :value="configForm.sls?.logstore"
+                    placeholder="js-security-requests"
+                    @input="
+                      (e) =>
+                        setConfig(
+                          'sls.logstore',
+                          (e.target as HTMLInputElement).value,
+                        )
+                    "
+                /></label>
+                <label
+                  >Topic<input
+                    :value="configForm.sls?.topic"
+                    @input="
+                      (e) =>
+                        setConfig(
+                          'sls.topic',
+                          (e.target as HTMLInputElement).value,
+                        )
+                    "
+                /></label>
+                <label
+                  >Source<input
+                    :value="configForm.sls?.source"
+                    @input="
+                      (e) =>
+                        setConfig(
+                          'sls.source',
+                          (e.target as HTMLInputElement).value,
+                        )
+                    "
+                /></label>
+                <label
+                  >发送间隔（秒）<input
+                    type="number"
+                    min="1"
+                    :value="(configForm.sls?.interval_ms ?? 10000) / 1000"
+                    @change="(e) => setNumber('sls.interval_ms', e, 1000)"
+                /></label>
+                <label
+                  >每批记录数<input
+                    type="number"
+                    min="1"
+                    max="1000"
+                    :value="configForm.sls?.batch_size"
+                    @change="(e) => setNumber('sls.batch_size', e)"
+                /></label>
+                <label
+                  >每批上限（MB）<input
+                    type="number"
+                    min="0.25"
+                    max="3"
+                    step="0.25"
+                    :value="(configForm.sls?.batch_bytes ?? 2097152) / 1048576"
+                    @change="(e) => setNumber('sls.batch_bytes', e, 1048576)"
+                /></label>
+              </div>
+              <div
+                v-if="configForm.sls?.mode === 'sts'"
+                class="form-grid sls-credentials"
+              >
+                <label
+                  >STS AccessKey ID<input
+                    v-model="slsAccessKeyId"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="仅保存在当前浏览器会话"
+                /></label>
+                <label
+                  >STS AccessKey Secret<input
+                    v-model="slsAccessKeySecret"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="仅保存在当前浏览器会话"
+                /></label>
+                <label
+                  >STS SecurityToken<input
+                    v-model="slsSecurityToken"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="必须使用临时 Token"
+                /></label>
+              </div>
+              <p
+                v-if="configForm.sls?.mode === 'web_tracking'"
+                class="message-banner warning"
+              >
+                <Icon name="alert" />WebTracking 要在 Logstore
+                开启公网匿名写入，任何人都可能写入脏数据；仅在明确接受该风险时使用。
+              </p>
+              <p v-else class="permission-note">
+                <Icon name="shield" :size="15" /><span
+                  >请使用仅允许目标 Project / Logstore 写入、有效期尽量短的 STS
+                  临时凭证。凭证不会写入任务、IndexedDB 或导出包。</span
+                >
+              </p>
+              <div class="panel-footer sls-actions">
+                <button class="button" @click="run(authorizeSls)">
+                  <Icon name="shield" :size="15" />授权 SLS 并保存会话凭证</button
+                ><button
+                  class="button primary"
+                  :disabled="busy || !activeTask"
+                  @click="run(apply)"
+                >
+                  保存全部转存策略
+                </button>
+              </div>
             </div>
           </div>
           <div class="panel">
@@ -1882,7 +2100,7 @@ onUnmounted(() => {
               <tbody>
                 <tr v-for="b in batches" :key="b.id">
                   <td>
-                    {{ b.channel === "file" ? "文件归档" : "接收服务"
+                    {{ channelLabels[b.channel]
                     }}<small class="mono">{{ b.id }}</small>
                   </td>
                   <td>{{ b.records.length }}</td>
@@ -1890,7 +2108,9 @@ onUnmounted(() => {
                     <span class="pill">{{ batchStateLabels[b.state] }}</span>
                   </td>
                   <td>{{ b.attempts }} / 3</td>
-                  <td>{{ b.error ?? "—" }}</td>
+                  <td>
+                    {{ b.error ?? (b.receipt ? "SLS " + b.receipt : "—") }}
+                  </td>
                 </tr>
               </tbody>
             </table>

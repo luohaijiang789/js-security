@@ -39,7 +39,7 @@ flowchart TD
 | F03 | 查询兼容 | 旧版 Filter 自动转写为搜索语句、即时预览、错误阻止与版本留痕 |
 | F04 | 去重归并 | 精确归并、动态参数归一化、原始/聚合视图 |
 | F05 | 本地存储 | IndexedDB 持久化、历史任务、容量管理 |
-| F06 | 自动转存 | 本地文件分片；可选启用内部服务批量转存 |
+| F06 | 自动转存 | 本地文件分片；可选内部服务或阿里云 SLS 批量转存 |
 | F07 | 请求查看 | 实时列表、详情、搜索、分页或虚拟列表 |
 | F08 | 数据导出 | JSONL 主格式、CSV、请求组与完整任务数据包 |
 | F09 | 性能与恢复 | 有界队列、批处理、限并发、告警与恢复 |
@@ -193,8 +193,11 @@ page-domain:alibabacloud.com; (page:idp-cloud OR referer:idp-cloud); -extension:
 | 本地持久化 | IndexedDB 默认开启，保存任务、请求、分组、错误与待转存进度 |
 | 本地分片文件 | 按数量、大小、时间或停止动作触发，写入浏览器允许或用户授权的目录 |
 | 内部接收服务 | 可选 HTTPS 地址、授权方式、批次大小、间隔、压缩、重试与保留策略；仅允许批准的接收服务 |
+| 阿里云 SLS | 可选 STS 临时凭证签名或 WebTracking 匿名写入；配置 Endpoint、Project、Logstore、Topic、Source、批次与间隔 |
 
 内网接收服务须按唯一 Batch ID 幂等处理，确认持久化后才标记转存成功。失败保留本地待转存记录，有界重试，恢复后续传。自动删除已转存本地记录须显式开启，不能默认清理证据。
+
+SLS 将常用字段平铺用于检索，并将完整记录写入可重组的 `record_json_chunk`；大记录使用 SHA-256、分片序号和总数标识。投递语义为至少一次，下游须以 `transfer_batch_id + request_id + record_chunk_index` 去重。STS 凭证不得进入任务配置、IndexedDB 和导出包；WebTracking 要求用户明确接受公网匿名写入与脏数据风险。
 
 文件归档与服务转存分别记录状态；触发下载不等于文件已完成。文件失败、被取消或目录不可写须保留待处理项。浏览器多文件下载、目录授权行为在目标企业 Chrome 版本验收。
 
@@ -203,6 +206,7 @@ page-domain:alibabacloud.com; (page:idp-cloud OR referer:idp-cloud); -extension:
 | 本地持久化 / 自动文件归档 | 开启 / 开启 |
 | 文件归档间隔 / 分片大小 | 5 分钟 / 20 MB |
 | 内部转存 / 批次大小 | 可选开启 / 200 条 |
+| SLS 转存 / 批次策略 | 可选开启 / 100 条 / 2 MB / 10 秒；HTTP 上限 3 MB |
 | 失败重试 | 3 次，指数退避；耗尽后保留待处理状态 |
 | 本地保留 | 7 天或任务配置；到期不得绕过未转存与证据保留约定 |
 | 停止任务 | 停止纳入新请求，继续处理在途请求的关联事件；达到可配置等待上限后标记未完成项，再完成写盘/归档，服务转存另记状态 |
@@ -285,7 +289,7 @@ CDP 事件 → 身份关联/轻量过滤 → 有界队列 → 限并发获取内
 | 采集 | `chrome.debugger` + CDP Network；关联可取得的 target/框架信息 |
 | 过滤 / 归并 | TypeScript 规则引擎 / 规范化与 Hash 指纹 |
 | 数据 / 配置 | IndexedDB / `chrome.storage.local` |
-| 文件 / 服务 | `chrome.downloads` 或授权文件访问 / HTTPS 批量转存 |
+| 文件 / 服务 / SLS | `chrome.downloads` 或授权文件访问 / HTTPS 批量转存 / SLS LOG 签名或 WebTracking |
 
 MV3 后台生命周期、debugger 会话维持与中断、子目标可见性需按目标 Chrome 版本落实；恢复状态不能只放在全局变量。具体 API 兼容性以实现和验收记录为准。
 

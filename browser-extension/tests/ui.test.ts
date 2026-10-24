@@ -146,6 +146,10 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
           { id: 77, url: "https://unselected.test/", title: "另一个业务页面" },
         ],
       },
+      permissions: {
+        request: async () => true,
+        contains: async () => true,
+      },
       storage: {
         local: {
           get: async () => storage,
@@ -620,6 +624,35 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       (window as any).messages.findLast((m: any) => m.type === "update"),
     );
     expect(clearMessage.config.filter).toEqual({});
+    await page.getByRole("button", { name: "存储与转存", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "自动保存到阿里云 SLS", exact: true })
+      .waitFor();
+    await page.getByLabel("启用阿里云 SLS 自动保存").check();
+    await page.getByLabel("Endpoint").fill("cn-hangzhou.log.aliyuncs.com");
+    await page.getByLabel("Project").fill("security-project");
+    await page.getByLabel("Logstore").fill("browser_requests");
+    await page.getByLabel("接入方式").selectOption("web_tracking");
+    await page.getByText(/公网匿名写入/).waitFor();
+    await page.screenshot({
+      path: "work/redesign/sls-transfer.png",
+      fullPage: false,
+    });
+    await page.getByRole("button", { name: "授权 SLS 并保存会话凭证" }).click();
+    await page
+      .getByRole("status")
+      .getByText(/SLS Endpoint 已授权/)
+      .waitFor();
+    await page.getByRole("button", { name: "保存全部转存策略" }).click();
+    const slsUpdate = await page.evaluate(() =>
+      (window as any).messages.findLast((m: any) => m.type === "update"),
+    );
+    expect(slsUpdate.config.sls).toMatchObject({
+      enabled: true,
+      mode: "web_tracking",
+      project: "security-project",
+      logstore: "browser_requests",
+    });
     await page.getByRole("button", { name: "使用说明", exact: true }).click();
     await page
       .getByRole("heading", { name: "完整使用说明", exact: true })
