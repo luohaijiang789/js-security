@@ -11,6 +11,7 @@ import {
 import { validateConfig } from "./config";
 import { transfer, downloadChanged } from "./transfer";
 import { safeURL } from "./privacy";
+import { slsBaseURL } from "./sls";
 async function deadline<T>(
   promise: Promise<T>,
   label: string,
@@ -117,6 +118,20 @@ function requireCurrent(id: unknown, states: Scan["state"][]) {
   if (!states.includes(scan.state))
     throw Error("当前任务状态不允许此操作，请刷新任务状态");
   return scan;
+}
+async function requireTransferPermissions(config: Config) {
+  if (
+    config.service.enabled &&
+    !(await chrome.permissions.contains({
+      origins: [new URL(config.service.url).origin + "/*"],
+    }))
+  )
+    throw Error("请先授权接收服务");
+  if (config.sls?.enabled) {
+    const origin = new URL(slsBaseURL(config.sls)).origin;
+    if (!(await chrome.permissions.contains({ origins: [origin + "/*"] })))
+      throw Error("请先授权阿里云 SLS Endpoint");
+  }
 }
 const ready = (async () => {
   const scans = await db.all<Scan>("scans");
@@ -519,13 +534,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             }),
           );
         }
-        if (
-          message.config.service.enabled &&
-          !(await chrome.permissions.contains({
-            origins: [new URL(message.config.service.url).origin + "/*"],
-          }))
-        )
-          throw Error("请先授权接收服务");
+        await requireTransferPermissions(message.config);
         const s = await recorder.create(
           message.name,
           tabs,
@@ -621,6 +630,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       case "update":
         requireCurrent(message.id, ["recording", "paused", "interrupted"]);
         validateConfig(message.config as Config);
+        await requireTransferPermissions(message.config as Config);
         await recorder.update(message.config);
         await chrome.storage.local.set({ last_config: message.config });
         return true;

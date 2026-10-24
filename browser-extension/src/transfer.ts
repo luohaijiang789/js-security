@@ -2,6 +2,14 @@ import * as db from "./store";
 import type { Scan, Batch, RecordEntry } from "./model";
 import { uid, now } from "./model";
 import { jsonl } from "./export";
+import {
+  signSlsRequest,
+  slsBaseURL,
+  slsCredentialKey,
+  slsPayloads,
+  slsResourcePath,
+  slsWriteURL,
+} from "./sls";
 const locks = new Set<string>();
 async function rowsFor(b: Batch) {
   const rows: RecordEntry[] = [];
@@ -48,7 +56,7 @@ export async function sendBatch(batch: Batch, scan: Scan) {
       const [item] = await chrome.downloads.search({ id: batch.download_id });
       if (item?.state === "complete") batch.state = "complete";
       else if (item?.state === "interrupted") throw Error("文件下载中断");
-    } else {
+    } else if (batch.channel === "service") {
       const url = batch.receiver_url ?? scan.config.service.url;
       const origin = new URL(url).origin;
       if (!(await chrome.permissions.contains({ origins: [origin + "/*"] })))
@@ -90,6 +98,66 @@ export async function sendBatch(batch: Batch, scan: Scan) {
       if (ack.batch_id !== batch.id || ack.persisted !== true)
         throw Error("缺少匹配 batch_id 和 persisted:true 的持久化确认");
       batch.state = "complete";
+    } else {
+      const config = batch.sls ?? scan.config.sls;
+      if (!config?.enabled) throw Error("SLS 转存未启用或批次缺少目标配置");
+      const origin = new URL(slsBaseURL(config)).origin;
+      if (!(await chrome.permissions.contains({ origins: [origin + "/*"] })))
+        throw Error("SLS Endpoint 未授权或权限已撤销");
+      const payloads = slsPayloads(rows, batch, scan, config);
+      let credentials:
+        | {
+            access_key_id: string;
+            access_key_secret: string;
+            security_token: string;
+          }
+        | undefined;
+      if (config.mode === "sts") {
+        const stored = await chrome.storage.session.get("sls_credentials");
+        credentials = (
+          stored.sls_credentials as
+            | Record<
+                string,
+                {
+                  access_key_id: string;
+                  access_key_secret: string;
+                  security_token: string;
+                }
+              >
+            | undefined
+        )?.[slsCredentialKey(config)];
+        if (
+          !credentials?.access_key_id ||
+          !credentials.access_key_secret ||
+          !credentials.security_token
+        )
+          throw Error("SLS STS 临时凭证不存在或当前浏览器会话已失效");
+      }
+      const receipts: string[] = [];
+      for (const payload of payloads) {
+        const headers = credentials
+          ? signSlsRequest(payload, slsResourcePath(config), credentials)
+          : undefined;
+        const response = await fetch(slsWriteURL(config), {
+          method: "POST",
+          redirect: "error",
+          credentials: "omit",
+          referrerPolicy: "no-referrer",
+          signal: AbortSignal.timeout(15000),
+          ...(headers ? { headers } : {}),
+          body: payload,
+        });
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          throw Error(
+            `SLS 返回 HTTP ${response.status}${detail ? `：${detail.slice(0, 300)}` : ""}`,
+          );
+        }
+        const receipt = response.headers?.get("x-log-requestid");
+        if (receipt) receipts.push(receipt);
+      }
+      batch.receipt = receipts.length ? receipts.join(",") : undefined;
+      batch.state = "complete";
     }
     delete batch.error;
     await db.put("batches", batch);
@@ -121,11 +189,13 @@ export async function transfer(scan: Scan, force = false) {
         }
       }
     }
-    for (const channel of ["file", "service"] as const) {
+    for (const channel of ["file", "service", "sls"] as const) {
       const enabled =
         channel === "file"
           ? scan.config.archive.enabled
-          : scan.config.service.enabled;
+          : channel === "service"
+            ? scan.config.service.enabled
+            : !!scan.config.sls?.enabled;
       if (!enabled) continue;
       const last =
         existing
@@ -143,8 +213,13 @@ export async function transfer(scan: Scan, force = false) {
       const maxCount =
         channel === "service"
           ? scan.config.service.batch_size
-          : scan.config.archive.count;
-      const maxBytes = scan.config.archive.bytes;
+          : channel === "sls"
+            ? scan.config.sls!.batch_size
+            : scan.config.archive.count;
+      const maxBytes =
+        channel === "sls"
+          ? scan.config.sls!.batch_bytes
+          : scan.config.archive.bytes;
       const emit = async () => {
         if (!buffer.length) return;
         const batch: Batch = {
@@ -161,6 +236,8 @@ export async function transfer(scan: Scan, force = false) {
             channel === "service" ? scan.config.service.url : undefined,
           compressed:
             channel === "service" ? !!scan.config.service.compress : undefined,
+          sls:
+            channel === "sls" ? structuredClone(scan.config.sls!) : undefined,
         };
         await db.put("batches", batch);
         existing.push(batch);
@@ -184,7 +261,9 @@ export async function transfer(scan: Scan, force = false) {
         Date.now() - last >=
           (channel === "service"
             ? (scan.config.service.interval_ms ?? 5000)
-            : scan.config.archive.interval_ms)
+            : channel === "sls"
+              ? scan.config.sls!.interval_ms
+              : scan.config.archive.interval_ms)
       )
         await emit();
     }
@@ -199,6 +278,7 @@ export async function transfer(scan: Scan, force = false) {
       .slice(0, 4)) {
       if (
         (b.channel === "service" && !scan.config.service.enabled) ||
+        (b.channel === "sls" && !scan.config.sls?.enabled) ||
         (b.channel === "file" && !scan.config.archive.enabled)
       )
         continue;
