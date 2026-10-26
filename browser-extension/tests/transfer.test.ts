@@ -176,6 +176,39 @@ it("使用会话 STS 凭证签名批量写入 SLS，并保存请求回执", asyn
   expect(batch.state).toBe("complete");
   expect(batch.receipt).toBe("sls-request-1");
 });
+it("长期 AccessKey 不需要 SecurityToken 也能签名写入 SLS", async () => {
+  recorder.scan!.config.archive.enabled = false;
+  recorder.scan!.config.service.enabled = false;
+  recorder.scan!.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "browser_requests",
+  };
+  (chrome.storage.session.get as any).mockResolvedValue({
+    sls_credentials: {
+      "https://security-project.cn-hangzhou.log.aliyuncs.com|security-project|browser_requests":
+        {
+          access_key_id: "LTAI.test-id",
+          access_key_secret: "secret",
+        },
+    },
+  });
+  let headers: Record<string, string> = {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      headers = options.headers;
+      return new Response("", { status: 200 });
+    }),
+  );
+  await transfer(recorder.scan!, true);
+  expect(headers.Authorization).toMatch(/^LOG LTAI\.test-id:/);
+  expect(headers).not.toHaveProperty("x-acs-security-token");
+  const [batch] = await db.all<Batch>("batches", recorder.scan!.id);
+  expect(batch.state).toBe("complete");
+});
 it("WebTracking 模式写入匿名 track 端点且不读取凭证", async () => {
   recorder.scan!.config.archive.enabled = false;
   recorder.scan!.config.service.enabled = false;

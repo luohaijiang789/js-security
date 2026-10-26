@@ -1722,6 +1722,12 @@ main {
 .sls-actions {
   margin-top: 18px;
 }
+.sls-test-note {
+  margin-top: 10px;
+}
+.sls-test-result {
+  margin: 10px 0 0;
+}
 .warning-text {
   color: #bd9655 !important;
 }

@@ -106,7 +106,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.5.0",
+      plugin: "0.5.1",
       stats: {
         observed: 0,
         pending: 0,

@@ -370,7 +370,8 @@ const examples = [
           或浏览器能够访问的自定义 HTTPS 域名。
         </li>
         <li>
-          推荐选择“STS 临时凭证签名”。为临时身份只授予目标 Logstore 的
+          推荐选择“AccessKey / STS 签名”并使用 STS
+          临时凭证。为临时身份只授予目标 Logstore 的
           <code>log:PostLogStoreLogs</code> 写入权限，并设置尽量短的有效期。
         </li>
         <li>
@@ -380,9 +381,12 @@ const examples = [
           <code>https://logs.example.com</code>，不能带路径、Query 或凭据。
         </li>
         <li>
-          填入 STS AccessKey ID、AccessKey Secret 和 SecurityToken，点击“授权
-          SLS
-          并保存会话凭证”，再点击“保存全部转存策略”。凭证只存在当前浏览器会话，不写入任务、IndexedDB
+          填入 AccessKey ID 和 AccessKey Secret；使用 STS 临时凭证时
+          SecurityToken 也必须填写，长期 AccessKey 没有
+          SecurityToken，可留空。点击“授权并保存凭证”，再点击“测试连接”。测试会向目标
+          Logstore 真实写入一条 <code>connection_test=true</code> 的日志，并显示
+          SLS Request
+          ID；成功后点击“保存全部转存策略”。凭证只存在当前浏览器会话，不写入任务、IndexedDB
           或导出文件；浏览器重启或凭证过期后需要重新填写。
         </li>
         <li>
@@ -429,6 +433,12 @@ const examples = [
           <code>transfer_batch_id + request_id + record_chunk_index</code>
           去重；分批请求由
           <code>transfer_part_index / transfer_part_total</code> 标识。
+        </p>
+        <p>
+          <strong>连接测试：</strong
+          >测试按钮不是只检查网址，它会真实执行一次与自动转存相同的签名和写入请求。测试日志可在
+          SLS 中通过 <code>connection_test:true</code> 检索；测试失败会显示 HTTP
+          状态和 SLS 返回的错误详情。
         </p>
         <p>
           <strong>WebTracking：</strong>该模式不需要凭证，但必须在 Logstore

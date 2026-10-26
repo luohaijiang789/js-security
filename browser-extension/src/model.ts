@@ -49,7 +49,8 @@ export type SlsConfig = {
 export type SlsCredentials = {
   access_key_id: string;
   access_key_secret: string;
-  security_token: string;
+  /** Required for STS temporary credentials; absent for a long-lived AccessKey. */
+  security_token?: string;
 };
 export type Config = {
   filter: Filter;

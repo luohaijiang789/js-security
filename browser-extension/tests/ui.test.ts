@@ -38,6 +38,18 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
   await page.addInitScript(() => {
     const w = window as any,
       storage: Record<string, unknown> = {};
+    w.slsRequests = [];
+    const nativeFetch = window.fetch.bind(window);
+    w.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes(".log.aliyuncs.com/logstores/")) {
+        w.slsRequests.push({ input: String(input), init });
+        return new Response("", {
+          status: 200,
+          headers: { "x-log-requestid": "ui-sls-test-request" },
+        });
+      }
+      return nativeFetch(input, init);
+    };
     w.downloads = [];
     w.messages = [];
     w.activeScan = JSON.parse(
@@ -632,17 +644,52 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     await page.getByLabel("Endpoint").fill("cn-hangzhou.log.aliyuncs.com");
     await page.getByLabel("Project").fill("security-project");
     await page.getByLabel("Logstore").fill("browser_requests");
+    await page.getByLabel("AccessKey ID").fill("LTAI-ui-test");
+    await page.getByLabel("AccessKey Secret").fill("ui-secret");
+    expect(
+      await page
+        .getByLabel("SecurityToken（仅 STS 临时凭证必填）")
+        .getAttribute("placeholder"),
+    ).toContain("长期 AccessKey 留空");
+    await page.getByRole("button", { name: "测试连接", exact: true }).click();
+    await page
+      .locator(".sls-test-result")
+      .getByText(/连接成功/)
+      .waitFor();
+    await page.screenshot({
+      path: "work/redesign/sls-connection-test.png",
+      fullPage: false,
+    });
+    expect(
+      await page.evaluate(
+        () => (window as any).slsRequests[0].init.headers.Authorization,
+      ),
+    ).toMatch(/^LOG LTAI-ui-test:/);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as any).slsRequests[0].init.headers["x-acs-security-token"],
+      ),
+    ).toBeUndefined();
     await page.getByLabel("接入方式").selectOption("web_tracking");
     await page.getByText(/公网匿名写入/).waitFor();
     await page.screenshot({
       path: "work/redesign/sls-transfer.png",
       fullPage: false,
     });
-    await page.getByRole("button", { name: "授权 SLS 并保存会话凭证" }).click();
+    await page.getByRole("button", { name: "授权并保存凭证" }).click();
     await page
       .getByRole("status")
       .getByText(/SLS Endpoint 已授权/)
       .waitFor();
+    await page.getByRole("button", { name: "测试连接", exact: true }).click();
+    await page
+      .locator(".sls-test-result")
+      .getByText(/连接成功/)
+      .waitFor();
+    expect(await page.locator(".sls-test-result").textContent()).toContain(
+      "ui-sls-test-request",
+    );
     await page.getByRole("button", { name: "保存全部转存策略" }).click();
     const slsUpdate = await page.evaluate(() =>
       (window as any).messages.findLast((m: any) => m.type === "update"),

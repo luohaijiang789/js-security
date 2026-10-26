@@ -220,3 +220,60 @@ export function signSlsRequest(
     Authorization: `LOG ${credentials.access_key_id}:${signature}`,
   };
 }
+
+export async function writeSlsPayload(
+  config: SlsConfig,
+  payload: string,
+  credentials?: SlsCredentials,
+) {
+  if (
+    config.mode === "sts" &&
+    (!credentials?.access_key_id || !credentials.access_key_secret)
+  )
+    throw Error("缺少 AccessKey ID 或 AccessKey Secret");
+  const headers = credentials
+    ? signSlsRequest(payload, slsResourcePath(config), credentials)
+    : undefined;
+  const response = await fetch(slsWriteURL(config), {
+    method: "POST",
+    redirect: "error",
+    credentials: "omit",
+    referrerPolicy: "no-referrer",
+    signal: AbortSignal.timeout(15000),
+    ...(headers ? { headers } : {}),
+    body: payload,
+  });
+  if (!response.ok) {
+    const detail = await response.text().catch(() => "");
+    throw Error(
+      `SLS 返回 HTTP ${response.status}${detail ? `：${detail.slice(0, 300)}` : ""}`,
+    );
+  }
+  return response.headers?.get("x-log-requestid") ?? undefined;
+}
+
+export async function testSlsConnection(
+  config: SlsConfig,
+  credentials?: SlsCredentials,
+  testedAt = new Date(),
+) {
+  const timestamp = testedAt.toISOString();
+  const payload = JSON.stringify({
+    __logs__: [
+      {
+        __time__: Math.floor(testedAt.getTime() / 1000),
+        connection_test: "true",
+        producer: "js-security-browser-extension",
+        tested_at: timestamp,
+        message: "js-security 浏览器插件 SLS 连接测试",
+      },
+    ],
+    ...(config.topic ? { __topic__: config.topic } : {}),
+    ...(config.source ? { __source__: config.source } : {}),
+    __tags__: {
+      producer: "js-security-browser-extension",
+      connection_test: "true",
+    },
+  });
+  return writeSlsPayload(config, payload, credentials);
+}

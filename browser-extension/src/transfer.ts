@@ -3,12 +3,10 @@ import type { Scan, Batch, RecordEntry } from "./model";
 import { uid, now } from "./model";
 import { jsonl } from "./export";
 import {
-  signSlsRequest,
   slsBaseURL,
   slsCredentialKey,
   slsPayloads,
-  slsResourcePath,
-  slsWriteURL,
+  writeSlsPayload,
 } from "./sls";
 const locks = new Set<string>();
 async function rowsFor(b: Batch) {
@@ -109,7 +107,7 @@ export async function sendBatch(batch: Batch, scan: Scan) {
         | {
             access_key_id: string;
             access_key_secret: string;
-            security_token: string;
+            security_token?: string;
           }
         | undefined;
       if (config.mode === "sts") {
@@ -121,39 +119,17 @@ export async function sendBatch(batch: Batch, scan: Scan) {
                 {
                   access_key_id: string;
                   access_key_secret: string;
-                  security_token: string;
+                  security_token?: string;
                 }
               >
             | undefined
         )?.[slsCredentialKey(config)];
-        if (
-          !credentials?.access_key_id ||
-          !credentials.access_key_secret ||
-          !credentials.security_token
-        )
-          throw Error("SLS STS 临时凭证不存在或当前浏览器会话已失效");
+        if (!credentials?.access_key_id || !credentials.access_key_secret)
+          throw Error("SLS 签名凭证不存在或当前浏览器会话已失效");
       }
       const receipts: string[] = [];
       for (const payload of payloads) {
-        const headers = credentials
-          ? signSlsRequest(payload, slsResourcePath(config), credentials)
-          : undefined;
-        const response = await fetch(slsWriteURL(config), {
-          method: "POST",
-          redirect: "error",
-          credentials: "omit",
-          referrerPolicy: "no-referrer",
-          signal: AbortSignal.timeout(15000),
-          ...(headers ? { headers } : {}),
-          body: payload,
-        });
-        if (!response.ok) {
-          const detail = await response.text().catch(() => "");
-          throw Error(
-            `SLS 返回 HTTP ${response.status}${detail ? `：${detail.slice(0, 300)}` : ""}`,
-          );
-        }
-        const receipt = response.headers?.get("x-log-requestid");
+        const receipt = await writeSlsPayload(config, payload, credentials);
         if (receipt) receipts.push(receipt);
       }
       batch.receipt = receipts.length ? receipts.join(",") : undefined;
