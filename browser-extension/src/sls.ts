@@ -46,6 +46,19 @@ export function slsCredentialKey(config: SlsConfig) {
   return [slsBaseURL(config), config.project, config.logstore].join("|");
 }
 
+export function slsCredentialSummary(credentials: SlsCredentials) {
+  const id = credentials.access_key_id;
+  const visible = id.length >= 12 ? 4 : id.length >= 6 ? 2 : 1;
+  const visibleStart = id.slice(0, visible);
+  const visibleEnd = id.slice(-visible);
+  const maskedId = `${visibleStart}••••${visibleEnd}`;
+  return `AccessKey ID ${maskedId} · AccessKey Secret 已保存 · ${
+    credentials.security_token
+      ? "SecurityToken 已保存"
+      : "SecurityToken 未保存（长期 AccessKey 可不需要）"
+  }`;
+}
+
 function splitUtf8(value: string, limit = LOG_CHUNK_BYTES) {
   if (encoder.encode(value).length <= limit) return [value];
   const chunks: string[] = [];
