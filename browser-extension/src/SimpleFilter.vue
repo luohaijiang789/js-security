@@ -100,7 +100,7 @@ function reset() {
         <p>{{ advancedReason }}。为避免改变原意，当前规则没有被覆盖。</p>
       </div>
       <button class="button" type="button" @click="reset">
-        清空规则并保存全部请求
+        清空规则（应用后生效）
       </button>
     </div>
     <div class="filter-syntax-help" aria-label="过滤语法说明">

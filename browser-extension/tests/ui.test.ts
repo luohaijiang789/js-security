@@ -46,6 +46,7 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
     w.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes(".log.aliyuncs.com/logstores/")) {
         w.slsRequests.push({ input: String(input), init });
+        if (w.slsFail) return new Response("InvalidAccessKey", { status: 403 });
         return new Response("", {
           status: 200,
           headers: { "x-log-requestid": "ui-sls-test-request" },
@@ -668,7 +669,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     });
     expect(await applyButton.isDisabled()).toBe(true);
     await filterActions
-      .getByRole("button", { name: "预览当前列表", exact: true })
+      .getByRole("button", { name: "预览当前页", exact: true })
       .click();
     await page
       .getByRole("status")
@@ -685,7 +686,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     );
     expect(
       await page
-        .getByRole("button", { name: "预览当前列表", exact: true })
+        .getByRole("button", { name: "预览当前页", exact: true })
         .isDisabled(),
     ).toBe(true);
     await queryInput.fill("");
@@ -751,6 +752,42 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
           ],
       ),
     ).toBeUndefined();
+    const credentialsBeforeFailure = await page.evaluate(() =>
+      JSON.stringify((window as any).sessionStorageMock),
+    );
+    await page.getByLabel("AccessKey ID").fill("bad-id");
+    await page.getByLabel("AccessKey Secret").fill("bad-secret");
+    await page.evaluate(() => {
+      (window as any).slsFail = true;
+    });
+    await page.getByRole("button", { name: "测试连接", exact: true }).click();
+    await page.locator(".sls-test-result").getByText(/403/).waitFor();
+    expect(
+      await page.evaluate(() =>
+        JSON.stringify((window as any).sessionStorageMock),
+      ),
+    ).toBe(credentialsBeforeFailure);
+    await page.evaluate(() => {
+      (window as any).slsFail = false;
+    });
+    await page.getByLabel("AccessKey ID").fill("");
+    await page.getByLabel("AccessKey Secret").fill("");
+    await page.getByRole("button", { name: "保存复用配置与会话凭证" }).click();
+    await page.getByLabel("Project").fill("unsaved-project");
+    await page.getByRole("button", { name: "过滤规则", exact: true }).click();
+    await page.getByLabel("请求筛选", { exact: true }).fill("method:GET");
+    await page
+      .getByRole("button", { name: "应用到当前任务", exact: true })
+      .click();
+    expect(
+      await page.evaluate(
+        () =>
+          (window as any).messages.findLast((m: any) => m.type === "update")
+            .config.sls.project,
+      ),
+    ).toBe("new-task-project");
+    await page.getByRole("button", { name: "存储与转存", exact: true }).click();
+    await page.getByLabel("Project").fill("security-project");
     await page.getByLabel("接入方式").selectOption("web_tracking");
     await page.getByText(/公网匿名写入/).waitFor();
     await page.screenshot({
@@ -790,6 +827,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
         JSON.stringify((window as any).localStorageMock.sls_profile),
       ),
     ).not.toMatch(/LTAI|secret|SecurityToken/i);
+    await page.getByLabel("Project").fill("unsaved-project");
     await page.evaluate(() => {
       const w = window as any;
       w.activeScan = { ...w.activeScan, state: "ended" };

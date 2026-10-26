@@ -169,6 +169,8 @@ const configForm = computed<ReturnType<typeof defaults>>(() => {
   }
 });
 const slsProfile = ref<SlsConfig>(cloneSls(defaults().sls!));
+const savedSlsProfile = ref<SlsConfig>(cloneSls(defaults().sls!));
+const draftSlsExpanded = ref(true);
 watch(
   () => [
     slsProfile.value.mode,
@@ -311,6 +313,7 @@ async function saveSlsProfile(config: SlsConfig) {
   validateSlsConfig(config);
   const saved = cloneSls(config);
   slsProfile.value = saved;
+  savedSlsProfile.value = cloneSls(saved);
   await chrome.storage.local.set({ sls_profile: saved });
   await Promise.all([
     refreshSlsCredentialHint(saved, slsCredentialHint),
@@ -409,7 +412,8 @@ function groupMembers(group: Group) {
 async function openNewTask() {
   name.value = "业务采集 " + timeText(new Date().toISOString());
   const next = defaults();
-  next.sls = cloneSls(slsProfile.value);
+  next.sls = cloneSls(savedSlsProfile.value);
+  draftSlsExpanded.value = !next.sls.endpoint;
   draftConfig.value = next;
   draftFilterText.value = "{}";
   draftSlsTestFeedback.value = "";
@@ -617,7 +621,10 @@ async function start() {
     )
   )
     return;
-  if (c.sls?.enabled) await authorizeSlsTarget(c.sls, true);
+  const credentials = c.sls?.enabled
+    ? await authorizeSlsTarget(c.sls, true)
+    : undefined;
+  await persistSlsCredentials(c.sls, credentials);
   const s = await rpc("start", {
     name: name.value,
     tab_scope: "all",
@@ -655,8 +662,27 @@ async function apply() {
   const c = JSON.parse(configText.value);
   if (!c || typeof c !== "object" || Array.isArray(c))
     throw Error("任务策略必须是 JSON 对象，请修正高级配置。");
-  c.filter = JSON.parse(filterText.value);
-  c.sls = cloneSls(slsProfile.value);
+  const previous = scan.value!.config;
+  if (section.value === "Filter") {
+    Object.assign(c, JSON.parse(JSON.stringify(previous)));
+    c.filter = JSON.parse(filterText.value);
+  } else if (section.value === "存储与转存") {
+    const archive = c.archive,
+      service = c.service;
+    Object.assign(c, JSON.parse(JSON.stringify(previous)));
+    c.archive = archive;
+    c.service = service;
+    c.sls = cloneSls(slsProfile.value);
+    if (c.sls.enabled) {
+      const credentials = await authorizeSlsTarget(c.sls, true);
+      await persistSlsCredentials(c.sls, credentials);
+    }
+  } else {
+    c.filter = previous.filter;
+    c.archive = previous.archive;
+    c.service = previous.service;
+    c.sls = previous.sls;
+  }
   validateConfig(c);
   await rpc("update", { id: scanId.value, config: c });
   configText.value = JSON.stringify(c, null, 2);
@@ -665,17 +691,31 @@ async function apply() {
   history.value = history.value.map((item) =>
     item.id === scanId.value ? { ...item, config: c } : item,
   );
-  await saveSlsProfile(c.sls);
+  if (section.value === "存储与转存") await saveSlsProfile(c.sls);
   filterFeedback.value =
     "已应用到当前任务，只影响之后收到的请求；已经保存的记录不会改变。";
   notice.value = filterFeedback.value;
+}
+async function repairSlsBatches() {
+  const target = cloneSls(slsProfile.value);
+  if (
+    !window.confirm(
+      `将当前任务的失败 SLS 批次改发到 ${target.project}/${target.logstore}？原目标可能已接收部分分片，新目标也可能收到重复记录。`,
+    )
+  )
+    return;
+  const credentials = await authorizeSlsTarget(target, true);
+  await persistSlsCredentials(target, credentials);
+  await rpc("retarget_sls", { id: scanId.value, sls: target });
+  notice.value =
+    "失败 SLS 批次已改发，请查看各批次结果；已成功批次保持原目标。";
 }
 async function preview() {
   const f = JSON.parse(filterText.value);
   validateFilter(f);
   const stats = { matched: 0, excluded: 0, unknown: 0 };
   rows.value.forEach((r) => stats[matchFilter(f, r, true)]++);
-  filterFeedback.value = `当前列表预览：命中 ${stats.matched}，排除 ${stats.excluded}，无法判定 ${stats.unknown}。`;
+  filterFeedback.value = `当前页预览（${rows.value.length} 条）：命中 ${stats.matched}，排除 ${stats.excluded}，无法判定 ${stats.unknown}。`;
   notice.value = `${filterFeedback.value} 原始值规则可能与实采不同。`;
 }
 async function authorize() {
@@ -725,17 +765,25 @@ async function authorizeSlsTarget(
     access_key_secret: accessKeySecret,
     ...(securityToken ? { security_token: securityToken } : {}),
   };
+  return credentials;
+}
+async function persistSlsCredentials(
+  config: SlsConfig,
+  credentials?: SlsCredentials,
+) {
+  if (!credentials) return;
+  const stored = await chrome.storage.session.get("sls_credentials");
   await chrome.storage.session.set({
     sls_credentials: {
       ...((stored.sls_credentials as object) ?? {}),
       [slsCredentialKey(config)]: credentials,
     },
   });
-  return credentials;
 }
 async function authorizeSls() {
   const config = slsProfile.value;
-  await authorizeSlsTarget(config, false);
+  const credentials = await authorizeSlsTarget(config, true);
+  await persistSlsCredentials(config, credentials);
   await saveSlsProfile(config);
   if (config.mode === "sts") {
     await clearSlsCredentialInputs();
@@ -753,6 +801,7 @@ async function testSlsConnection() {
     const config = cloneSls(slsProfile.value);
     const credentials = await authorizeSlsTarget(config, true);
     const receipt = await performSlsConnectionTest(config, credentials);
+    await persistSlsCredentials(config, credentials);
     await saveSlsProfile(config);
     await clearSlsCredentialInputs();
     await refreshSlsCredentialHint(config, slsCredentialHint);
@@ -775,6 +824,7 @@ async function testDraftSlsConnection() {
     const config = draftSls.value;
     const credentials = await authorizeSlsTarget(config, true);
     const receipt = await performSlsConnectionTest(config, credentials);
+    await persistSlsCredentials(config, credentials);
     await saveSlsProfile(config);
     await clearSlsCredentialInputs();
     await Promise.all([
@@ -1045,6 +1095,7 @@ onMounted(async () => {
       saved.sls_profile ?? (saved.last_config as any)?.sls,
       defaults().sls!,
     );
+    savedSlsProfile.value = cloneSls(slsProfile.value);
     await refreshSlsCredentialHint(slsProfile.value, slsCredentialHint);
     if (saved.ui_scan_id) scanId.value = String(saved.ui_scan_id);
     const requested = new URLSearchParams(location.search).get("section");
@@ -1097,7 +1148,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.3</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.4</span>
         </div>
       </div>
     </aside>
@@ -1919,7 +1970,7 @@ onUnmounted(() => {
                   :disabled="busy || !filterValid"
                   @click="run(preview)"
                 >
-                  <Icon name="search" :size="15" />预览当前列表
+                  <Icon name="search" :size="15" />预览当前页
                 </button>
                 <button
                   class="button primary"
@@ -2319,6 +2370,18 @@ onUnmounted(() => {
                 <h2>批次进度</h2>
                 <p>已提交下载不等于下载完成；HTTP 成功不等于服务已持久化。</p>
               </div>
+              <button
+                class="button"
+                :disabled="
+                  busy ||
+                  !batches.some(
+                    (b) => b.channel === 'sls' && b.state === 'failed',
+                  )
+                "
+                @click="run(repairSlsBatches)"
+              >
+                修改失败 SLS 批次目标并重试
+              </button>
               <span class="pill">{{ batches.length }} 个批次</span>
             </div>
             <table v-if="batches.length" class="data-table">
@@ -2335,7 +2398,11 @@ onUnmounted(() => {
                 <tr v-for="b in batches" :key="b.id">
                   <td>
                     {{ channelLabels[b.channel]
-                    }}<small class="mono">{{ b.id }}</small>
+                    }}<small class="mono">{{ b.id }}</small
+                    ><small v-if="b.sls"
+                      >目标：{{ b.sls.project }}/{{ b.sls.logstore }} ·
+                      {{ b.sls.endpoint }}</small
+                    >
                   </td>
                   <td>{{ b.records.length }}</td>
                   <td>
@@ -2497,6 +2564,9 @@ onUnmounted(() => {
           </button>
         </div>
         <div class="modal-body">
+          <p v-if="error" class="message-banner error" role="alert">
+            {{ error }}
+          </p>
           <label class="field-label"
             >任务名称<input
               v-model="name"
@@ -2572,103 +2642,121 @@ onUnmounted(() => {
               ></label
             >
             <div v-if="draftSls.enabled" class="new-task-sls-settings">
-              <div class="form-grid">
-                <label
-                  >接入方式<select v-model="draftSls.mode">
-                    <option value="sts">AccessKey / STS 签名（推荐）</option>
-                    <option value="web_tracking">WebTracking 匿名写入</option>
-                  </select></label
-                ><label
-                  >Endpoint<input
-                    v-model="draftSls.endpoint"
-                    placeholder="cn-hangzhou.log.aliyuncs.com"
-                /></label>
-                <label
-                  >Project<input
-                    v-model="draftSls.project"
-                    placeholder="your-project"
-                /></label>
-                <label
-                  >Logstore<input
-                    v-model="draftSls.logstore"
-                    placeholder="js-security-requests"
-                /></label>
-              </div>
-              <div v-if="draftSls.mode === 'sts'" class="form-grid">
-                <label
-                  >AccessKey ID<input
-                    v-model="slsAccessKeyId"
-                    type="password"
-                    autocomplete="off"
-                    placeholder="仅保存在当前浏览器会话"
-                /></label>
-                <label
-                  >AccessKey Secret<input
-                    v-model="slsAccessKeySecret"
-                    type="password"
-                    autocomplete="off"
-                    placeholder="仅保存在当前浏览器会话"
-                /></label>
-                <label
-                  >SecurityToken（仅 STS 临时凭证必填）<input
-                    v-model="slsSecurityToken"
-                    type="password"
-                    autocomplete="off"
-                    placeholder="长期 AccessKey 留空；STS 必填"
-                /></label>
-              </div>
-              <p
-                v-if="draftSls.mode === 'sts' && draftSlsCredentialHint"
-                class="credential-summary"
+              <p v-if="!draftSlsExpanded">
+                复用已保存配置：{{ draftSls.project }} / {{ draftSls.logstore
+                }}<br />{{
+                  draftSlsCredentialHint ||
+                  (draftSls.mode === "web_tracking"
+                    ? "WebTracking 匿名写入"
+                    : "需要填写会话凭证")
+                }}
+              </p>
+              <button
+                type="button"
+                class="button"
+                @click="draftSlsExpanded = !draftSlsExpanded"
               >
-                <Icon name="check" :size="14" /><span>{{
-                  draftSlsCredentialHint
-                }}</span>
-              </p>
-              <p
-                v-if="draftSls.mode === 'web_tracking'"
-                class="message-banner warning new-task-sls-warning"
-              >
-                <Icon name="alert" />Logstore 必须开启 WebTracking
-                公网匿名写入，任何人都可能写入脏数据。
-              </p>
-              <p v-else class="permission-note new-task-sls-note">
-                <Icon name="shield" :size="15" /><span
-                  >STS 临时凭证必须填写 SecurityToken；长期 AccessKey
-                  可留空。推荐使用仅允许目标 Logstore 写入的短期 STS
-                  凭证。</span
+                {{ draftSlsExpanded ? "收起配置" : "修改 SLS 配置" }}
+              </button>
+              <div v-show="draftSlsExpanded">
+                <div class="form-grid">
+                  <label
+                    >接入方式<select v-model="draftSls.mode">
+                      <option value="sts">AccessKey / STS 签名（推荐）</option>
+                      <option value="web_tracking">WebTracking 匿名写入</option>
+                    </select></label
+                  ><label
+                    >Endpoint<input
+                      v-model="draftSls.endpoint"
+                      placeholder="cn-hangzhou.log.aliyuncs.com"
+                  /></label>
+                  <label
+                    >Project<input
+                      v-model="draftSls.project"
+                      placeholder="your-project"
+                  /></label>
+                  <label
+                    >Logstore<input
+                      v-model="draftSls.logstore"
+                      placeholder="js-security-requests"
+                  /></label>
+                </div>
+                <div v-if="draftSls.mode === 'sts'" class="form-grid">
+                  <label
+                    >AccessKey ID<input
+                      v-model="slsAccessKeyId"
+                      type="password"
+                      autocomplete="off"
+                      placeholder="仅保存在当前浏览器会话"
+                  /></label>
+                  <label
+                    >AccessKey Secret<input
+                      v-model="slsAccessKeySecret"
+                      type="password"
+                      autocomplete="off"
+                      placeholder="仅保存在当前浏览器会话"
+                  /></label>
+                  <label
+                    >SecurityToken（仅 STS 临时凭证必填）<input
+                      v-model="slsSecurityToken"
+                      type="password"
+                      autocomplete="off"
+                      placeholder="长期 AccessKey 留空；STS 必填"
+                  /></label>
+                </div>
+                <p
+                  v-if="draftSls.mode === 'sts' && draftSlsCredentialHint"
+                  class="credential-summary"
                 >
-              </p>
-              <p class="permission-note new-task-sls-note">
-                <Icon name="activity" :size="15" /><span
-                  >测试连接会向该 Logstore 真实写入 1 条
-                  <code>connection_test=true</code> 的测试日志。</span
+                  <Icon name="check" :size="14" /><span>{{
+                    draftSlsCredentialHint
+                  }}</span>
+                </p>
+                <p
+                  v-if="draftSls.mode === 'web_tracking'"
+                  class="message-banner warning new-task-sls-warning"
                 >
-              </p>
-              <p
-                v-if="draftSlsTestFeedback"
-                :class="[
-                  'message-banner',
-                  draftSlsTestFailed ? 'error' : 'notice',
-                  'draft-sls-test-result',
-                ]"
-                :role="draftSlsTestFailed ? 'alert' : 'status'"
-              >
-                <Icon :name="draftSlsTestFailed ? 'alert' : 'check'" />
-                <span>{{ draftSlsTestFeedback }}</span>
-              </p>
-              <div class="new-task-sls-actions">
-                <button
-                  class="button"
-                  type="button"
-                  :disabled="busy"
-                  @click="run(testDraftSlsConnection)"
+                  <Icon name="alert" />Logstore 必须开启 WebTracking
+                  公网匿名写入，任何人都可能写入脏数据。
+                </p>
+                <p v-else class="permission-note new-task-sls-note">
+                  <Icon name="shield" :size="15" /><span
+                    >STS 临时凭证必须填写 SecurityToken；长期 AccessKey
+                    可留空。推荐使用仅允许目标 Logstore 写入的短期 STS
+                    凭证。</span
+                  >
+                </p>
+                <p class="permission-note new-task-sls-note">
+                  <Icon name="activity" :size="15" /><span
+                    >测试连接会向该 Logstore 真实写入 1 条
+                    <code>connection_test=true</code> 的测试日志。</span
+                  >
+                </p>
+                <p
+                  v-if="draftSlsTestFeedback"
+                  :class="[
+                    'message-banner',
+                    draftSlsTestFailed ? 'error' : 'notice',
+                    'draft-sls-test-result',
+                  ]"
+                  :role="draftSlsTestFailed ? 'alert' : 'status'"
                 >
-                  <Icon name="activity" :size="15" />测试 SLS 连接
-                </button>
-                <small
-                  >批次、Topic 和 Source 可在创建后到“存储与转存”调整。</small
-                >
+                  <Icon :name="draftSlsTestFailed ? 'alert' : 'check'" />
+                  <span>{{ draftSlsTestFeedback }}</span>
+                </p>
+                <div class="new-task-sls-actions">
+                  <button
+                    class="button"
+                    type="button"
+                    :disabled="busy"
+                    @click="run(testDraftSlsConnection)"
+                  >
+                    <Icon name="activity" :size="15" />测试 SLS 连接
+                  </button>
+                  <small
+                    >批次、Topic 和 Source 可在创建后到“存储与转存”调整。</small
+                  >
+                </div>
               </div>
             </div>
           </div>
