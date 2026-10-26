@@ -60,7 +60,9 @@ const section = ref("请求"),
   slsAccessKeySecret = ref(""),
   slsSecurityToken = ref(""),
   slsTestFeedback = ref(""),
-  slsTestFailed = ref(false);
+  slsTestFailed = ref(false),
+  draftSlsTestFeedback = ref(""),
+  draftSlsTestFailed = ref(false);
 const scan = computed(() =>
   current.value?.id === scanId.value
     ? current.value
@@ -173,11 +175,26 @@ watch(
   () => {
     slsTestFeedback.value = "";
     slsTestFailed.value = false;
+    draftSlsTestFeedback.value = "";
+    draftSlsTestFailed.value = false;
   },
 );
 const draftConfig = ref(defaults()),
   draftFilterText = ref("{}"),
   draftFilterValid = ref(true);
+const draftSls = computed(() => draftConfig.value.sls!);
+watch(
+  () => [
+    draftSls.value.mode,
+    draftSls.value.endpoint,
+    draftSls.value.project,
+    draftSls.value.logstore,
+  ],
+  () => {
+    draftSlsTestFeedback.value = "";
+    draftSlsTestFailed.value = false;
+  },
+);
 const selectedTabCount = computed(() => scan.value?.tabs.length ?? 0);
 const valueStorageText = computed(() =>
   scan.value?.config.value_storage === "complete"
@@ -319,8 +336,12 @@ function groupMembers(group: Group) {
 }
 async function openNewTask() {
   name.value = "业务采集 " + timeText(new Date().toISOString());
-  draftConfig.value = defaults();
+  const next = defaults();
+  next.sls = JSON.parse(JSON.stringify(configForm.value.sls ?? next.sls));
+  draftConfig.value = next;
   draftFilterText.value = "{}";
+  draftSlsTestFeedback.value = "";
+  draftSlsTestFailed.value = false;
   newTaskOpen.value = true;
 }
 function navigate(value: string) {
@@ -523,6 +544,7 @@ async function start() {
     )
   )
     return;
+  if (c.sls?.enabled) await authorizeSlsTarget(c.sls, true);
   const s = await rpc("start", {
     name: name.value,
     tab_scope: "all",
@@ -532,6 +554,9 @@ async function start() {
   current.value = s;
   history.value = [s, ...history.value.filter((x) => x.id !== s.id)];
   await choose(s.id);
+  slsAccessKeyId.value = "";
+  slsAccessKeySecret.value = "";
+  slsSecurityToken.value = "";
   newTaskOpen.value = false;
   section.value = "请求";
   if (s.state === "recording")
@@ -662,6 +687,24 @@ async function testSlsConnection() {
   } catch (cause) {
     slsTestFailed.value = true;
     slsTestFeedback.value = String(
+      cause instanceof Error ? cause.message : cause,
+    );
+    throw cause;
+  }
+}
+async function testDraftSlsConnection() {
+  draftSlsTestFeedback.value = "";
+  draftSlsTestFailed.value = false;
+  try {
+    const config = draftSls.value;
+    const credentials = await authorizeSlsTarget(config, true);
+    const receipt = await performSlsConnectionTest(config, credentials);
+    draftSlsTestFeedback.value = receipt
+      ? `连接成功，测试日志已写入 ${config.project}/${config.logstore}。SLS Request ID：${receipt}`
+      : `连接成功，测试日志已写入 ${config.project}/${config.logstore}；SLS 未返回 Request ID。`;
+  } catch (cause) {
+    draftSlsTestFailed.value = true;
+    draftSlsTestFeedback.value = String(
       cause instanceof Error ? cause.message : cause,
     );
     throw cause;
@@ -963,7 +1006,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.1</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.2</span>
         </div>
       </div>
     </aside>
@@ -2398,17 +2441,125 @@ onUnmounted(() => {
             />
           </div>
           <FieldSelector v-model="draftConfig.saved_fields" />
-          <label class="archive-choice"
-            ><input
-              type="checkbox"
-              v-model="draftConfig.archive.enabled"
-            /><span
-              ><strong>启用自动文件归档</strong
-              ><small
-                >默认按 5 分钟 / 20 MB 分片；也可以随时手动导出。</small
-              ></span
-            ></label
-          >
+          <div class="new-task-transfer">
+            <div class="section-heading">
+              <div>
+                <h3>自动保存与转存</h3>
+                <p>每个任务独立选择保存渠道；本地记录始终保留。</p>
+              </div>
+            </div>
+            <label class="archive-choice"
+              ><input
+                type="checkbox"
+                v-model="draftConfig.archive.enabled"
+              /><span
+                ><strong>启用自动文件归档</strong
+                ><small
+                  >默认按 5 分钟 / 20 MB 分片；也可以随时手动导出。</small
+                ></span
+              ></label
+            >
+            <label class="archive-choice"
+              ><input type="checkbox" v-model="draftSls.enabled" /><span
+                ><strong>自动保存到阿里云 SLS</strong
+                ><small
+                  >按批次持续写入目标 Logstore；失败不会删除本地记录。</small
+                ></span
+              ></label
+            >
+            <div v-if="draftSls.enabled" class="new-task-sls-settings">
+              <div class="form-grid">
+                <label
+                  >接入方式<select v-model="draftSls.mode">
+                    <option value="sts">AccessKey / STS 签名（推荐）</option>
+                    <option value="web_tracking">WebTracking 匿名写入</option>
+                  </select></label
+                ><label
+                  >Endpoint<input
+                    v-model="draftSls.endpoint"
+                    placeholder="cn-hangzhou.log.aliyuncs.com"
+                /></label>
+                <label
+                  >Project<input
+                    v-model="draftSls.project"
+                    placeholder="your-project"
+                /></label>
+                <label
+                  >Logstore<input
+                    v-model="draftSls.logstore"
+                    placeholder="js-security-requests"
+                /></label>
+              </div>
+              <div v-if="draftSls.mode === 'sts'" class="form-grid">
+                <label
+                  >AccessKey ID<input
+                    v-model="slsAccessKeyId"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="仅保存在当前浏览器会话"
+                /></label>
+                <label
+                  >AccessKey Secret<input
+                    v-model="slsAccessKeySecret"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="仅保存在当前浏览器会话"
+                /></label>
+                <label
+                  >SecurityToken（仅 STS 临时凭证必填）<input
+                    v-model="slsSecurityToken"
+                    type="password"
+                    autocomplete="off"
+                    placeholder="长期 AccessKey 留空；STS 必填"
+                /></label>
+              </div>
+              <p
+                v-if="draftSls.mode === 'web_tracking'"
+                class="message-banner warning new-task-sls-warning"
+              >
+                <Icon name="alert" />Logstore 必须开启 WebTracking
+                公网匿名写入，任何人都可能写入脏数据。
+              </p>
+              <p v-else class="permission-note new-task-sls-note">
+                <Icon name="shield" :size="15" /><span
+                  >STS 临时凭证必须填写 SecurityToken；长期 AccessKey
+                  可留空。推荐使用仅允许目标 Logstore 写入的短期 STS
+                  凭证。</span
+                >
+              </p>
+              <p class="permission-note new-task-sls-note">
+                <Icon name="activity" :size="15" /><span
+                  >测试连接会向该 Logstore 真实写入 1 条
+                  <code>connection_test=true</code> 的测试日志。</span
+                >
+              </p>
+              <p
+                v-if="draftSlsTestFeedback"
+                :class="[
+                  'message-banner',
+                  draftSlsTestFailed ? 'error' : 'notice',
+                  'draft-sls-test-result',
+                ]"
+                :role="draftSlsTestFailed ? 'alert' : 'status'"
+              >
+                <Icon :name="draftSlsTestFailed ? 'alert' : 'check'" />
+                <span>{{ draftSlsTestFeedback }}</span>
+              </p>
+              <div class="new-task-sls-actions">
+                <button
+                  class="button"
+                  type="button"
+                  :disabled="busy"
+                  @click="run(testDraftSlsConnection)"
+                >
+                  <Icon name="activity" :size="15" />测试 SLS 连接
+                </button>
+                <small
+                  >批次、Topic 和 Source 可在创建后到“存储与转存”调整。</small
+                >
+              </div>
+            </div>
+          </div>
           <p class="permission-note">
             <Icon name="shield" :size="15" /><span
               >跳过浏览器内部页面与扩展页面。Chrome

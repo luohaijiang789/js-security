@@ -2006,7 +2006,7 @@ main {
   box-shadow: 0 25px 100px #142c5140;
   border: 1px solid #e5ebf6;
   border-radius: 13px;
-  width: 650px;
+  width: 760px;
   max-width: 100%;
   max-height: calc(100vh - 56px);
   display: flex;
@@ -2112,6 +2112,43 @@ main {
   font-size: 12px;
   color: #65758e;
   margin-top: 5px;
+}
+.new-task-transfer {
+  margin-top: 22px;
+  padding: 17px;
+  border: 1px solid #e1e8f2;
+  border-radius: 9px;
+  background: #fbfcff;
+}
+.new-task-transfer > .section-heading {
+  margin-bottom: 4px;
+}
+.new-task-transfer .archive-choice {
+  margin-top: 14px;
+}
+.new-task-sls-settings {
+  margin-top: 15px;
+  padding-top: 16px;
+  border-top: 1px solid #e4eaf3;
+}
+.new-task-sls-settings > .form-grid + .form-grid {
+  margin-top: 14px;
+}
+.new-task-sls-note,
+.new-task-sls-warning,
+.draft-sls-test-result {
+  margin: 12px 0 0;
+}
+.new-task-sls-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+.new-task-sls-actions small {
+  color: #6f7f96;
+  font-size: 11px;
+  line-height: 1.5;
 }
 .permission-note {
   display: flex;

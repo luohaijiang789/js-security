@@ -517,11 +517,46 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     for (const checkbox of await fieldSelector.getByRole("checkbox").all())
       expect(await checkbox.isChecked()).toBe(true);
     await fieldSelector.getByRole("checkbox", { name: /请求体/ }).uncheck();
+    await dialog.getByLabel("自动保存到阿里云 SLS").check();
+    await dialog
+      .getByLabel("Endpoint", { exact: true })
+      .fill("cn-hangzhou.log.aliyuncs.com");
+    await dialog
+      .getByLabel("Project", { exact: true })
+      .fill("new-task-project");
+    await dialog
+      .getByLabel("Logstore", { exact: true })
+      .fill("new_task_requests");
+    await dialog
+      .getByLabel("AccessKey ID", { exact: true })
+      .fill("LTAI-new-task");
+    await dialog
+      .getByLabel("AccessKey Secret", { exact: true })
+      .fill("new-task-secret");
+    expect(
+      await dialog
+        .getByLabel("SecurityToken（仅 STS 临时凭证必填）")
+        .getAttribute("placeholder"),
+    ).toContain("长期 AccessKey 留空");
+    await dialog
+      .getByRole("button", { name: "测试 SLS 连接", exact: true })
+      .click();
+    await dialog
+      .locator(".draft-sls-test-result")
+      .getByText(/连接成功/)
+      .waitFor();
+    expect(
+      await dialog.locator(".draft-sls-test-result").textContent(),
+    ).toContain("new-task-project/new_task_requests");
+    await dialog
+      .getByLabel("Logstore", { exact: true })
+      .fill("new_task_requests_final");
+    expect(await dialog.locator(".draft-sls-test-result").count()).toBe(0);
     expect(await dialog.getByTestId("filter-summary").textContent()).toContain(
       "类型为 XHR、Fetch、Ping",
     );
     await page.screenshot({
-      path: "work/redesign/new-task-global.png",
+      path: "work/redesign/new-task-sls.png",
       fullPage: false,
     });
     await dialog.getByRole("button", { name: "开始采集", exact: true }).click();
@@ -537,6 +572,13 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect(message.config.value_storage).toBe("complete");
     expect(message.config.saved_fields).toHaveLength(8);
     expect(message.config.saved_fields).not.toContain("request_body");
+    expect(message.config.sls).toMatchObject({
+      enabled: true,
+      mode: "sts",
+      endpoint: "cn-hangzhou.log.aliyuncs.com",
+      project: "new-task-project",
+      logstore: "new_task_requests_final",
+    });
     await page.getByRole("button", { name: "任务设置", exact: true }).click();
     await page.getByText("高级配置 JSON", { exact: true }).click();
     await page.getByLabel("任务高级配置").fill("null");
@@ -662,13 +704,15 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     });
     expect(
       await page.evaluate(
-        () => (window as any).slsRequests[0].init.headers.Authorization,
+        () => (window as any).slsRequests.at(-1).init.headers.Authorization,
       ),
     ).toMatch(/^LOG LTAI-ui-test:/);
     expect(
       await page.evaluate(
         () =>
-          (window as any).slsRequests[0].init.headers["x-acs-security-token"],
+          (window as any).slsRequests.at(-1).init.headers[
+            "x-acs-security-token"
+          ],
       ),
     ).toBeUndefined();
     await page.getByLabel("接入方式").selectOption("web_tracking");
