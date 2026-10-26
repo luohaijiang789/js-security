@@ -1,3 +1,4 @@
+import { DEFAULT_SLS_FIELDS } from "./sls-fields";
 export type Quality = {
   state: "complete" | "partial" | "missing" | "unsupported" | "unparseable";
   reason?: string;
@@ -35,6 +36,7 @@ export type Rule =
     };
 export type Filter = { scope?: Rule; include?: Rule; exclude?: Rule };
 export type SlsConfig = {
+  upload_fields?: string[];
   enabled: boolean;
   mode: "sts" | "web_tracking";
   endpoint: string;
@@ -125,6 +127,7 @@ export const defaults = (): Config => ({
     compress: false,
   },
   sls: {
+    upload_fields: [...DEFAULT_SLS_FIELDS],
     enabled: false,
     mode: "sts",
     endpoint: "",
@@ -279,6 +282,7 @@ export type Group = {
   changes: string[];
 };
 export type Batch = {
+  sls_schema?: "sls-2";
   id: string;
   scan_id: string;
   channel: "file" | "service" | "sls";

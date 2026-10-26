@@ -421,12 +421,41 @@ const examples = [
       </div>
       <div class="usage-notes">
         <p>
+          <strong>上传字段：</strong>“SLS
+          上传字段”独立于本地“保存字段”，新建任务和设置页均可选择。默认上传核心分析内容、完整调用栈、基础网络和采集状态；默认不上传
+          TLS、性能缓存细节、内部标识。支持“恢复推荐”“全选上传字段”“仅基本信息”。未在本地采集的内容无法通过
+          SLS 勾选补回。配置对新批次生效，已形成批次保留当时快照。
+        </p>
+        <p>
+          <strong>正文只保存一份：</strong>JSON 和表单使用
+          <code>value_kind=parsed</code>；文本、HTML、XML、multipart、二进制
+          Base64、解析失败或不安全解析内容使用
+          <code>value_kind=raw</code>，正文统一位于 <code>value</code>。重复
+          JSON 键、高精度数字、非法表单编码会回退 raw。JSON
+          空白和数字写法、表单编码写法可能变化，原始请求仍可在本地回查。响应头仅保留有序键值对，不重复上传原始头文本。
+        </p>
+        <p>
+          <strong>完整调用栈：</strong><code>initiator_stack</code> 中
+          <code>scripts</code> 是本条日志的 URL 字典；<code>stack</code> 中每个
+          <code>url_ref</code> 按从 0 开始的索引取回
+          URL。函数名、行列号、帧顺序和异步 parent 链全部保留，不裁剪到前五帧。
+        </p>
+        <p>
+          <strong>精简元数据：</strong>不上传内部 <code>group_key</code> 或固定
+          <code>redacted:false</code>；成功采集状态只存
+          complete，异常状态保留原因以便排查。任务和批次标识保留用于关联与去重，上传格式不承诺与本地
+          RecordEntry 相同。
+        </p>
+        <p>
           <strong>SLS 日志内容：</strong>每条日志直接提供
           <code>method</code
           >、<code>request_url</code>、<code>domain</code>、<code>status_code</code>、<code>resource_type</code>、<code>scan_id</code>、<code
             >request_id</code
           >
-          等检索字段；完整记录放在 <code>record_json_chunk</code>。
+          等检索字段。新格式
+          <code>schema_version=sls-2</code> 中每个字段只出现一次，不再附带完整
+          RecordEntry。复杂字段以 JSON 字符串保存，可为这些字段配置 SLS JSON
+          索引。
         </p>
         <p>
           <strong>建立索引：</strong>首次写入后，在 SLS 为
@@ -441,13 +470,17 @@ const examples = [
           <code>record_sha256</code> 汇总，依照
           <code>record_chunk_index</code> 从 1 到
           <code>record_chunk_total</code> 拼接
-          <code>record_json_chunk</code>，即可恢复原 JSON。
+          <code>compact_json_chunk</code>，再 JSON.parse 即可恢复所选字段；使用
+          SHA-256 校验拼接文本。仅
+          <code>sls-2-chunk</code>
+          大记录使用此方式；普通日志无需分片或重组。旧格式日志仍使用
+          <code>record_json_chunk</code>，已有旧批次重试保留原格式。
         </p>
         <p>
           <strong>重复处理：</strong>SLS
           属于至少一次投递。响应丢失后重试可能产生重复日志，可用
           <code>transfer_batch_id + request_id + record_chunk_index</code>
-          去重；分批请求由
+          去重（普通日志分片序号视为 1）；分批请求的标签由
           <code>transfer_part_index / transfer_part_total</code> 标识。
         </p>
         <p>

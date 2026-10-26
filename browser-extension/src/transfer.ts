@@ -1,3 +1,4 @@
+import { legacySlsPayloads } from "./sls-legacy";
 import * as db from "./store";
 import type { Scan, Batch, RecordEntry, SlsConfig } from "./model";
 import { uid, now } from "./model";
@@ -102,7 +103,9 @@ export async function sendBatch(batch: Batch, scan: Scan) {
       const origin = new URL(slsBaseURL(config)).origin;
       if (!(await chrome.permissions.contains({ origins: [origin + "/*"] })))
         throw Error("SLS Endpoint 未授权或权限已撤销");
-      const payloads = slsPayloads(rows, batch, scan, config);
+      const payloads = (
+        batch.sls_schema === "sls-2" ? slsPayloads : legacySlsPayloads
+      )(rows, batch, scan, config);
       let credentials:
         | {
             access_key_id: string;
@@ -199,6 +202,7 @@ export async function transfer(scan: Scan, force = false) {
       const emit = async () => {
         if (!buffer.length) return;
         const batch: Batch = {
+          sls_schema: channel === "sls" ? "sls-2" : undefined,
           id: uid(),
           scan_id: scan.id,
           channel,

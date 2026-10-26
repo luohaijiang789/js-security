@@ -1,8 +1,16 @@
+import { SLS_FIELDS } from "./sls-fields";
 import type { Config, SlsConfig } from "./model";
 import { validateFilter } from "./filter";
 import { OPTIONAL_FIELDS } from "./field-selection";
 export function validateSlsConfig(sls: SlsConfig | undefined) {
   if (!sls) return;
+  if (
+    sls.upload_fields !== undefined &&
+    (!Array.isArray(sls.upload_fields) ||
+      new Set(sls.upload_fields).size !== sls.upload_fields.length ||
+      sls.upload_fields.some((x) => !SLS_FIELDS.some((f) => f[0] === x)))
+  )
+    throw Error("SLS 上传字段配置无效");
   if (
     typeof sls.enabled !== "boolean" ||
     !["sts", "web_tracking"].includes(sls.mode) ||
