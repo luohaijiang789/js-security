@@ -20,11 +20,16 @@ import {
   type Batch,
   type InitiatorGraph,
 } from "./model";
-import { validateConfig } from "./config";
+import { validateConfig, validateSlsConfig } from "./config";
 import { validateFilter, matchFilter } from "./filter";
 import * as db from "./store";
 import { packageFiles, csv, jsonl } from "./export";
-import { slsBaseURL, slsCredentialKey } from "./sls";
+import {
+  slsBaseURL,
+  slsCredentialKey,
+  testSlsConnection as performSlsConnectionTest,
+} from "./sls";
+import type { SlsConfig, SlsCredentials } from "./model";
 const name = ref("业务请求采集");
 const current = ref<Scan | null>(null),
   history = ref<Scan[]>([]),
@@ -53,7 +58,9 @@ const section = ref("请求"),
   serviceToken = ref(""),
   slsAccessKeyId = ref(""),
   slsAccessKeySecret = ref(""),
-  slsSecurityToken = ref("");
+  slsSecurityToken = ref(""),
+  slsTestFeedback = ref(""),
+  slsTestFailed = ref(false);
 const scan = computed(() =>
   current.value?.id === scanId.value
     ? current.value
@@ -153,6 +160,21 @@ const configForm = computed<ReturnType<typeof defaults>>(() => {
     return defaults();
   }
 });
+watch(
+  () => [
+    configForm.value.sls?.mode,
+    configForm.value.sls?.endpoint,
+    configForm.value.sls?.project,
+    configForm.value.sls?.logstore,
+    slsAccessKeyId.value,
+    slsAccessKeySecret.value,
+    slsSecurityToken.value,
+  ],
+  () => {
+    slsTestFeedback.value = "";
+    slsTestFailed.value = false;
+  },
+);
 const draftConfig = ref(defaults()),
   draftFilterText = ref("{}"),
   draftFilterValid = ref(true);
@@ -572,40 +594,78 @@ async function authorize() {
   serviceToken.value = "";
   notice.value = "接收服务已授权；令牌仅存当前浏览器会话，不进入导出包。";
 }
-async function authorizeSls() {
-  const config = configForm.value.sls!;
-  validateConfig(configForm.value);
+async function authorizeSlsTarget(
+  config: SlsConfig,
+  allowSavedCredentials: boolean,
+): Promise<SlsCredentials | undefined> {
+  validateSlsConfig({ ...config, enabled: true });
   const origin = new URL(slsBaseURL(config)).origin;
   const ok = await chrome.permissions.request({ origins: [origin + "/*"] });
   if (!ok) throw Error("未授权 SLS Endpoint");
+  if (config.mode !== "sts") return undefined;
+  const accessKeyId = slsAccessKeyId.value.trim();
+  const accessKeySecret = slsAccessKeySecret.value;
+  const securityToken = slsSecurityToken.value.trim();
+  const hasEnteredCredential = !!(
+    accessKeyId ||
+    accessKeySecret ||
+    securityToken
+  );
+  const stored = await chrome.storage.session.get("sls_credentials");
+  const saved = (
+    stored.sls_credentials as Record<string, SlsCredentials> | undefined
+  )?.[slsCredentialKey(config)];
+  if (!hasEnteredCredential && allowSavedCredentials && saved) return saved;
+  if (!accessKeyId || !accessKeySecret)
+    throw Error(
+      "请填写 AccessKey ID 和 AccessKey Secret；使用 STS 临时凭证时还必须填写 SecurityToken",
+    );
+  const credentials: SlsCredentials = {
+    access_key_id: accessKeyId,
+    access_key_secret: accessKeySecret,
+    ...(securityToken ? { security_token: securityToken } : {}),
+  };
+  await chrome.storage.session.set({
+    sls_credentials: {
+      ...((stored.sls_credentials as object) ?? {}),
+      [slsCredentialKey(config)]: credentials,
+    },
+  });
+  return credentials;
+}
+async function authorizeSls() {
+  const config = configForm.value.sls!;
+  validateConfig(configForm.value);
+  await authorizeSlsTarget(config, false);
   if (config.mode === "sts") {
-    if (
-      !slsAccessKeyId.value.trim() ||
-      !slsAccessKeySecret.value ||
-      !slsSecurityToken.value
-    )
-      throw Error(
-        "STS 模式必须填写 AccessKey ID、AccessKey Secret 和 SecurityToken",
-      );
-    const stored = await chrome.storage.session.get("sls_credentials");
-    await chrome.storage.session.set({
-      sls_credentials: {
-        ...((stored.sls_credentials as object) ?? {}),
-        [slsCredentialKey(config)]: {
-          access_key_id: slsAccessKeyId.value.trim(),
-          access_key_secret: slsAccessKeySecret.value,
-          security_token: slsSecurityToken.value,
-        },
-      },
-    });
     slsAccessKeyId.value = "";
     slsAccessKeySecret.value = "";
     slsSecurityToken.value = "";
     notice.value =
-      "SLS Endpoint 已授权；STS 临时凭证仅存当前浏览器会话，不进入任务或导出包。";
+      "SLS Endpoint 已授权；签名凭证仅存当前浏览器会话，不进入任务或导出包。";
   } else
     notice.value =
       "SLS Endpoint 已授权；请确认 Logstore 已开启 WebTracking 匿名写入。";
+}
+async function testSlsConnection() {
+  slsTestFeedback.value = "";
+  slsTestFailed.value = false;
+  try {
+    const config = configForm.value.sls!;
+    validateConfig(configForm.value);
+    const credentials = await authorizeSlsTarget(config, true);
+    const receipt = await performSlsConnectionTest(config, credentials);
+    slsTestFeedback.value = receipt
+      ? `连接成功，测试日志已写入 ${config.project}/${config.logstore}。SLS Request ID：${receipt}`
+      : `连接成功，测试日志已写入 ${config.project}/${config.logstore}；SLS 未返回 Request ID。`;
+    notice.value = slsTestFeedback.value;
+  } catch (cause) {
+    slsTestFailed.value = true;
+    slsTestFeedback.value = String(
+      cause instanceof Error ? cause.message : cause,
+    );
+    throw cause;
+  }
 }
 async function saveBlob(blob: Blob, filename: string) {
   const u = URL.createObjectURL(blob);
@@ -903,7 +963,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.0</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.1</span>
         </div>
       </div>
     </aside>
@@ -1941,7 +2001,7 @@ onUnmounted(() => {
                         )
                     "
                   >
-                    <option value="sts">STS 临时凭证签名（推荐）</option>
+                    <option value="sts">AccessKey / STS 签名（推荐）</option>
                     <option value="web_tracking">WebTracking 匿名写入</option>
                   </select></label
                 ><label
@@ -2032,25 +2092,25 @@ onUnmounted(() => {
                 class="form-grid sls-credentials"
               >
                 <label
-                  >STS AccessKey ID<input
+                  >AccessKey ID<input
                     v-model="slsAccessKeyId"
                     type="password"
                     autocomplete="off"
                     placeholder="仅保存在当前浏览器会话"
                 /></label>
                 <label
-                  >STS AccessKey Secret<input
+                  >AccessKey Secret<input
                     v-model="slsAccessKeySecret"
                     type="password"
                     autocomplete="off"
                     placeholder="仅保存在当前浏览器会话"
                 /></label>
                 <label
-                  >STS SecurityToken<input
+                  >SecurityToken（仅 STS 临时凭证必填）<input
                     v-model="slsSecurityToken"
                     type="password"
                     autocomplete="off"
-                    placeholder="必须使用临时 Token"
+                    placeholder="长期 AccessKey 留空；STS 必填"
                 /></label>
               </div>
               <p
@@ -2062,13 +2122,40 @@ onUnmounted(() => {
               </p>
               <p v-else class="permission-note">
                 <Icon name="shield" :size="15" /><span
-                  >请使用仅允许目标 Project / Logstore 写入、有效期尽量短的 STS
-                  临时凭证。凭证不会写入任务、IndexedDB 或导出包。</span
+                  >STS 临时凭证必须同时填写 SecurityToken；长期 AccessKey 没有
+                  SecurityToken，可留空。推荐使用仅允许目标 Project / Logstore
+                  写入、有效期尽量短的 STS 凭证。凭证不会写入任务、IndexedDB
+                  或导出包。</span
                 >
+              </p>
+              <p class="permission-note sls-test-note">
+                <Icon name="activity" :size="15" /><span
+                  >“测试连接”会向当前 Logstore 真实写入 1 条带
+                  <code>connection_test=true</code>
+                  的测试日志，用于同时检查地址、网络权限、签名、凭证和写入权限。</span
+                >
+              </p>
+              <p
+                v-if="slsTestFeedback"
+                :class="[
+                  'message-banner',
+                  slsTestFailed ? 'error' : 'notice',
+                  'sls-test-result',
+                ]"
+                :role="slsTestFailed ? 'alert' : 'status'"
+              >
+                <Icon :name="slsTestFailed ? 'alert' : 'check'" />
+                <span>{{ slsTestFeedback }}</span>
               </p>
               <div class="panel-footer sls-actions">
                 <button class="button" @click="run(authorizeSls)">
-                  <Icon name="shield" :size="15" />授权 SLS 并保存会话凭证</button
+                  <Icon name="shield" :size="15" />授权并保存凭证</button
+                ><button
+                  class="button"
+                  :disabled="busy"
+                  @click="run(testSlsConnection)"
+                >
+                  <Icon name="activity" :size="15" />测试连接</button
                 ><button
                   class="button primary"
                   :disabled="busy || !activeTask"

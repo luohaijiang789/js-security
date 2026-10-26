@@ -193,7 +193,7 @@ page-domain:alibabacloud.com; (page:idp-cloud OR referer:idp-cloud); -extension:
 | 本地持久化 | IndexedDB 默认开启，保存任务、请求、分组、错误与待转存进度 |
 | 本地分片文件 | 按数量、大小、时间或停止动作触发，写入浏览器允许或用户授权的目录 |
 | 内部接收服务 | 可选 HTTPS 地址、授权方式、批次大小、间隔、压缩、重试与保留策略；仅允许批准的接收服务 |
-| 阿里云 SLS | 可选 STS 临时凭证签名或 WebTracking 匿名写入；配置 Endpoint、Project、Logstore、Topic、Source、批次与间隔 |
+| 阿里云 SLS | 可选 AccessKey / STS 签名或 WebTracking 匿名写入；SecurityToken 仅 STS 必填；配置 Endpoint、Project、Logstore、Topic、Source、批次与间隔，并可真实写入测试日志验证连接 |
 
 内网接收服务须按唯一 Batch ID 幂等处理，确认持久化后才标记转存成功。失败保留本地待转存记录，有界重试，恢复后续传。自动删除已转存本地记录须显式开启，不能默认清理证据。
 

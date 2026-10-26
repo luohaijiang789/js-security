@@ -1,5 +1,5 @@
 import { createHash, createHmac } from "node:crypto";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { validateConfig } from "../src/config";
 import {
   defaults,
@@ -13,6 +13,7 @@ import {
   slsCredentialKey,
   slsPayloads,
   slsWriteURL,
+  testSlsConnection,
 } from "../src/sls";
 import { workspaceFixture } from "./fixtures";
 
@@ -71,6 +72,69 @@ describe("Alibaba Cloud SLS target and signing", () => {
     expect(headers["x-log-bodyrawsize"]).toBe(String(bytes.length));
     expect(headers.Authorization).toBe(`LOG STS.test-id:${expected}`);
     expect(headers["x-acs-security-token"]).toBe("test-token");
+  });
+
+  it("supports a long-lived AccessKey without an STS SecurityToken", () => {
+    const headers = signSlsRequest(
+      '{"__logs__":[]}',
+      "/logstores/browser_requests",
+      {
+        access_key_id: "LTAI-test-id",
+        access_key_secret: "test-secret",
+      },
+      "Mon, 26 Oct 2026 10:00:00 GMT",
+    );
+    expect(headers.Authorization).toMatch(/^LOG LTAI-test-id:/);
+    expect(headers).not.toHaveProperty("x-acs-security-token");
+  });
+
+  it("writes a real diagnostic log and returns its SLS request id", async () => {
+    let sent: any;
+    const fetch = vi.fn(async (url: string, options: RequestInit) => {
+      sent = { url, options, body: JSON.parse(String(options.body)) };
+      return new Response("", {
+        status: 200,
+        headers: { "x-log-requestid": "connection-request-1" },
+      });
+    });
+    vi.stubGlobal("fetch", fetch);
+    const receipt = await testSlsConnection(
+      config,
+      {
+        access_key_id: "STS.test-id",
+        access_key_secret: "test-secret",
+        security_token: "test-token",
+      },
+      new Date("2026-10-26T10:00:00.000Z"),
+    );
+    expect(receipt).toBe("connection-request-1");
+    expect(sent.url).toBe(slsWriteURL(config));
+    expect(sent.options.headers.Authorization).toMatch(/^LOG STS\.test-id:/);
+    expect(sent.body.__logs__[0]).toMatchObject({
+      connection_test: "true",
+      tested_at: "2026-10-26T10:00:00.000Z",
+    });
+  });
+
+  it("shows the SLS HTTP status and response detail when a connection test fails", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            '{"errorCode":"Unauthorized","errorMessage":"bad key"}',
+            {
+              status: 403,
+            },
+          ),
+      ),
+    );
+    await expect(
+      testSlsConnection(config, {
+        access_key_id: "bad-id",
+        access_key_secret: "bad-secret",
+      }),
+    ).rejects.toThrow(/HTTP 403.*Unauthorized.*bad key/);
   });
 
   it("stores searchable columns and splits oversized full records losslessly", () => {
