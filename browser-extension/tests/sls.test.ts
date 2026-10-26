@@ -1,3 +1,4 @@
+import { compactBody, compactStack, slsProjection } from "../src/sls-fields";
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { validateConfig } from "../src/config";
@@ -177,15 +178,18 @@ describe("Alibaba Cloud SLS target and signing", () => {
     expect(payloads.length).toBeGreaterThan(1);
     expect(logs.length).toBeGreaterThan(1);
     expect(logs[0]).toMatchObject({
-      method: record.method,
-      request_url: record.request_url,
+      schema_version: "sls-2-chunk",
       transfer_batch_id: batch.id,
       record_chunk_index: "1",
-      transfer_part_index: "1",
     });
-    expect(logs.map((log: any) => log.record_json_chunk).join("")).toBe(
-      JSON.stringify(record),
+    const restored = JSON.parse(
+      logs.map((log: any) => log.compact_json_chunk).join(""),
     );
+    expect(JSON.parse(restored.response_body).value).toBe(
+      record.response_body.raw,
+    );
+    expect(restored.request_url).toBe(record.request_url);
+    expect(logs[0]).not.toHaveProperty("request_url");
     expect(new Set(logs.map((log: any) => log.record_sha256)).size).toBe(1);
     expect(
       payloads.every(
@@ -209,5 +213,109 @@ describe("Alibaba Cloud SLS target and signing", () => {
         sls: { ...config, batch_bytes: 4 * 1024 * 1024 },
       }),
     ).toThrow("3 MB");
+  });
+});
+
+describe("SLS field projection", () => {
+  it("stores one body representation and preserves unsafe JSON as raw", () => {
+    expect(
+      compactBody({
+        representation: "json",
+        parsed: { a: 1 },
+        raw: '{ "a": 1 }',
+      }),
+    ).toEqual({
+      representation: "json",
+      value_kind: "parsed",
+      value: { a: 1 },
+    });
+    for (const raw of [
+      '{"a":1,"a":2}',
+      '{"n":9007199254740993}',
+      '{"n":-0}',
+      '{"n":1e-400}',
+      '{"n":0.1234567890123456789}',
+      "broken",
+    ])
+      expect(
+        compactBody({ representation: "json", parsed: {}, raw }),
+      ).toMatchObject({ value_kind: "raw", value: raw });
+    expect(
+      compactBody({
+        representation: "form",
+        parsed: [
+          { name: "a", value: "" },
+          { name: "a", value: "2" },
+        ],
+        raw: "a=&a=2",
+      }),
+    ).toMatchObject({
+      value_kind: "parsed",
+      value: [
+        { name: "a", value: "" },
+        { name: "a", value: "2" },
+      ],
+    });
+    expect(
+      compactBody({ representation: "form", parsed: [], raw: "x=%FF" }),
+    ).toMatchObject({ value_kind: "raw", value: "x=%FF" });
+    expect(
+      compactBody({
+        representation: "base64",
+        parsed: null,
+        raw: "R0lG",
+        encoding: "base64",
+      }),
+    ).toMatchObject({ value_kind: "raw", value: "R0lG", encoding: "base64" });
+  });
+  it("preserves all stack frames and async parent chains with a local script dictionary", () => {
+    const url = "https://example.test/script.js";
+    const stack = {
+      callFrames: Array.from({ length: 30 }, (_, i) => ({
+        url,
+        functionName: `f${i}`,
+        lineNumber: i,
+        columnNumber: 5,
+        scriptId: "7",
+      })),
+      parent: {
+        description: "Promise.then",
+        callFrames: [{ url, functionName: "caller" }],
+      },
+    };
+    const compact = compactStack(stack);
+    expect(compact.scripts).toEqual([url]);
+    expect(compact.stack.callFrames).toHaveLength(30);
+    expect(compact.stack.parent.callFrames[0]).toEqual({
+      url_ref: 0,
+      functionName: "caller",
+    });
+    expect(compact.stack.callFrames[29]).toMatchObject({
+      lineNumber: 29,
+      scriptId: "7",
+    });
+  });
+  it("applies independent SLS selection without modifying local records", () => {
+    const record = workspaceFixture().records[0];
+    const original = JSON.stringify(record);
+    const core = slsProjection(record, []);
+    expect(core).toHaveProperty("request_url", record.request_url);
+    expect(core).not.toHaveProperty("request_body");
+    const recommended = slsProjection(record);
+    expect(recommended).not.toHaveProperty("security_details");
+    expect(recommended).not.toHaveProperty("timing");
+    expect(recommended).not.toHaveProperty("group_key");
+    expect(recommended).not.toHaveProperty("response_headers_raw");
+    expect(recommended).not.toHaveProperty("session_id");
+    expect(JSON.stringify(record)).toBe(original);
+    expect(slsProjection(record, ["internal"])).toHaveProperty("session_id");
+  });
+  it("rejects invalid SLS selection even when disabled", () => {
+    expect(() =>
+      validateConfig({
+        ...defaults(),
+        sls: { ...defaults().sls!, upload_fields: ["unknown"] },
+      }),
+    ).toThrow("上传字段");
   });
 });

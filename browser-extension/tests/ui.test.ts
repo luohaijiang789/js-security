@@ -545,6 +545,14 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
         .getByLabel("SecurityToken（仅 STS 临时凭证必填）")
         .getAttribute("placeholder"),
     ).toContain("长期 AccessKey 留空");
+    const slsFields = dialog.locator(".sls-field-selector");
+    expect(
+      await slsFields
+        .getByRole("checkbox", { name: /TLS 证书详情/ })
+        .isChecked(),
+    ).toBe(false);
+    await slsFields.getByRole("checkbox", { name: /响应体/ }).uncheck();
+    await slsFields.getByRole("checkbox", { name: /TLS 证书详情/ }).check();
     await dialog
       .getByRole("button", { name: "测试 SLS 连接", exact: true })
       .click();
@@ -597,6 +605,9 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect(message.config.value_storage).toBe("complete");
     expect(message.config.saved_fields).toHaveLength(8);
     expect(message.config.saved_fields).not.toContain("request_body");
+    expect(message.config.sls.upload_fields).not.toContain("response_body");
+    expect(message.config.sls.upload_fields).toContain("tls");
+    expect(message.config.saved_fields).toContain("response_body");
     expect(message.config.sls).toMatchObject({
       enabled: true,
       mode: "sts",

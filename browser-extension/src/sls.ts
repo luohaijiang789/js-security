@@ -1,3 +1,4 @@
+import { slsProjection } from "./sls-fields";
 import { hmac } from "@noble/hashes/hmac.js";
 import { md5, sha1 } from "@noble/hashes/legacy.js";
 import { sha256 } from "@noble/hashes/sha2.js";
@@ -12,7 +13,6 @@ import type {
 
 const encoder = new TextEncoder();
 const LOG_CHUNK_BYTES = 512 * 1024;
-const SEARCH_VALUE_CHARS = 8192;
 
 function base64(bytes: Uint8Array) {
   let binary = "";
@@ -91,45 +91,42 @@ function string(value: unknown) {
   return value === null || value === undefined ? "" : String(value);
 }
 
-function searchValue(value: unknown) {
-  const result = string(value);
-  return result.length <= SEARCH_VALUE_CHARS
-    ? result
-    : result.slice(0, SEARCH_VALUE_CHARS) +
-        "…[SLS检索字段已截断，完整值见记录分片]";
-}
-
 function recordLogs(
   record: RecordEntry,
   batch: Batch,
   scan: Scan,
   chunkBytes: number,
+  config: SlsConfig,
 ) {
-  const json = JSON.stringify(record);
-  const chunks = splitUtf8(json, chunkBytes);
-  const digest = bytesToHex(sha256(utf8ToBytes(json)));
-  return chunks.map((chunk, index) => ({
+  const projection = slsProjection(record, config.upload_fields);
+  const log: Record<string, string | number> = {
     __time__: Math.floor((Date.parse(record.timestamp) || Date.now()) / 1000),
     scan_id: scan.id,
     scan_name: scan.name,
     transfer_batch_id: batch.id,
+  };
+  for (const [key, value] of Object.entries(projection)) {
+    if (value === undefined || value === null) continue;
+    log[key] =
+      typeof value === "object" ? JSON.stringify(value) : String(value);
+  }
+  if (encoder.encode(JSON.stringify(log)).length < config.batch_bytes * 0.85)
+    return [log];
+  // Only oversized selected records use a reconstruction envelope. Normal logs
+  // contain each field once, with no full-record JSON copy.
+  const json = JSON.stringify(log);
+  const chunks = splitUtf8(json, chunkBytes);
+  const digest = bytesToHex(sha256(utf8ToBytes(json)));
+  return chunks.map((chunk, index) => ({
+    __time__: log.__time__,
+    schema_version: "sls-2-chunk",
+    scan_id: scan.id,
     request_id: record.request_id,
-    request_timestamp: record.timestamp,
-    method: record.method,
-    request_url: searchValue(record.request_url),
-    domain: searchValue(record.domain),
-    pathname: searchValue(record.pathname),
-    resource_type: record.resource_type,
-    status_code: string(record.status_code),
-    request_state: record.request_state,
-    page_url: searchValue(record.page_url),
-    initiator_url: searchValue(record.initiator_url),
-    filter_result: string(record.filter_result),
-    group_id: string(record.group_id),
+    transfer_batch_id: batch.id,
     record_sha256: digest,
     record_chunk_index: String(index + 1),
     record_chunk_total: String(chunks.length),
-    record_json_chunk: chunk,
+    compact_json_chunk: chunk,
   }));
 }
 
@@ -142,17 +139,17 @@ function assemblePayload(
   parts: number,
 ) {
   return JSON.stringify({
-    __logs__: logs.map((log) => ({
-      ...log,
-      transfer_part_index: String(part),
-      transfer_part_total: String(parts),
-    })),
+    __logs__: logs,
     ...(config.topic ? { __topic__: config.topic } : {}),
     ...(config.source ? { __source__: config.source } : {}),
     __tags__: {
       producer: "js-security-browser-extension",
-      scan_id: scan.id,
-      transfer_batch_id: batch.id,
+      ...(parts > 1
+        ? {
+            transfer_part_index: String(part),
+            transfer_part_total: String(parts),
+          }
+        : {}),
     },
   });
 }
@@ -165,10 +162,10 @@ export function slsPayloads(
 ) {
   const chunkBytes = Math.min(
     LOG_CHUNK_BYTES,
-    Math.floor(config.batch_bytes * 0.7),
+    Math.floor(config.batch_bytes * 0.1),
   );
   const logs = rows.flatMap((record) =>
-    recordLogs(record, batch, scan, chunkBytes),
+    recordLogs(record, batch, scan, chunkBytes, config),
   );
   const groups: Array<Array<Record<string, string | number>>> = [];
   let group: Array<Record<string, string | number>> = [];
@@ -177,7 +174,8 @@ export function slsPayloads(
     if (
       group.length &&
       encoder.encode(assemblePayload(candidate, batch, scan, config, 1, 1))
-        .length > config.batch_bytes
+        .length >
+        config.batch_bytes - 1024
     ) {
       groups.push(group);
       group = [log];

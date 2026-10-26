@@ -2,6 +2,7 @@
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
 import SimpleFilter from "./SimpleFilter.vue";
 import FieldSelector from "./FieldSelector.vue";
+import SlsFieldSelector from "./SlsFieldSelector.vue";
 import UsageGuide from "./UsageGuide.vue";
 import Icon from "./Icon.vue";
 import RequestDetail from "./RequestDetail.vue";
@@ -1148,7 +1149,7 @@ onUnmounted(() => {
           </div>
         </div>
         <div class="version-line">
-          <span class="tiny-dot"></span>Chrome 扩展<span>v0.5.4</span>
+          <span class="tiny-dot"></span>Chrome 扩展<span>v0.6.0</span>
         </div>
       </div>
     </aside>
@@ -2342,6 +2343,7 @@ onUnmounted(() => {
                 <Icon :name="slsTestFailed ? 'alert' : 'check'" />
                 <span>{{ slsTestFeedback }}</span>
               </p>
+              <SlsFieldSelector v-model="slsProfile.upload_fields" />
               <div class="panel-footer sls-actions">
                 <button class="button" @click="run(authorizeSls)">
                   <Icon
@@ -2744,6 +2746,7 @@ onUnmounted(() => {
                   <Icon :name="draftSlsTestFailed ? 'alert' : 'check'" />
                   <span>{{ draftSlsTestFeedback }}</span>
                 </p>
+                <SlsFieldSelector v-model="draftSls.upload_fields" />
                 <div class="new-task-sls-actions">
                   <button
                     class="button"

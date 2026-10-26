@@ -175,7 +175,7 @@ it("使用会话 STS 凭证签名批量写入 SLS，并保存请求回执", asyn
   );
   expect(sent.options.headers.Authorization).toMatch(/^LOG STS\.id:/);
   expect(sent.options.headers["x-acs-security-token"]).toBe("token");
-  expect(sent.payload.__logs__[0].record_json_chunk).toContain("Authorization");
+  expect(sent.payload.__logs__[0].request_headers).toContain("Authorization");
   const [batch] = await db.all<Batch>("batches", recorder.scan!.id);
   expect(batch.channel).toBe("sls");
   expect(batch.state).toBe("complete");
@@ -286,4 +286,53 @@ it("结束任务的失败 SLS 批次可改发新目标，完成批次和任务�
     (await db.get<Batch>("batches", "repair-complete"))?.sls?.project,
   ).toBe("old-project");
   expect(scan.config.sls.project).toBe("old-project");
+});
+it("旧 SLS 批次继续使用原序列化，新批次保存字段选择快照", async () => {
+  const scan = recorder.scan!;
+  scan.config.archive.enabled = false;
+  scan.config.service.enabled = false;
+  scan.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    mode: "web_tracking",
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "requests",
+    upload_fields: [],
+  };
+  const rows = await db.page(scan.id);
+  const old: Batch = {
+    id: "legacy-sls",
+    scan_id: scan.id,
+    channel: "sls",
+    state: "pending",
+    attempts: 0,
+    next_retry: 0,
+    created_at: new Date().toISOString(),
+    records: rows.map((r) => r.request_id),
+    sls: scan.config.sls,
+  };
+  await db.put("batches", old);
+  const logs: any[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      logs.push(...JSON.parse(options.body).__logs__);
+      return new Response("", { status: 200 });
+    }),
+  );
+  await sendBatch(old, scan);
+  expect(logs[0].record_json_chunk).toContain("Authorization");
+  logs.length = 0;
+  // Plan a separate task's new batch rather than reusing the completed legacy ordinal.
+  await db.transact(["batches"], "readwrite", (tx) => {
+    tx.objectStore("batches").delete(old.id);
+  });
+  await transfer(scan, true);
+  expect(logs[0].schema_version).toBe("sls-2");
+  expect(logs[0]).not.toHaveProperty("record_json_chunk");
+  expect(logs[0]).not.toHaveProperty("request_headers");
+  const [batch] = await db.all<Batch>("batches", scan.id);
+  expect(batch.sls_schema).toBe("sls-2");
+  expect(batch.sls?.upload_fields).toEqual([]);
 });

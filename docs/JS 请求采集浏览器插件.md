@@ -197,7 +197,7 @@ page-domain:alibabacloud.com; (page:idp-cloud OR referer:idp-cloud); -extension:
 
 内网接收服务须按唯一 Batch ID 幂等处理，确认持久化后才标记转存成功。失败保留本地待转存记录，有界重试，恢复后续传。自动删除已转存本地记录须显式开启，不能默认清理证据。
 
-SLS 将常用字段平铺用于检索，并将完整记录写入可重组的 `record_json_chunk`；大记录使用 SHA-256、分片序号和总数标识。投递语义为至少一次，下游须以 `transfer_batch_id + request_id + record_chunk_index` 去重。STS 凭证不得进入任务配置、IndexedDB 和导出包；WebTracking 要求用户明确接受公网匿名写入与脏数据风险。
+SLS 上传字段独立可选，默认省略 TLS、性能缓存和内部标识；常用字段平铺、复杂字段各保存一次，正文只保留解析结构或 raw。完整调用栈以脚本字典无损去重；新格式 sls-2 的超大记录通过 compact_json_chunk、SHA-256 和分片序号还原，旧批次继续使用原格式。投递语义为至少一次，下游须以 `transfer_batch_id + request_id + record_chunk_index` 去重。STS 凭证不得进入任务配置、IndexedDB 和导出包；WebTracking 要求用户明确接受公网匿名写入与脏数据风险。
 
 文件归档与服务转存分别记录状态；触发下载不等于文件已完成。文件失败、被取消或目录不可写须保留待处理项。浏览器多文件下载、目录授权行为在目标企业 Chrome 版本验收。
 
