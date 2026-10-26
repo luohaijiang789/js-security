@@ -363,8 +363,10 @@ const examples = [
         新建采集任务时，可在“自动保存与转存”中直接启用、配置并测试
         SLS；任务创建后也可打开左侧“存储与转存”调整完整策略。启用后会把当前任务中尚未转存的已保存记录和之后的新记录持续写入
         Logstore；本地数据不会因为 SLS
-        成功或失败而删除。新建任务会继承上一次使用的 SLS
-        配置，但签名凭证仍只从当前浏览器会话读取。
+        成功或失败而删除。设置页保存或测试成功、新建任务测试或创建成功后，都会更新同一份可复用
+        SLS
+        配置。新建任务直接读取这份配置；签名凭证仍只从当前浏览器会话读取，并且只显示脱敏后的
+        AccessKey ID 与凭证存在状态。
       </p>
       <ol class="usage-troubleshooting">
         <li>
@@ -385,7 +387,7 @@ const examples = [
         <li>
           填入 AccessKey ID 和 AccessKey Secret；使用 STS 临时凭证时
           SecurityToken 也必须填写，长期 AccessKey 没有
-          SecurityToken，可留空。点击“授权并保存凭证”，再点击“测试连接”。测试会向目标
+          SecurityToken，可留空。点击“保存复用配置与会话凭证”，再点击“测试连接”。测试会向目标
           Logstore 真实写入一条 <code>connection_test=true</code> 的日志，并显示
           SLS Request
           ID；成功后点击“保存全部转存策略”。凭证只存在当前浏览器会话，不写入任务、IndexedDB

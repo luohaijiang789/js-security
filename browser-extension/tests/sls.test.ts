@@ -11,6 +11,7 @@ import {
   signSlsRequest,
   slsBaseURL,
   slsCredentialKey,
+  slsCredentialSummary,
   slsPayloads,
   slsWriteURL,
   testSlsConnection,
@@ -86,6 +87,14 @@ describe("Alibaba Cloud SLS target and signing", () => {
     );
     expect(headers.Authorization).toMatch(/^LOG LTAI-test-id:/);
     expect(headers).not.toHaveProperty("x-acs-security-token");
+    expect(
+      slsCredentialSummary({
+        access_key_id: "LTAI12345678",
+        access_key_secret: "must-not-appear",
+      }),
+    ).toBe(
+      "AccessKey ID LTAI••••5678 · AccessKey Secret 已保存 · SecurityToken 未保存（长期 AccessKey 可不需要）",
+    );
   });
 
   it("writes a real diagnostic log and returns its SLS request id", async () => {

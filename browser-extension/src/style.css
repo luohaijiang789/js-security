@@ -1719,6 +1719,23 @@ main {
 .sls-credentials {
   margin-top: 18px;
 }
+.credential-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 11px;
+  padding: 9px 11px;
+  border: 1px solid #cfe9dd;
+  border-radius: 6px;
+  background: #eff8f4;
+  color: #32725f;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.credential-summary svg {
+  flex: 0 0 auto;
+}
 .sls-actions {
   margin-top: 18px;
 }

@@ -37,8 +37,11 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.addInitScript(() => {
     const w = window as any,
-      storage: Record<string, unknown> = {};
+      storage: Record<string, unknown> = {},
+      session: Record<string, unknown> = {};
     w.slsRequests = [];
+    w.localStorageMock = storage;
+    w.sessionStorageMock = session;
     const nativeFetch = window.fetch.bind(window);
     w.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       if (String(input).includes(".log.aliyuncs.com/logstores/")) {
@@ -167,7 +170,10 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
           get: async () => storage,
           set: async (value: object) => Object.assign(storage, value),
         },
-        session: { get: async () => ({}), set: async () => {} },
+        session: {
+          get: async () => ({ ...session }),
+          set: async (value: object) => Object.assign(session, value),
+        },
       },
       downloads: {
         download: async (options: any) => {
@@ -546,12 +552,30 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       .getByText(/连接成功/)
       .waitFor();
     expect(
+      await dialog.getByLabel("AccessKey ID", { exact: true }).inputValue(),
+    ).toBe("");
+    expect(await dialog.locator(".credential-summary").textContent()).toContain(
+      "AccessKey ID LTAI••••task",
+    );
+    expect(
       await dialog.locator(".draft-sls-test-result").textContent(),
     ).toContain("new-task-project/new_task_requests");
+    expect(
+      await page.evaluate(
+        () => (window as any).localStorageMock.sls_profile.logstore,
+      ),
+    ).toBe("new_task_requests");
     await dialog
       .getByLabel("Logstore", { exact: true })
       .fill("new_task_requests_final");
     expect(await dialog.locator(".draft-sls-test-result").count()).toBe(0);
+    expect(await dialog.locator(".credential-summary").count()).toBe(0);
+    await dialog
+      .getByLabel("AccessKey ID", { exact: true })
+      .fill("LTAI-final-task");
+    await dialog
+      .getByLabel("AccessKey Secret", { exact: true })
+      .fill("new-task-secret-final");
     expect(await dialog.getByTestId("filter-summary").textContent()).toContain(
       "类型为 XHR、Fetch、Ping",
     );
@@ -682,6 +706,18 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     await page
       .getByRole("heading", { name: "自动保存到阿里云 SLS", exact: true })
       .waitFor();
+    expect(await page.getByLabel("Endpoint").inputValue()).toBe(
+      "cn-hangzhou.log.aliyuncs.com",
+    );
+    expect(await page.getByLabel("Project").inputValue()).toBe(
+      "new-task-project",
+    );
+    expect(await page.getByLabel("Logstore").inputValue()).toBe(
+      "new_task_requests_final",
+    );
+    expect(await page.locator(".credential-summary").textContent()).toContain(
+      "AccessKey ID LTAI••••task",
+    );
     await page.getByLabel("启用阿里云 SLS 自动保存").check();
     await page.getByLabel("Endpoint").fill("cn-hangzhou.log.aliyuncs.com");
     await page.getByLabel("Project").fill("security-project");
@@ -721,10 +757,10 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       path: "work/redesign/sls-transfer.png",
       fullPage: false,
     });
-    await page.getByRole("button", { name: "授权并保存凭证" }).click();
+    await page.getByRole("button", { name: "保存复用配置与会话凭证" }).click();
     await page
       .getByRole("status")
-      .getByText(/SLS Endpoint 已授权/)
+      .getByText(/SLS 配置已保存/)
       .waitFor();
     await page.getByRole("button", { name: "测试连接", exact: true }).click();
     await page
@@ -744,6 +780,54 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       project: "security-project",
       logstore: "browser_requests",
     });
+    expect(
+      await page.evaluate(
+        () => (window as any).localStorageMock.sls_profile.logstore,
+      ),
+    ).toBe("browser_requests");
+    expect(
+      await page.evaluate(() =>
+        JSON.stringify((window as any).localStorageMock.sls_profile),
+      ),
+    ).not.toMatch(/LTAI|secret|SecurityToken/i);
+    await page.evaluate(() => {
+      const w = window as any;
+      w.activeScan = { ...w.activeScan, state: "ended" };
+    });
+    const newTaskButton = page
+      .getByRole("button", { name: "新建采集任务", exact: true })
+      .first();
+    await newTaskButton.waitFor();
+    await page.waitForFunction(() => {
+      const button = [...document.querySelectorAll("button")].find(
+        (item) => item.textContent?.trim() === "新建采集任务",
+      ) as HTMLButtonElement | undefined;
+      return button && !button.disabled;
+    });
+    await newTaskButton.click();
+    const reusedDialog = page.getByRole("dialog", {
+      name: "新建采集任务",
+      exact: true,
+    });
+    await reusedDialog.getByLabel("自动保存到阿里云 SLS").waitFor();
+    expect(
+      await reusedDialog.getByLabel("自动保存到阿里云 SLS").isChecked(),
+    ).toBe(true);
+    expect(
+      await reusedDialog
+        .locator(".new-task-sls-settings select")
+        .first()
+        .inputValue(),
+    ).toBe("web_tracking");
+    expect(
+      await reusedDialog.getByPlaceholder("your-project").inputValue(),
+    ).toBe("security-project");
+    expect(
+      await reusedDialog.getByPlaceholder("js-security-requests").inputValue(),
+    ).toBe("browser_requests");
+    await reusedDialog
+      .getByRole("button", { name: "关闭新建任务", exact: true })
+      .click();
     await page.getByRole("button", { name: "使用说明", exact: true }).click();
     await page
       .getByRole("heading", { name: "完整使用说明", exact: true })
