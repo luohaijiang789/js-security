@@ -1,5 +1,5 @@
 import * as db from "./store";
-import type { Scan, Batch, RecordEntry } from "./model";
+import type { Scan, Batch, RecordEntry, SlsConfig } from "./model";
 import { uid, now } from "./model";
 import { jsonl } from "./export";
 import {
@@ -277,4 +277,26 @@ export async function downloadChanged(delta: chrome.downloads.DownloadDelta) {
       if (delta.error) b.error = delta.error.current;
       await db.put("batches", b);
     }
+}
+
+export async function retargetFailedSls(scan: Scan, target: SlsConfig) {
+  const lock = scan.id + ":plan";
+  if (locks.has(lock)) throw Error("该任务正在转存，请稍后重试修改目标");
+  locks.add(lock);
+  try {
+    const failed = (await db.all<Batch>("batches", scan.id)).filter(
+      (b) => b.channel === "sls" && b.state === "failed",
+    );
+    for (const b of failed) {
+      b.sls = structuredClone(target);
+      b.attempts = 0;
+      b.next_retry = 0;
+      b.state = "pending";
+      delete b.error;
+      await db.put("batches", b);
+      await sendBatch(b, scan);
+    }
+  } finally {
+    locks.delete(lock);
+  }
 }

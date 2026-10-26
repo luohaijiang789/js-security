@@ -8,8 +8,8 @@ import {
   type RecordEntry,
   type Batch,
 } from "./model";
-import { validateConfig } from "./config";
-import { transfer, downloadChanged } from "./transfer";
+import { validateSlsConfig, validateConfig } from "./config";
+import { transfer, downloadChanged, retargetFailedSls } from "./transfer";
 import { safeURL } from "./privacy";
 import { slsBaseURL } from "./sls";
 async function deadline<T>(
@@ -93,6 +93,7 @@ const controlMessages = new Set([
   "stop",
   "update",
   "delete",
+  "retarget_sls",
 ]);
 const deliberateDetaches = new Map<
   number,
@@ -335,7 +336,7 @@ async function tick(force = false) {
   if (maintenance) return;
   maintenance = true;
   try {
-    if (force || Date.now() - lastTransfer >= 15000) {
+    if (force || Date.now() - lastTransfer >= 1000) {
       lastTransfer = Date.now();
       for (const s of await db.all<Scan>("scans"))
         await transfer(s, force && s.id === recorder.scan?.id);
@@ -634,6 +635,19 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         await recorder.update(message.config);
         await chrome.storage.local.set({ last_config: message.config });
         return true;
+      case "retarget_sls": {
+        const target = { ...message.sls, enabled: true };
+        validateSlsConfig(target);
+        const s = await db.get<Scan>("scans", message.id);
+        if (!s) throw Error("任务不存在");
+        await requireTransferPermissions({
+          ...s.config,
+          service: { ...s.config.service, enabled: false },
+          sls: target,
+        });
+        await retargetFailedSls(s, target);
+        return true;
+      }
       case "retry":
         for (const b of await db.all<Batch>("batches", message.id)) {
           if (b.state === "failed") {

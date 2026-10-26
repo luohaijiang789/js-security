@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "JS 请求采集",
-  "version": "0.5.3",
+  "version": "0.5.4",
   "minimum_chrome_version": "125",
   "description": "浏览器全局采集网页请求与响应，按 Filter 留存并可自动转存到阿里云 SLS。",
   "permissions": [

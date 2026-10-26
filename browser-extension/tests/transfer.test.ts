@@ -3,7 +3,12 @@ import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { Recorder } from "../src/recorder";
 import { defaults, type Batch } from "../src/model";
 import * as db from "../src/store";
-import { sendBatch, transfer, downloadChanged } from "../src/transfer";
+import {
+  sendBatch,
+  transfer,
+  downloadChanged,
+  retargetFailedSls,
+} from "../src/transfer";
 let recorder: Recorder;
 beforeEach(async () => {
   vi.stubGlobal("chrome", {
@@ -233,4 +238,52 @@ it("WebTracking 模式写入匿名 track 端点且不读取凭证", async () => 
   );
   expect(fetch.mock.calls[0][1]).not.toHaveProperty("headers");
   expect(chrome.storage.session.get).not.toHaveBeenCalled();
+});
+
+it("结束任务的失败 SLS 批次可改发新目标，完成批次和任务目标不变", async () => {
+  const scan = recorder.scan!;
+  scan.state = "ended";
+  const oldTarget = {
+    ...defaults().sls!,
+    enabled: true,
+    mode: "web_tracking" as const,
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "old-project",
+    logstore: "old_logs",
+  };
+  scan.config.sls = oldTarget;
+  const rows = await db.page(scan.id);
+  const base: Batch = {
+    id: "repair-failed",
+    scan_id: scan.id,
+    channel: "sls",
+    state: "failed",
+    attempts: 3,
+    next_retry: Date.now() + 100000,
+    created_at: new Date().toISOString(),
+    records: rows.map((r) => r.request_id),
+    sls: oldTarget,
+  };
+  await db.put("batches", base);
+  await db.put("batches", {
+    ...base,
+    id: "repair-complete",
+    state: "complete",
+  });
+  const fetch = vi.fn(async () => new Response("", { status: 200 }));
+  vi.stubGlobal("fetch", fetch);
+  await retargetFailedSls(scan, {
+    ...oldTarget,
+    project: "new-project",
+    logstore: "new_logs",
+  });
+  expect(fetch.mock.calls).toHaveLength(1);
+  expect((fetch.mock.calls[0] as any)[0]).toContain(
+    "new-project.cn-hangzhou.log.aliyuncs.com/logstores/new_logs",
+  );
+  expect((await db.get<Batch>("batches", base.id))?.state).toBe("complete");
+  expect(
+    (await db.get<Batch>("batches", "repair-complete"))?.sls?.project,
+  ).toBe("old-project");
+  expect(scan.config.sls.project).toBe("old-project");
 });
