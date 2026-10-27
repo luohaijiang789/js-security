@@ -35,6 +35,7 @@ React/Preact/Next/Remix、Vue/Nuxt、Svelte/SvelteKit、Angular、Solid、原生
   "exclude": ["**/node_modules/**", "**/dist/**", "**/.git/**"],
   "maxDepth": 8,
   "maxSteps": 100000,
+  "maxStepsPerFile": null,
   "maxCandidates": 16,
   "aliases": { "@/*": ["src/*"] },
   "layers": [{ "name": "service", "match": ["src/api/**"] }],
@@ -43,6 +44,8 @@ React/Preact/Next/Remix、Vue/Nuxt、Svelte/SvelteKit、Angular、Solid、原生
 ```
 
 客户端配置是显式信任规则：name 为源码里的精确表达式，例如 http 或 this.http；kind 支持 axios/fetch/ofetch/ky。规则用于无法进入实现的客户端，能追踪实现的本地函数优先向下分析。tsconfig/jsconfig 的路径别名可读取，用户 aliases 优先覆盖。
+
+0.5 起按入口与已知可达补漏资产分区分配剩余 maxSteps，局部中断不阻塞其他文件。maxStepsPerFile 为附加的单分区上限，默认 null；stats.partitions 与 Markdown 保留各分区的配额和中断状态。规则及未重试边界见[预算说明](budgets.md)。
 
 ## 输出契约
 

@@ -152,11 +152,23 @@ export async function analyze(root, options = {}) {
   const endpoints = new Map(),assetCandidateMap=new Map(),observedSinks=new Set();
   const sinkKey=node=>`${node.getSourceFile().fileName}:${node.getStart()}`;
   const analyzedFunctions = new Map();
-  let steps = 0, exhausted = false;
+  let steps = 0, exhausted = false, currentPartition=null;
+  // Unwind nested evaluators immediately instead of propagating fabricated return values.
+  const partitions=[],budgetStop=Symbol('budget stop');
   function tick(node) {
-    if (++steps <= config.maxSteps) return true;
-    if (!exhausted) { diagnostic('BUDGET_EXCEEDED', `超过 maxSteps=${config.maxSteps}，结果不完整`, node); exhausted = true; }
-    return false;
+    if(steps>=config.maxSteps) {
+      if(!exhausted)diagnostic('BUDGET_EXCEEDED',`达到 maxSteps=${config.maxSteps}，结果不完整`,node);
+      exhausted=true;
+      currentPartition.reason='global-budget';
+      throw budgetStop;
+    }
+    if(currentPartition.steps>=currentPartition.limit) {
+      currentPartition.reason='partition-budget';
+      diagnostic('PARTITION_BUDGET_EXCEEDED',`分区 ${currentPartition.file} 达到求值预算 ${currentPartition.limit}，继续分析其他文件；本分区不完整`,node);
+      throw budgetStop;
+    }
+    steps++;currentPartition.steps++;
+    return true;
   }
   function record(node, client, method, url, data, ctx) {
     if(ctx.discovery==='asset-local' && observedSinks.has(sinkKey(node)))return;
@@ -623,6 +635,9 @@ export async function analyze(root, options = {}) {
   const entryMatch = config.entries.length ? picomatch(config.entries) : () => true;
   const entryFiles=[...sources.keys()].filter(file=>entryMatch(path.relative(root,file).split(path.sep).join('/')));
   const entryCount=entryFiles.length;
+  const roots=entryFiles.map(file=>path.relative(root,file).split(path.sep).join('/'));
+  const visited=new Set(roots);
+  const pendingAssets=()=>config.includeUnlinked && config.entries.length ? [...reachableAssets(assets,roots)].filter(([relative])=>!visited.has(relative) && sources.has(path.resolve(root,relative))) : [];
   function scanFile(file,ctx) {
     const sf=program.getSourceFile(file);
     run(sf,new Map(),ctx);
@@ -632,26 +647,47 @@ export async function analyze(root, options = {}) {
       ts.forEachChild(n,visit);
     };visit(sf);
   }
-  for(const file of entryFiles){scanFile(file,{entry:path.relative(root,file).split(path.sep).join('/'),chain:[],active:new Set()});if(exhausted)break;}
-  if(config.includeUnlinked && config.entries.length && !exhausted) {
-    const roots=entryFiles.map(file=>path.relative(root,file).split(path.sep).join('/'));
-    const visited=new Set(roots);
-    while(!exhausted) {
-      const references=reachableAssets(assets,roots);
-      const pending=[...references].filter(([relative])=>!visited.has(relative) && sources.has(path.resolve(root,relative)));
+  function scanPartition(file,ctx,remainingTasks) {
+    const remaining=config.maxSteps-steps;
+    const partition={
+      file:ctx.entry,phase:ctx.discovery==='asset-local'?'asset-local':'entry',state:'finished',steps:0,
+      limit:Math.min(config.maxStepsPerFile??config.maxSteps,Math.max(1,Math.floor(remaining/remainingTasks)),remaining),
+    };
+    partitions.push(partition);
+    if(!remaining) {
+      partition.state='skipped';partition.reason='global-budget';
+      if(!exhausted)diagnostic('BUDGET_EXCEEDED',`达到 maxSteps=${config.maxSteps}，后续分区未扫描`,program.getSourceFile(file));
+      exhausted=true;
+      return;
+    }
+    currentPartition=partition;
+    try {
+      // Calls into dependencies are charged to this entry, not the physical callee file.
+      scanFile(file,ctx);
+    } catch(error) {
+      if(error!==budgetStop)throw error;
+      partition.state='budget-exceeded';
+    } finally {
+      currentPartition=null;
+    }
+  }
+  for(const [index,file] of entryFiles.entries())scanPartition(file,{entry:roots[index],chain:[],active:new Set()},entryCount-index+pendingAssets().length);
+  if(config.includeUnlinked && config.entries.length) {
+    while(true) {
+      const pending=pendingAssets();
       if(!pending.length)break;
       for(const [relative,parents] of pending) {
         visited.add(relative);
-        scanFile(path.resolve(root,relative),{entry:relative,chain:[],active:new Set(),discovery:'asset-local',referencedBy:[...parents]});
-        if(exhausted)break;
+        scanPartition(path.resolve(root,relative),{entry:relative,chain:[],active:new Set(),discovery:'asset-local',referencedBy:[...parents]},1+pendingAssets().length);
       }
+      if(exhausted)break;
     }
     const finalReferences=reachableAssets(assets,roots);
     for(const endpoint of assetCandidateMap.values())for(const usage of endpoint.usages)usage.referencedBy=[...(finalReferences.get(usage.callChain.at(-1).file)??[])];
     if(assetCandidateMap.size)diagnostic('UNLINKED_ASSET_CANDIDATES','已保留资产级候选；其参数和业务入口调用关系尚未连接');
   }
   if (!entryCount) diagnostic('NO_ENTRIES', '没有匹配的入口文件');
-  return { schemaVersion: 1, assets, assetCandidates:[...assetCandidateMap.values()].sort((a,b)=>`${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), mode: config.entries.length ? 'entries' : 'inventory', stats: { unlinkedScan:!config.includeUnlinked?'disabled':!entryCount?'no-entries':!config.entries.length?'inventory-mode':exhausted?'incomplete':'completed', files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
+  return { schemaVersion: 1, assets, assetCandidates:[...assetCandidateMap.values()].sort((a,b)=>`${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), mode: config.entries.length ? 'entries' : 'inventory', stats: { partitions, unlinkedScan:!config.includeUnlinked?'disabled':!entryCount?'no-entries':!config.entries.length?'inventory-mode':partitions.some(p=>p.state!=='finished')?'incomplete':'completed', files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
     endpoints: [...endpoints.values()].sort((a, b) => `${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), diagnostics };
 }
 
@@ -660,5 +696,5 @@ export function markdown(report) {
   return `# 前端接口提取\n\n模式：${report.mode}；文件：${report.stats.files}；接口：${report.endpoints.length}；诊断：${report.diagnostics.length}。\n\n静态潜在调用结果，不代表运行时覆盖率。参数及每条调用链见 JSON。条件之间的 AND/OR 关系以 JSON 中每条 usage 为准。\n\n| 方法 | Host（调用处） | URL | 解析状态 | 条件 | 调用位置 |\n| --- | --- | --- | --- | --- | --- |\n` + report.endpoints.map(e => {
     const conditions = [...new Set(e.usages.flatMap(u=>(u.conditions ?? []).map(c=>`${c.expression} = ${c.outcome}`)))].join('; ') || '—';
     return `| ${escape(e.method)} | ${escape(e.address?.host ?? "未知")} | ${escape(e.url)} | ${e.resolution} | ${escape(conditions)} | ${escape(e.usages.map(u => { const p = u.callChain.at(-1); return `${p.file}:${p.line}`; }).join(', '))} |`;
-  }).join('\n') + `\n\n## 未连接业务入口的资产级候选\n\n这些结果不计入入口接口表；字段和调用关系可能不完整。补漏状态：${report.stats.unlinkedScan ?? '未记录'}。\n\n` + (report.assetCandidates??[]).map(e=>`- ${escape(e.method)} ${escape(e.url)}（${escape(e.usages.map(u=>{const p=u.callChain.at(-1);return p.file+':'+p.line;}).join(', '))}）`).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
+  }).join('\n') + '\n\n## 文件求值预算\n\nfinished 仅表示本分区未被步数预算中断，不能证明语义或运行时覆盖完整。\n\n| 文件 | 阶段 | 状态 | 步数/配额 | 原因 |\n| --- | --- | --- | --- | --- |\n' + (report.stats.partitions??[]).map(p=>`| ${escape(p.file)} | ${p.phase} | ${p.state} | ${p.steps}/${p.limit} | ${p.reason??'—'} |`).join('\n') + `\n\n## 未连接业务入口的资产级候选\n\n这些结果不计入入口接口表；字段和调用关系可能不完整。补漏状态：${report.stats.unlinkedScan ?? '未记录'}。\n\n` + (report.assetCandidates??[]).map(e=>`- ${escape(e.method)} ${escape(e.url)}（${escape(e.usages.map(u=>{const p=u.callChain.at(-1);return p.file+':'+p.line;}).join(', '))}）`).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
 }
