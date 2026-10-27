@@ -1,5 +1,6 @@
 const CHOICES = Symbol('candidate values');
 export const TAG = Symbol('abstract value type');
+export const CHANGES = Symbol('object changes');
 export const UNKNOWN = '__unknown';
 export const unknown = expression => ({ [UNKNOWN]: expression || 'unknown' });
 export const hasUnknown = v => v && typeof v === 'object' && Object.hasOwn(v, UNKNOWN);
@@ -35,6 +36,7 @@ export function cloneEnv(env) {
     if (seen.has(value)) return seen.get(value);
     const result = Array.isArray(value) ? [] : {};
     if (value[TAG]) result[TAG] = value[TAG];
+    if (value[CHANGES]) result[CHANGES] = [...value[CHANGES]];
     seen.set(value, result);
     for (const [key, item] of Object.entries(value)) Object.defineProperty(result, key, {value:clone(item), enumerable:true, writable:true, configurable:true});
     return result;
@@ -73,7 +75,9 @@ export function createDomain(maxCandidates, diagnostic) {
       return result;
     }
     if (value == null || typeof value !== 'object' || isUnknown(value) || ['function','client','intrinsic','request','serialized','module','module-promise'].includes(value[TAG])) return [{value,conditions:[]}];
-    let options = [{value:Array.isArray(value) ? [] : {},conditions:[]}];
+    const initial=Array.isArray(value) ? [] : {};
+    if(value[CHANGES])initial[CHANGES]=value[CHANGES];
+    let options = [{value:initial,conditions:[]}];
     for (const [key,item] of Object.entries(value)) {
       const candidates = expand(item,node,nextSeen), next = [];
       for (const previous of options) for (const candidate of candidates) {
@@ -91,5 +95,20 @@ export function createDomain(maxCandidates, diagnostic) {
   function lift(values, operation, node) {
     return choice(expand(values,node).map(option => ({value:isUnknown(option.value) ? option.value : operation(...option.value),conditions:option.conditions})),node);
   }
-  return {choice,expand,lift};
+  // Resolve only top-level alternatives; keep heap identity for reads and calls.
+  function references(values,node) {
+    let result=[{value:[],conditions:[]}];
+    for(const value of values) {
+      const next=[];
+      for(const previous of result)for(const option of isChoice(value)?value[CHOICES]:[{value,conditions:[]}]) {
+        const conditions=mergeConditions(previous.conditions,option.conditions);
+        if(conditions)next.push({value:[...previous.value,option.value],conditions});
+        if(next.length>maxCandidates)return overflow(node);
+      }
+      result=next;
+    }
+    return result;
+  }
+  const liftRefs=(values,operation,node)=>choice(references(values,node).map(option=>({value:isUnknown(option.value)?option.value:operation(...option.value),conditions:option.conditions})),node);
+  return {choice,expand,lift,references,liftRefs};
 }

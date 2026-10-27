@@ -1,4 +1,4 @@
-import {TAG,UNKNOWN,clean,isUnknown,text,dynamic} from './values.js';
+import {TAG,UNKNOWN,clean,isUnknown,text,dynamic,cloneEnv} from './values.js';
 
 export function addressEvidence(requestUrl,baseURL,effective,hooks=[]) {
   let host=null,origin=null;
@@ -39,10 +39,11 @@ export function parameterFields(fields,requestUrl) {
 export const builtinNames=new Set(['atob','decodeURI','decodeURIComponent','encodeURI','encodeURIComponent','String.fromCharCode','JSON.stringify','JSON.parse','Object.assign']);
 export function staticOperation(name,args,nodeText,onFailure) {
   if(name==='JSON.stringify') {
-    const input=clean(args[0]);
+    const input=cloneEnv(new Map([['input',args[0]]])).get('input');
+    const encoded=clean(input);
     const unsupported=args[1]!=null || args[2]!=null && typeof args[2]==='object';
     if(unsupported)onFailure();
-    return {[TAG]:'serialized',format:'json',input,value:unsupported || dynamic(input) ? {__unknown:nodeText} : JSON.stringify(input,null,args[2])};
+    return {[TAG]:'serialized',format:'json',input,value:unsupported || dynamic(encoded) ? {__unknown:nodeText} : JSON.stringify(encoded,null,args[2])};
   }
   if(name==='JSON.parse' && args[1]!=null){onFailure();return {__unknown:nodeText};}
   if(args.some(v=>isUnknown(v) || v!=null && typeof v==='object'))return {__unknown:nodeText};
