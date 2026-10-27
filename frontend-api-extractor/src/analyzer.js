@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import {createHash} from 'node:crypto';
 import path from 'node:path';
 import ts from 'typescript';
 import glob from 'fast-glob';
@@ -7,6 +8,7 @@ import { scriptSource } from './adapters.js';
 import { validateConfig } from './config.js';
 import { TAG, UNKNOWN, unknown, hasUnknown, isUnknown, isChoice, text, dynamic, clean, mergeConditions, cloneEnv, createDomain } from './values.js';
 import { libraryClient, requestCall } from './request-clients.js';
+import {addressEvidence,parameterFields,builtinNames,staticOperation} from './request-evidence.js';
 
 function mergeObject(target, source, label = 'spread') {
   if (hasUnknown(source)) {
@@ -43,8 +45,9 @@ export async function analyze(root, options = {}) {
   };
   const files = (await glob(config.include, { cwd: root, ignore: config.exclude, absolute: true, onlyFiles: true, followSymbolicLinks: false })).sort();
   const sources = new Map();
+  const assetInputs = new Map();
   for (const file of files) {
-    try { sources.set(file, scriptSource(file, fs.readFileSync(file, 'utf8'))); }
+    try {const raw=fs.readFileSync(file,'utf8');assetInputs.set(file,{sha256:createHash('sha256').update(raw).digest('hex')});sources.set(file,scriptSource(file,raw));}
     catch (e) { diagnostic('FRAMEWORK_PARSE_ERROR', `${path.relative(root, file)}: ${e.message}`); }
   }
   let compilerOptions = {};
@@ -77,6 +80,24 @@ export async function analyze(root, options = {}) {
   });
   const program = ts.createProgram([...sources.keys()], compilerOptions, host);
   const checker = program.getTypeChecker();
+  const assets=files.map(file=>{
+    const sf=program.getSourceFile(file),imports=[];
+    if(sf && sources.has(file)) {
+      const visit=node=>{
+        let specifier,kind;
+        if((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier){specifier=node.moduleSpecifier;kind=ts.isImportDeclaration(node)?'import':'re-export';}
+        else if(ts.isCallExpression(node) && (node.expression.kind===ts.SyntaxKind.ImportKeyword || ts.isIdentifier(node.expression) && node.expression.text==='require' && !symbol(node.expression)?.declarations?.some(d=>sources.has(d.getSourceFile().fileName)))){specifier=node.arguments[0];kind=node.expression.kind===ts.SyntaxKind.ImportKeyword?'dynamic-import':'require';}
+        if(specifier){
+          const literal=ts.isStringLiteralLike(specifier),name=literal?specifier.text:specifier.getText();
+          const resolved=literal?host.resolveModuleNames([name],file)[0]?.resolvedFileName:null;
+          imports.push({specifier:name,kind,...locate(specifier),resolvedFile:resolved&&sources.has(resolved)?path.relative(root,resolved).split(path.sep).join('/'):null,
+            state:!literal?'dynamic':resolved&&sources.has(resolved)?'internal':/^https?:/.test(name)?'external-not-fetched':'unresolved-or-unscanned'});
+        }
+        ts.forEachChild(node,visit);
+      };visit(sf);
+    }
+    return {file:path.relative(root,file).split(path.sep).join('/'),...assetInputs.get(file),parseStatus:!sources.has(file)?'failed':sf&&program.getSyntacticDiagnostics(sf).length?'error':'parsed',imports};
+  });
   for (const sf of program.getSourceFiles().filter(s => sources.has(s.fileName))) {
     for (const d of program.getSyntacticDiagnostics(sf)) diagnostic('SCRIPT_PARSE_ERROR', ts.flattenDiagnosticMessageText(d.messageText, '\n'), d.start == null ? sf : { getSourceFile: () => sf, getStart: () => d.start });
   }
@@ -102,6 +123,29 @@ export async function analyze(root, options = {}) {
     }
     return false;
   }
+  const bindingId = node => {
+    let d=symbol(node)?.valueDeclaration ?? symbol(node)?.declarations?.[0];
+    const seen=new Set();
+    while(d && !seen.has(d) && ts.isVariableDeclaration(d) && d.initializer && ts.isIdentifier(d.initializer)) {
+      seen.add(d); const next=symbol(d.initializer)?.valueDeclaration;
+      if(!next)break; d=next;
+    }
+    return d ? `${d.getSourceFile().fileName}:${d.getStart()}` : null;
+  };
+  const hookRegistrations=new Map();
+  for(const sf of program.getSourceFiles().filter(s=>sources.has(s.fileName))) {
+    const visit=node=>{
+      if(ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+        const use=node.expression,request=use.expression;
+        if(use.name.text==='use' && ts.isPropertyAccessExpression(request) && request.name.text==='request' && ts.isPropertyAccessExpression(request.expression) && request.expression.name.text==='interceptors') {
+          const id=bindingId(request.expression.expression);
+          if(id){if(!hookRegistrations.has(id))hookRegistrations.set(id,[]);hookRegistrations.get(id).push({kind:'request',...locate(node),expression:use.getText(),state:'unmodeled'});}
+        }
+      }
+      ts.forEachChild(node,visit);
+    };visit(sf);
+  }
+  const attachBinding=(value,node)=>isChoice(value) ? lift([value],v=>attachBinding(v,node),node) : value?.[TAG]==='client' ? {...value,bindingIds:[...new Set([...(value.bindingIds??[]),bindingId(node)].filter(Boolean))]} : value;
   const endpoints = new Map();
   const analyzedFunctions = new Map();
   let steps = 0, exhausted = false;
@@ -118,17 +162,24 @@ export async function analyze(root, options = {}) {
     const base = clean(data.baseURL ?? client.baseURL);
     if (base && !/^([a-z]+:)?\/\//i.test(effective)) effective = `${text(base).replace(/\/$/, '')}/${effective.replace(/^\//, '')}`;
     const verb = isUnknown(method) ? text(method) : String(method ?? 'GET').toUpperCase();
+    const constructed = { query: data.params ?? null, body: data.data !== undefined ? data.data : data.body ?? null, headers: data.headers ?? null };
+    const hooks=[...new Map((client.bindingIds??[]).flatMap(id=>hookRegistrations.get(id)??[]).map(h=>[JSON.stringify(h),h])).values()];
+    const address=addressEvidence(rawUrl,base,effective,hooks);
+    const extractedFields=parameterFields(constructed,isUnknown(rawUrl)?null:rawUrl);
+    const hookEvidence={address,parameterFields:extractedFields,parameterStage:"call-site",postHookState:hooks.length ? "unknown" : "not-observed",hooks};
     const fields = clean({ query: data.params ?? null, body: data.data !== undefined ? data.data : data.body ?? null, headers: data.headers ?? null });
     const unresolved = [];
     for (const [key, value] of Object.entries({ url: rawUrl, method, baseURL: base, ...fields, spread: data[UNKNOWN] })) {
       if (dynamic(value) || key === 'spread' && value) unresolved.push(key === 'spread' ? `未知配置展开: ${value}` : `${key} 含动态值`);
     }
+    if(hooks.length){unresolved.push('request hook 未建模，Host/URL/参数可能继续变化');diagnostic('REQUEST_HOOK_UNMODELED','检测到可能的请求拦截器；仅报告调用处构造值',node);}
     if (ctx.conditions?.length) unresolved.push('接口属于条件分支候选');
     const resolution = isUnknown(rawUrl) ? 'unresolved' : unresolved.length ? 'partial' : 'resolved';
     const key = JSON.stringify([verb, effective]);
-    const usage = { entry: ctx.entry, callChain: [...ctx.chain, { symbol: node.expression.getText(), ...locate(node) }], unresolved, conditions:ctx.conditions ?? [], resolution, ...fields };
-    if (!endpoints.has(key)) endpoints.set(key, { method: verb, url: effective, resolution, ...fields, usages: [] });
+    const usage = { entry: ctx.entry, callChain: [...ctx.chain, { symbol: node.expression.getText(), ...locate(node) }], unresolved, conditions:ctx.conditions ?? [], resolution, ...fields, ...hookEvidence };
+    if (!endpoints.has(key)) endpoints.set(key, { method: verb, url: effective, resolution, ...fields, ...hookEvidence, usages: [] });
     const ep = endpoints.get(key);
+    if(hooks.length){ep.postHookState='unknown';ep.hooks=[...new Map([...ep.hooks,...hooks].map(h=>[JSON.stringify(h),h])).values()];if(ep.address.host)ep.address={...ep.address,hostState:'partial'};}
     if ({resolved:0,partial:1,unresolved:2}[resolution] > {resolved:0,partial:1,unresolved:2}[ep.resolution]) ep.resolution = resolution;
     if (!ep.usages.some(u => JSON.stringify(u) === JSON.stringify(usage))) ep.usages.push(usage);
   }
@@ -140,7 +191,7 @@ export async function analyze(root, options = {}) {
     }
   }
   function bind(pattern, value, env, ctx) {
-    if (ts.isIdentifier(pattern)) { env.set(symbol(pattern), value); return; }
+    if (ts.isIdentifier(pattern)) { env.set(symbol(pattern), attachBinding(value,pattern)); return; }
     for (const [index, element] of pattern.elements.entries()) {
       if (!ts.isBindingElement(element)) continue;
       const key = ts.isArrayBindingPattern(pattern) ? index : element.propertyName?.text ?? element.name.text;
@@ -261,6 +312,10 @@ export async function analyze(root, options = {}) {
       return obj;
     }
     if (ts.isArrayLiteralExpression(node)) return node.elements.map(n => evaluate(n, env, ctx, visiting));
+    if ((ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) && builtinNames.has(node.getText())) {
+      const root=ts.isPropertyAccessExpression(node) ? node.expression : node;
+      if(!symbol(root)?.declarations?.length && !lexicalDeclaration(node,root.getText()))return {[TAG]:'intrinsic',method:node.getText()};
+    }
     if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
       const original = checker.getSymbolAtLocation(node), s = symbol(node);
       if (env.has(s)) return env.get(s);
@@ -274,7 +329,7 @@ export async function analyze(root, options = {}) {
         const object = evaluate(node.expression,env,ctx,visiting);
         if (object != null && !isUnknown(object)) return lift([object],value => {
           if (value?.[TAG] === 'client') return {...value,member:node.name.text};
-          if (Array.isArray(value) && ['map','forEach'].includes(node.name.text)) return {[TAG]:'intrinsic',method:node.name.text,receiver:value};
+          if ((Array.isArray(value) && ['map','forEach','join','concat'].includes(node.name.text)) || typeof value==='string' && node.name.text==='concat') return {[TAG]:'intrinsic',method:node.name.text,receiver:value};
           return value != null && Object.hasOwn(value,node.name.text) ? value[node.name.text] : unknown(node.getText());
         },node);
       }
@@ -282,7 +337,7 @@ export async function analyze(root, options = {}) {
       if (d && sources.has(d.getSourceFile().fileName) && !visiting.has(d)) {
         const next = new Set(visiting).add(d);
         if (ts.isVariableDeclaration(d) || ts.isPropertyDeclaration(d) || ts.isPropertyAssignment(d) || ts.isParameter(d)) {
-          if (d.initializer) return evaluate(d.initializer, env, ctx, next);
+          if (d.initializer) return attachBinding(evaluate(d.initializer, env, ctx, next),d.name);
         } else if (ts.isBindingElement(d)) {
           let declaration = d.parent;
           while (declaration && !ts.isVariableDeclaration(declaration) && !ts.isParameter(declaration)) declaration = declaration.parent;
@@ -301,7 +356,7 @@ export async function analyze(root, options = {}) {
         const object = evaluate(node.expression, env, ctx, visiting);
         return lift([object],object => {
           if (object?.[TAG] === 'client') return {...object,member:node.name.text};
-          if (Array.isArray(object) && ['map','forEach'].includes(node.name.text)) return {[TAG]:'intrinsic',method:node.name.text,receiver:object};
+          if ((Array.isArray(object) && ['map','forEach','join','concat'].includes(node.name.text)) || typeof object==='string' && node.name.text==='concat') return {[TAG]:'intrinsic',method:node.name.text,receiver:object};
           if (object && !isUnknown(object) && Object.hasOwn(object,node.name.text)) return object[node.name.text];
           return unknown(node.getText());
         },node);
@@ -331,6 +386,12 @@ export async function analyze(root, options = {}) {
     if (ts.isCallExpression(node)) {
       if (ts.isIdentifier(node.expression) && node.expression.text === 'require' && !symbol(node.expression)?.declarations?.some(d => sources.has(d.getSourceFile().fileName))) return requireModule(node, env, ctx, visiting);
       const target = evaluate(node.expression, env, ctx, visiting);
+      if(target?.[TAG]==='intrinsic' && target.method==='Object.assign') {
+        const args=node.arguments.map(a=>evaluate(a,env,ctx,visiting));
+        if(!args[0] || typeof args[0]!=='object' || isUnknown(args[0]) || args.some(isChoice)){diagnostic('UNMODELED_ASSIGN','动态 Object.assign 不能精确更新',node);return unknown(node.getText());}
+        for(const source of args.slice(1))mergeObject(args[0],source,'Object.assign');
+        return args[0];
+      }
       let args = [];
       for (const argument of node.arguments) {
         const value = evaluate(ts.isSpreadElement(argument) ? argument.expression : argument,env,ctx,visiting);
@@ -376,6 +437,9 @@ export async function analyze(root, options = {}) {
     }
     if (target?.[TAG] === 'function') return invoke(target,args,ctx,node);
     if (target?.[TAG] === 'intrinsic') {
+      if(builtinNames.has(target.method))return staticOperation(target.method,args,node.getText(),()=>diagnostic('STATIC_DECODE_UNRESOLVED','静态编码操作失败或超过限制',node));
+      if(target.method==='join')return target.receiver.map(text).join(args[0]===undefined ? ',' : text(args[0]));
+      if(target.method==='concat')return Array.isArray(target.receiver) ? target.receiver.concat(...args) : target.receiver+args.map(text).join('');
       const callback = args[0];
       if (callback?.[TAG] !== 'function') return unknown('array callback');
       const results = [];
@@ -517,14 +581,14 @@ export async function analyze(root, options = {}) {
     if (exhausted) break;
   }
   if (!entryCount) diagnostic('NO_ENTRIES', '没有匹配的入口文件');
-  return { schemaVersion: 1, mode: config.entries.length ? 'entries' : 'inventory', stats: { files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
+  return { schemaVersion: 1, assets, mode: config.entries.length ? 'entries' : 'inventory', stats: { files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
     endpoints: [...endpoints.values()].sort((a, b) => `${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), diagnostics };
 }
 
 export function markdown(report) {
   const escape = v => String(v).replaceAll('|', '\\|').replaceAll('\n', ' ');
-  return `# 前端接口提取\n\n模式：${report.mode}；文件：${report.stats.files}；接口：${report.endpoints.length}；诊断：${report.diagnostics.length}。\n\n静态潜在调用结果，不代表运行时覆盖率。参数及每条调用链见 JSON。条件之间的 AND/OR 关系以 JSON 中每条 usage 为准。\n\n| 方法 | URL | 解析状态 | 条件 | 调用位置 |\n| --- | --- | --- | --- | --- |\n` + report.endpoints.map(e => {
+  return `# 前端接口提取\n\n模式：${report.mode}；文件：${report.stats.files}；接口：${report.endpoints.length}；诊断：${report.diagnostics.length}。\n\n静态潜在调用结果，不代表运行时覆盖率。参数及每条调用链见 JSON。条件之间的 AND/OR 关系以 JSON 中每条 usage 为准。\n\n| 方法 | Host（调用处） | URL | 解析状态 | 条件 | 调用位置 |\n| --- | --- | --- | --- | --- | --- |\n` + report.endpoints.map(e => {
     const conditions = [...new Set(e.usages.flatMap(u=>(u.conditions ?? []).map(c=>`${c.expression} = ${c.outcome}`)))].join('; ') || '—';
-    return `| ${escape(e.method)} | ${escape(e.url)} | ${e.resolution} | ${escape(conditions)} | ${escape(e.usages.map(u => { const p = u.callChain.at(-1); return `${p.file}:${p.line}`; }).join(', '))} |`;
+    return `| ${escape(e.method)} | ${escape(e.address?.host ?? "未知")} | ${escape(e.url)} | ${e.resolution} | ${escape(conditions)} | ${escape(e.usages.map(u => { const p = u.callChain.at(-1); return `${p.file}:${p.line}`; }).join(', '))} |`;
   }).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
 }

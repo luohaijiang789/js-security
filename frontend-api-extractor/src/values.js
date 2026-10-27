@@ -8,6 +8,7 @@ export const isChoice = v => Boolean(v?.[CHOICES]);
 export const text = v => isUnknown(v) ? `{${v[UNKNOWN]}}` : ['string','number','boolean'].includes(typeof v) ? String(v) : '{expression}';
 export const dynamic = v => hasUnknown(v) || isChoice(v) || typeof v === 'string' && /\{[^}]+\}/.test(v) || v && typeof v === 'object' && Object.values(v).some(dynamic);
 export function clean(value, seen = new Set()) {
+  if(value?.[TAG]==='serialized')return clean(value.value,seen);
   if (['function','client','intrinsic'].includes(value?.[TAG])) return unknown(value[TAG]);
   if (!value || typeof value !== 'object') return value;
   if (seen.has(value)) return unknown('cyclic object');
@@ -71,7 +72,7 @@ export function createDomain(maxCandidates, diagnostic) {
       }
       return result;
     }
-    if (value == null || typeof value !== 'object' || isUnknown(value) || ['function','client','intrinsic','request'].includes(value[TAG])) return [{value,conditions:[]}];
+    if (value == null || typeof value !== 'object' || isUnknown(value) || ['function','client','intrinsic','request','serialized'].includes(value[TAG])) return [{value,conditions:[]}];
     let options = [{value:Array.isArray(value) ? [] : {},conditions:[]}];
     for (const [key,item] of Object.entries(value)) {
       const candidates = expand(item,node,nextSeen), next = [];

@@ -1,5 +1,14 @@
 # 迭代记录
 
+## 0.3.0
+
+- 增加已识别 JS 的哈希、解析状态与模块引用记录；缺失/动态引用不被当成已获取资产。
+- address 拆分 Host/origin、相对 URL/baseURL、路径及独立 Host 状态；原有 resolution 不代表运行时完整地址。
+- 白名单静态处理 join/concat、字面量 atob/URI 编解码、JSON、Object.assign，不执行目标 eval 或加密代码。
+- 参数字段标明 constructed/call-site；未知覆盖不伪装结构完整，加密输入字段不冒充网络字段。
+- 静态检测直接 Axios request interceptor 注册及常见别名关联，保留位置并把后续变更标为未知；不宣称已模拟 hook。
+- 70 项测试通过；补做固定版本 Nacos namespace API 的跨文件 hook 关联核查。
+
 ## 0.2.0
 
 - 动态 if/三元/短路值保留有限候选，贯穿模板字符串、对象、实参和跨文件函数返回；输出 conditions 与每条 usage 的 resolution。
