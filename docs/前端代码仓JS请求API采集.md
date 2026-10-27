@@ -21,7 +21,9 @@ node src/cli.js /path/to/frontend --out reports/apis.json
 
 当前 JSON/Markdown 保留 method、url、query、body、headers、调用链、源码行列、conditions 与 diagnostics。它是静态候选，不表示网络上实际发送，也尚未转换为项目统一 analysis.json/Excel。普通类实例工厂、拦截器和复杂页面控制流仍有缺口；源码解析失败、未知依赖或预算耗尽都必须保留。
 
-52 项自动化测试和指定真实源码范围的试跑见[测试说明](../frontend-api-extractor/docs/testing.md)与[外部仓库链接/结果](../frontend-api-extractor/docs/alibaba-real-world.md)。外部仓库、依赖和扫描产物不纳入 Git。后续统一任务前端接入仓库版本、扫描配置、接口/参数列表、代码证据与诊断导出；当前 CLI 已可独立运行。
+70 项自动化测试和指定真实源码范围的试跑见[测试说明](../frontend-api-extractor/docs/testing.md)与[外部仓库链接/结果](../frontend-api-extractor/docs/alibaba-real-world.md)。外部仓库、依赖和扫描产物不纳入 Git。后续统一任务前端接入仓库版本、扫描配置、接口/参数列表、代码证据与诊断导出；当前 CLI 已可独立运行。
+
+分段 URL、隐藏 Host、分散参数和后续 hook 的本轮核查与保守处理见[白盒复杂 JS 分析](../frontend-api-extractor/docs/whitebox-hardening.md)。
 
 ## 1. 输入、流程与边界
 

@@ -1,6 +1,6 @@
 # Frontend API Extractor
 
-从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.2.0。
+从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.3.0。
 
 这是主项目白盒的源码模式实现，不执行目标仓库业务代码、不要求先构建；构建产物联合分析属于独立的增强模式。整体关系见[前端代码仓采集方案](../docs/前端代码仓JS请求API采集.md)。当前为 CLI，统一任务前端与交付模型适配尚待接入。
 
@@ -18,6 +18,12 @@ npm run demo
 
 默认读取目标根目录的 `api-extractor.config.json`；可用 `--config` 指定其他配置，路径相对于当前工作目录。配置示例见 [api-extractor.config.example.json](api-extractor.config.example.json)。
 
+## 白盒复杂 JS 核查
+
+本轮先复核分段地址、隐藏配置和 hook，再补可确定的静态还原与证据降级。[分析与实施边界](docs/whitebox-hardening.md)记录具体问题、已实现项和未解决情况。
+
+输出新增 JS assets 清单、address.host/hostState、参数字段路径与构造阶段，以及请求 hook 位置。原有 resolution 仍描述调用处候选；相对 URL 的 Host 可能未知，请单独读取 address.hostState。hook 后的最终网络值没有被静态证明。
+
 ## 能力与边界
 
 - JS/TS/JSX/TSX、Vue/Svelte 脚本解析；React、Next、Solid、Angular 等脚本共享分析内核。
@@ -29,7 +35,7 @@ npm run demo
 
 ## 文档与测试
 
-- [测试说明](docs/testing.md)：52 项自动化测试；自写的轻量多框架样例包含 19 个预期接口。
+- [测试说明](docs/testing.md)：70 项自动化测试；自写的轻量多框架样例包含 19 个预期接口。
 - [外部源码试跑记录](docs/alibaba-real-world.md)：只记录外部仓库链接、固定提交、范围和结果。
 - [迭代记录](docs/changelog.md)。
 
