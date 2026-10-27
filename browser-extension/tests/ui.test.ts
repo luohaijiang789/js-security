@@ -37,7 +37,23 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
   page.on("pageerror", (e) => errors.push(String(e)));
   await page.addInitScript(() => {
     const w = window as any,
-      storage: Record<string, unknown> = {};
+      storage: Record<string, unknown> = {},
+      session: Record<string, unknown> = {};
+    w.slsRequests = [];
+    w.localStorageMock = storage;
+    w.sessionStorageMock = session;
+    const nativeFetch = window.fetch.bind(window);
+    w.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes(".log.aliyuncs.com/logstores/")) {
+        w.slsRequests.push({ input: String(input), init });
+        if (w.slsFail) return new Response("InvalidAccessKey", { status: 403 });
+        return new Response("", {
+          status: 200,
+          headers: { "x-log-requestid": "ui-sls-test-request" },
+        });
+      }
+      return nativeFetch(input, init);
+    };
     w.downloads = [];
     w.messages = [];
     w.activeScan = JSON.parse(
@@ -146,12 +162,19 @@ async function openWorkspace(options: { pending?: boolean } = {}) {
           { id: 77, url: "https://unselected.test/", title: "另一个业务页面" },
         ],
       },
+      permissions: {
+        request: async () => true,
+        contains: async () => true,
+      },
       storage: {
         local: {
           get: async () => storage,
           set: async (value: object) => Object.assign(storage, value),
         },
-        session: { get: async () => ({}), set: async () => {} },
+        session: {
+          get: async () => ({ ...session }),
+          set: async (value: object) => Object.assign(session, value),
+        },
       },
       downloads: {
         download: async (options: any) => {
@@ -501,11 +524,72 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     for (const checkbox of await fieldSelector.getByRole("checkbox").all())
       expect(await checkbox.isChecked()).toBe(true);
     await fieldSelector.getByRole("checkbox", { name: /请求体/ }).uncheck();
+    await dialog.getByLabel("自动保存到阿里云 SLS").check();
+    await dialog
+      .getByLabel("Endpoint", { exact: true })
+      .fill("cn-hangzhou.log.aliyuncs.com");
+    await dialog
+      .getByLabel("Project", { exact: true })
+      .fill("new-task-project");
+    await dialog
+      .getByLabel("Logstore", { exact: true })
+      .fill("new_task_requests");
+    await dialog
+      .getByLabel("AccessKey ID", { exact: true })
+      .fill("LTAI-new-task");
+    await dialog
+      .getByLabel("AccessKey Secret", { exact: true })
+      .fill("new-task-secret");
+    expect(
+      await dialog
+        .getByLabel("SecurityToken（仅 STS 临时凭证必填）")
+        .getAttribute("placeholder"),
+    ).toContain("长期 AccessKey 留空");
+    const slsFields = dialog.locator(".sls-field-selector");
+    expect(
+      await slsFields
+        .getByRole("checkbox", { name: /TLS 证书详情/ })
+        .isChecked(),
+    ).toBe(false);
+    await slsFields.getByRole("checkbox", { name: /响应体/ }).uncheck();
+    await slsFields.getByRole("checkbox", { name: /TLS 证书详情/ }).check();
+    await dialog
+      .getByRole("button", { name: "测试 SLS 连接", exact: true })
+      .click();
+    await dialog
+      .locator(".draft-sls-test-result")
+      .getByText(/连接成功/)
+      .waitFor();
+    expect(
+      await dialog.getByLabel("AccessKey ID", { exact: true }).inputValue(),
+    ).toBe("");
+    expect(await dialog.locator(".credential-summary").textContent()).toContain(
+      "AccessKey ID LTAI••••task",
+    );
+    expect(
+      await dialog.locator(".draft-sls-test-result").textContent(),
+    ).toContain("new-task-project/new_task_requests");
+    expect(
+      await page.evaluate(
+        () => (window as any).localStorageMock.sls_profile.logstore,
+      ),
+    ).toBe("new_task_requests");
+    await dialog
+      .getByLabel("Logstore", { exact: true })
+      .fill("new_task_requests_final");
+    expect(await dialog.locator(".draft-sls-test-result").count()).toBe(0);
+    expect(await dialog.locator(".credential-summary").count()).toBe(0);
+    await dialog
+      .getByLabel("AccessKey ID", { exact: true })
+      .fill("LTAI-final-task");
+    await dialog
+      .getByLabel("AccessKey Secret", { exact: true })
+      .fill("new-task-secret-final");
     expect(await dialog.getByTestId("filter-summary").textContent()).toContain(
       "类型为 XHR、Fetch、Ping",
     );
     await page.screenshot({
-      path: "work/redesign/new-task-global.png",
+      path: "work/redesign/new-task-sls.png",
       fullPage: false,
     });
     await dialog.getByRole("button", { name: "开始采集", exact: true }).click();
@@ -521,6 +605,16 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect(message.config.value_storage).toBe("complete");
     expect(message.config.saved_fields).toHaveLength(8);
     expect(message.config.saved_fields).not.toContain("request_body");
+    expect(message.config.sls.upload_fields).not.toContain("response_body");
+    expect(message.config.sls.upload_fields).toContain("tls");
+    expect(message.config.saved_fields).toContain("response_body");
+    expect(message.config.sls).toMatchObject({
+      enabled: true,
+      mode: "sts",
+      endpoint: "cn-hangzhou.log.aliyuncs.com",
+      project: "new-task-project",
+      logstore: "new_task_requests_final",
+    });
     await page.getByRole("button", { name: "任务设置", exact: true }).click();
     await page.getByText("高级配置 JSON", { exact: true }).click();
     await page.getByLabel("任务高级配置").fill("null");
@@ -586,7 +680,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     });
     expect(await applyButton.isDisabled()).toBe(true);
     await filterActions
-      .getByRole("button", { name: "预览当前列表", exact: true })
+      .getByRole("button", { name: "预览当前页", exact: true })
       .click();
     await page
       .getByRole("status")
@@ -603,7 +697,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     );
     expect(
       await page
-        .getByRole("button", { name: "预览当前列表", exact: true })
+        .getByRole("button", { name: "预览当前页", exact: true })
         .isDisabled(),
     ).toBe(true);
     await queryInput.fill("");
@@ -620,6 +714,169 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       (window as any).messages.findLast((m: any) => m.type === "update"),
     );
     expect(clearMessage.config.filter).toEqual({});
+    await page.getByRole("button", { name: "存储与转存", exact: true }).click();
+    await page
+      .getByRole("heading", { name: "自动保存到阿里云 SLS", exact: true })
+      .waitFor();
+    expect(await page.getByLabel("Endpoint").inputValue()).toBe(
+      "cn-hangzhou.log.aliyuncs.com",
+    );
+    expect(await page.getByLabel("Project").inputValue()).toBe(
+      "new-task-project",
+    );
+    expect(await page.getByLabel("Logstore").inputValue()).toBe(
+      "new_task_requests_final",
+    );
+    expect(await page.locator(".credential-summary").textContent()).toContain(
+      "AccessKey ID LTAI••••task",
+    );
+    await page.getByLabel("启用阿里云 SLS 自动保存").check();
+    await page.getByLabel("Endpoint").fill("cn-hangzhou.log.aliyuncs.com");
+    await page.getByLabel("Project").fill("security-project");
+    await page.getByLabel("Logstore").fill("browser_requests");
+    await page.getByLabel("AccessKey ID").fill("LTAI-ui-test");
+    await page.getByLabel("AccessKey Secret").fill("ui-secret");
+    expect(
+      await page
+        .getByLabel("SecurityToken（仅 STS 临时凭证必填）")
+        .getAttribute("placeholder"),
+    ).toContain("长期 AccessKey 留空");
+    await page.getByRole("button", { name: "测试连接", exact: true }).click();
+    await page
+      .locator(".sls-test-result")
+      .getByText(/连接成功/)
+      .waitFor();
+    await page.screenshot({
+      path: "work/redesign/sls-connection-test.png",
+      fullPage: false,
+    });
+    expect(
+      await page.evaluate(
+        () => (window as any).slsRequests.at(-1).init.headers.Authorization,
+      ),
+    ).toMatch(/^LOG LTAI-ui-test:/);
+    expect(
+      await page.evaluate(
+        () =>
+          (window as any).slsRequests.at(-1).init.headers[
+            "x-acs-security-token"
+          ],
+      ),
+    ).toBeUndefined();
+    const credentialsBeforeFailure = await page.evaluate(() =>
+      JSON.stringify((window as any).sessionStorageMock),
+    );
+    await page.getByLabel("AccessKey ID").fill("bad-id");
+    await page.getByLabel("AccessKey Secret").fill("bad-secret");
+    await page.evaluate(() => {
+      (window as any).slsFail = true;
+    });
+    await page.getByRole("button", { name: "测试连接", exact: true }).click();
+    await page.locator(".sls-test-result").getByText(/403/).waitFor();
+    expect(
+      await page.evaluate(() =>
+        JSON.stringify((window as any).sessionStorageMock),
+      ),
+    ).toBe(credentialsBeforeFailure);
+    await page.evaluate(() => {
+      (window as any).slsFail = false;
+    });
+    await page.getByLabel("AccessKey ID").fill("");
+    await page.getByLabel("AccessKey Secret").fill("");
+    await page.getByRole("button", { name: "保存复用配置与会话凭证" }).click();
+    await page.getByLabel("Project").fill("unsaved-project");
+    await page.getByRole("button", { name: "过滤规则", exact: true }).click();
+    await page.getByLabel("请求筛选", { exact: true }).fill("method:GET");
+    await page
+      .getByRole("button", { name: "应用到当前任务", exact: true })
+      .click();
+    expect(
+      await page.evaluate(
+        () =>
+          (window as any).messages.findLast((m: any) => m.type === "update")
+            .config.sls.project,
+      ),
+    ).toBe("new-task-project");
+    await page.getByRole("button", { name: "存储与转存", exact: true }).click();
+    await page.getByLabel("Project").fill("security-project");
+    await page.getByLabel("接入方式").selectOption("web_tracking");
+    await page.getByText(/公网匿名写入/).waitFor();
+    await page.screenshot({
+      path: "work/redesign/sls-transfer.png",
+      fullPage: false,
+    });
+    await page.getByRole("button", { name: "保存复用配置与会话凭证" }).click();
+    await page
+      .getByRole("status")
+      .getByText(/SLS 配置已保存/)
+      .waitFor();
+    await page.getByRole("button", { name: "测试连接", exact: true }).click();
+    await page
+      .locator(".sls-test-result")
+      .getByText(/连接成功/)
+      .waitFor();
+    expect(await page.locator(".sls-test-result").textContent()).toContain(
+      "ui-sls-test-request",
+    );
+    await page.getByRole("button", { name: "保存全部转存策略" }).click();
+    const slsUpdate = await page.evaluate(() =>
+      (window as any).messages.findLast((m: any) => m.type === "update"),
+    );
+    expect(slsUpdate.config.sls).toMatchObject({
+      enabled: true,
+      mode: "web_tracking",
+      project: "security-project",
+      logstore: "browser_requests",
+    });
+    expect(
+      await page.evaluate(
+        () => (window as any).localStorageMock.sls_profile.logstore,
+      ),
+    ).toBe("browser_requests");
+    expect(
+      await page.evaluate(() =>
+        JSON.stringify((window as any).localStorageMock.sls_profile),
+      ),
+    ).not.toMatch(/LTAI|secret|SecurityToken/i);
+    await page.getByLabel("Project").fill("unsaved-project");
+    await page.evaluate(() => {
+      const w = window as any;
+      w.activeScan = { ...w.activeScan, state: "ended" };
+    });
+    const newTaskButton = page
+      .getByRole("button", { name: "新建采集任务", exact: true })
+      .first();
+    await newTaskButton.waitFor();
+    await page.waitForFunction(() => {
+      const button = [...document.querySelectorAll("button")].find(
+        (item) => item.textContent?.trim() === "新建采集任务",
+      ) as HTMLButtonElement | undefined;
+      return button && !button.disabled;
+    });
+    await newTaskButton.click();
+    const reusedDialog = page.getByRole("dialog", {
+      name: "新建采集任务",
+      exact: true,
+    });
+    await reusedDialog.getByLabel("自动保存到阿里云 SLS").waitFor();
+    expect(
+      await reusedDialog.getByLabel("自动保存到阿里云 SLS").isChecked(),
+    ).toBe(true);
+    expect(
+      await reusedDialog
+        .locator(".new-task-sls-settings select")
+        .first()
+        .inputValue(),
+    ).toBe("web_tracking");
+    expect(
+      await reusedDialog.getByPlaceholder("your-project").inputValue(),
+    ).toBe("security-project");
+    expect(
+      await reusedDialog.getByPlaceholder("js-security-requests").inputValue(),
+    ).toBe("browser_requests");
+    await reusedDialog
+      .getByRole("button", { name: "关闭新建任务", exact: true })
+      .click();
     await page.getByRole("button", { name: "使用说明", exact: true }).click();
     await page
       .getByRole("heading", { name: "完整使用说明", exact: true })

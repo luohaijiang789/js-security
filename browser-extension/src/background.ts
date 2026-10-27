@@ -8,9 +8,10 @@ import {
   type RecordEntry,
   type Batch,
 } from "./model";
-import { validateConfig } from "./config";
-import { transfer, downloadChanged } from "./transfer";
+import { validateSlsConfig, validateConfig } from "./config";
+import { transfer, downloadChanged, retargetFailedSls } from "./transfer";
 import { safeURL } from "./privacy";
+import { slsBaseURL } from "./sls";
 async function deadline<T>(
   promise: Promise<T>,
   label: string,
@@ -92,6 +93,7 @@ const controlMessages = new Set([
   "stop",
   "update",
   "delete",
+  "retarget_sls",
 ]);
 const deliberateDetaches = new Map<
   number,
@@ -117,6 +119,20 @@ function requireCurrent(id: unknown, states: Scan["state"][]) {
   if (!states.includes(scan.state))
     throw Error("当前任务状态不允许此操作，请刷新任务状态");
   return scan;
+}
+async function requireTransferPermissions(config: Config) {
+  if (
+    config.service.enabled &&
+    !(await chrome.permissions.contains({
+      origins: [new URL(config.service.url).origin + "/*"],
+    }))
+  )
+    throw Error("请先授权接收服务");
+  if (config.sls?.enabled) {
+    const origin = new URL(slsBaseURL(config.sls)).origin;
+    if (!(await chrome.permissions.contains({ origins: [origin + "/*"] })))
+      throw Error("请先授权阿里云 SLS Endpoint");
+  }
 }
 const ready = (async () => {
   const scans = await db.all<Scan>("scans");
@@ -320,7 +336,7 @@ async function tick(force = false) {
   if (maintenance) return;
   maintenance = true;
   try {
-    if (force || Date.now() - lastTransfer >= 15000) {
+    if (force || Date.now() - lastTransfer >= 1000) {
       lastTransfer = Date.now();
       for (const s of await db.all<Scan>("scans"))
         await transfer(s, force && s.id === recorder.scan?.id);
@@ -519,13 +535,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
             }),
           );
         }
-        if (
-          message.config.service.enabled &&
-          !(await chrome.permissions.contains({
-            origins: [new URL(message.config.service.url).origin + "/*"],
-          }))
-        )
-          throw Error("请先授权接收服务");
+        await requireTransferPermissions(message.config);
         const s = await recorder.create(
           message.name,
           tabs,
@@ -621,9 +631,23 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
       case "update":
         requireCurrent(message.id, ["recording", "paused", "interrupted"]);
         validateConfig(message.config as Config);
+        await requireTransferPermissions(message.config as Config);
         await recorder.update(message.config);
         await chrome.storage.local.set({ last_config: message.config });
         return true;
+      case "retarget_sls": {
+        const target = { ...message.sls, enabled: true };
+        validateSlsConfig(target);
+        const s = await db.get<Scan>("scans", message.id);
+        if (!s) throw Error("任务不存在");
+        await requireTransferPermissions({
+          ...s.config,
+          service: { ...s.config.service, enabled: false },
+          sls: target,
+        });
+        await retargetFailedSls(s, target);
+        return true;
+      }
       case "retry":
         for (const b of await db.all<Batch>("batches", message.id)) {
           if (b.state === "failed") {

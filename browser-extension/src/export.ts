@@ -125,7 +125,7 @@ export async function packageFiles(
   files["scan_manifest.json"] = strToU8(
     JSON.stringify(
       {
-        schema_version: "0.2.0",
+        schema_version: "0.3.0",
         consistency: scan.state === "ended" ? "stopped_task" : "live_partial",
 
         scan,
@@ -147,6 +147,11 @@ export async function packageFiles(
                 "请求正文超过任务字节上限时只保留首尾片段",
               ]),
           "ZIP 导出内存上限 64 MB",
+          ...(scan.config.sls?.enabled
+            ? [
+                "SLS 采用至少一次投递；响应丢失后的重试可能重复，按批次、请求和分片字段去重",
+              ]
+            : []),
           "WebSocket 帧增强未实现",
           "调用栈与 Worker 覆盖依赖 Chrome 可观测性",
         ],

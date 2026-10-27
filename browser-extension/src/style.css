@@ -1639,7 +1639,7 @@ main {
 }
 .storage-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 20px;
 }
 .storage-summary .panel > .metric-icon {
@@ -1693,6 +1693,57 @@ main {
 .storage-summary small {
   font-size: 11px;
   color: #65758e;
+}
+.sls-config-section {
+  margin-top: 26px;
+  padding-top: 25px;
+  border-top: 1px solid var(--line);
+}
+.sls-config-section > .section-heading {
+  align-items: flex-start;
+  margin-bottom: 18px;
+}
+.sls-config-section > .section-heading h3 {
+  margin: 0 0 5px;
+  color: var(--ink);
+}
+.sls-config-section > .section-heading p {
+  margin: 0;
+  color: #65758e;
+  font-size: 12px;
+}
+.sls-config-section > .section-heading input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+}
+.sls-credentials {
+  margin-top: 18px;
+}
+.credential-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 11px;
+  padding: 9px 11px;
+  border: 1px solid #cfe9dd;
+  border-radius: 6px;
+  background: #eff8f4;
+  color: #32725f;
+  font-size: 12px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.credential-summary svg {
+  flex: 0 0 auto;
+}
+.sls-actions {
+  margin-top: 18px;
+}
+.sls-test-note {
+  margin-top: 10px;
+}
+.sls-test-result {
+  margin: 10px 0 0;
 }
 .warning-text {
   color: #bd9655 !important;
@@ -1972,7 +2023,7 @@ main {
   box-shadow: 0 25px 100px #142c5140;
   border: 1px solid #e5ebf6;
   border-radius: 13px;
-  width: 650px;
+  width: 760px;
   max-width: 100%;
   max-height: calc(100vh - 56px);
   display: flex;
@@ -2078,6 +2129,43 @@ main {
   font-size: 12px;
   color: #65758e;
   margin-top: 5px;
+}
+.new-task-transfer {
+  margin-top: 22px;
+  padding: 17px;
+  border: 1px solid #e1e8f2;
+  border-radius: 9px;
+  background: #fbfcff;
+}
+.new-task-transfer > .section-heading {
+  margin-bottom: 4px;
+}
+.new-task-transfer .archive-choice {
+  margin-top: 14px;
+}
+.new-task-sls-settings {
+  margin-top: 15px;
+  padding-top: 16px;
+  border-top: 1px solid #e4eaf3;
+}
+.new-task-sls-settings > .form-grid + .form-grid {
+  margin-top: 14px;
+}
+.new-task-sls-note,
+.new-task-sls-warning,
+.draft-sls-test-result {
+  margin: 12px 0 0;
+}
+.new-task-sls-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+}
+.new-task-sls-actions small {
+  color: #6f7f96;
+  font-size: 11px;
+  line-height: 1.5;
 }
 .permission-note {
   display: flex;

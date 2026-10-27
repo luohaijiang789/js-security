@@ -3,7 +3,12 @@ import { beforeEach, afterEach, it, expect, vi } from "vitest";
 import { Recorder } from "../src/recorder";
 import { defaults, type Batch } from "../src/model";
 import * as db from "../src/store";
-import { sendBatch, transfer, downloadChanged } from "../src/transfer";
+import {
+  sendBatch,
+  transfer,
+  downloadChanged,
+  retargetFailedSls,
+} from "../src/transfer";
 let recorder: Recorder;
 beforeEach(async () => {
   vi.stubGlobal("chrome", {
@@ -130,4 +135,204 @@ it("取消下载保留本地待处理批次，不误标转存成功", async () =
   });
   expect((await db.get<Batch>("batches", b.id))?.state).toBe("failed");
   expect(await db.page(recorder.scan!.id)).toHaveLength(1);
+});
+it("使用会话 STS 凭证签名批量写入 SLS，并保存请求回执", async () => {
+  recorder.scan!.config.archive.enabled = false;
+  recorder.scan!.config.service.enabled = false;
+  recorder.scan!.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "browser_requests",
+  };
+  (chrome.storage.session.get as any).mockResolvedValue({
+    sls_credentials: {
+      "https://security-project.cn-hangzhou.log.aliyuncs.com|security-project|browser_requests":
+        {
+          access_key_id: "STS.id",
+          access_key_secret: "secret",
+          security_token: "token",
+        },
+    },
+  });
+  let sent: any;
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, options) => {
+      sent = { url, options, payload: JSON.parse(options.body) };
+      return {
+        ok: true,
+        status: 200,
+        headers: new Headers({ "x-log-requestid": "sls-request-1" }),
+        text: async () => "",
+      };
+    }),
+  );
+  await transfer(recorder.scan!, true);
+  expect(sent.url).toBe(
+    "https://security-project.cn-hangzhou.log.aliyuncs.com/logstores/browser_requests",
+  );
+  expect(sent.options.headers.Authorization).toMatch(/^LOG STS\.id:/);
+  expect(sent.options.headers["x-acs-security-token"]).toBe("token");
+  expect(sent.payload.__logs__[0].request_headers).toContain("Authorization");
+  const [batch] = await db.all<Batch>("batches", recorder.scan!.id);
+  expect(batch.channel).toBe("sls");
+  expect(batch.state).toBe("complete");
+  expect(batch.receipt).toBe("sls-request-1");
+});
+it("长期 AccessKey 不需要 SecurityToken 也能签名写入 SLS", async () => {
+  recorder.scan!.config.archive.enabled = false;
+  recorder.scan!.config.service.enabled = false;
+  recorder.scan!.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "browser_requests",
+  };
+  (chrome.storage.session.get as any).mockResolvedValue({
+    sls_credentials: {
+      "https://security-project.cn-hangzhou.log.aliyuncs.com|security-project|browser_requests":
+        {
+          access_key_id: "LTAI.test-id",
+          access_key_secret: "secret",
+        },
+    },
+  });
+  let headers: Record<string, string> = {};
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      headers = options.headers;
+      return new Response("", { status: 200 });
+    }),
+  );
+  await transfer(recorder.scan!, true);
+  expect(headers.Authorization).toMatch(/^LOG LTAI\.test-id:/);
+  expect(headers).not.toHaveProperty("x-acs-security-token");
+  const [batch] = await db.all<Batch>("batches", recorder.scan!.id);
+  expect(batch.state).toBe("complete");
+});
+it("WebTracking 模式写入匿名 track 端点且不读取凭证", async () => {
+  recorder.scan!.config.archive.enabled = false;
+  recorder.scan!.config.service.enabled = false;
+  recorder.scan!.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    mode: "web_tracking",
+    endpoint: "cn-shanghai.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "browser_requests",
+  };
+  const fetch = vi.fn(async (_url: string, _options: any) => ({
+    ok: true,
+    status: 200,
+    headers: new Headers(),
+    text: async () => "",
+  }));
+  vi.stubGlobal("fetch", fetch);
+  await transfer(recorder.scan!, true);
+  expect(fetch.mock.calls[0][0]).toContain(
+    "/logstores/browser_requests/track?APIVersion=0.6.0",
+  );
+  expect(fetch.mock.calls[0][1]).not.toHaveProperty("headers");
+  expect(chrome.storage.session.get).not.toHaveBeenCalled();
+});
+
+it("结束任务的失败 SLS 批次可改发新目标，完成批次和任务目标不变", async () => {
+  const scan = recorder.scan!;
+  scan.state = "ended";
+  const oldTarget = {
+    ...defaults().sls!,
+    enabled: true,
+    mode: "web_tracking" as const,
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "old-project",
+    logstore: "old_logs",
+  };
+  scan.config.sls = oldTarget;
+  const rows = await db.page(scan.id);
+  const base: Batch = {
+    id: "repair-failed",
+    scan_id: scan.id,
+    channel: "sls",
+    state: "failed",
+    attempts: 3,
+    next_retry: Date.now() + 100000,
+    created_at: new Date().toISOString(),
+    records: rows.map((r) => r.request_id),
+    sls: oldTarget,
+  };
+  await db.put("batches", base);
+  await db.put("batches", {
+    ...base,
+    id: "repair-complete",
+    state: "complete",
+  });
+  const fetch = vi.fn(async () => new Response("", { status: 200 }));
+  vi.stubGlobal("fetch", fetch);
+  await retargetFailedSls(scan, {
+    ...oldTarget,
+    project: "new-project",
+    logstore: "new_logs",
+  });
+  expect(fetch.mock.calls).toHaveLength(1);
+  expect((fetch.mock.calls[0] as any)[0]).toContain(
+    "new-project.cn-hangzhou.log.aliyuncs.com/logstores/new_logs",
+  );
+  expect((await db.get<Batch>("batches", base.id))?.state).toBe("complete");
+  expect(
+    (await db.get<Batch>("batches", "repair-complete"))?.sls?.project,
+  ).toBe("old-project");
+  expect(scan.config.sls.project).toBe("old-project");
+});
+it("旧 SLS 批次继续使用原序列化，新批次保存字段选择快照", async () => {
+  const scan = recorder.scan!;
+  scan.config.archive.enabled = false;
+  scan.config.service.enabled = false;
+  scan.config.sls = {
+    ...defaults().sls!,
+    enabled: true,
+    mode: "web_tracking",
+    endpoint: "cn-hangzhou.log.aliyuncs.com",
+    project: "security-project",
+    logstore: "requests",
+    upload_fields: [],
+  };
+  const rows = await db.page(scan.id);
+  const old: Batch = {
+    id: "legacy-sls",
+    scan_id: scan.id,
+    channel: "sls",
+    state: "pending",
+    attempts: 0,
+    next_retry: 0,
+    created_at: new Date().toISOString(),
+    records: rows.map((r) => r.request_id),
+    sls: scan.config.sls,
+  };
+  await db.put("batches", old);
+  const logs: any[] = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (_url, options) => {
+      logs.push(...JSON.parse(options.body).__logs__);
+      return new Response("", { status: 200 });
+    }),
+  );
+  await sendBatch(old, scan);
+  expect(logs[0].record_json_chunk).toContain("Authorization");
+  logs.length = 0;
+  // Plan a separate task's new batch rather than reusing the completed legacy ordinal.
+  await db.transact(["batches"], "readwrite", (tx) => {
+    tx.objectStore("batches").delete(old.id);
+  });
+  await transfer(scan, true);
+  expect(logs[0].schema_version).toBe("sls-2");
+  expect(logs[0]).not.toHaveProperty("record_json_chunk");
+  expect(logs[0]).not.toHaveProperty("request_headers");
+  const [batch] = await db.all<Batch>("batches", scan.id);
+  expect(batch.sls_schema).toBe("sls-2");
+  expect(batch.sls?.upload_fields).toEqual([]);
 });

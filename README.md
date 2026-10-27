@@ -8,17 +8,26 @@
 
 | 方案 | 做法 | 本轮边界 |
 |---|---|---|
-| [前端代码仓JS请求API采集（白盒）](docs/前端代码仓JS请求API采集.md) | 固定 Commit 后按项目配置构建，联合源码、产物和 source map 提取请求与参数 | 依赖按锁文件安装；外部 JS/SDK 资产分析一层；不主动调用提取出的 API |
+| [前端代码仓JS请求API采集（白盒）](docs/前端代码仓JS请求API采集.md) | 源码模式直接扫描固定版本代码仓；构建增强模式联合源码、产物和 source map | 源码提取 CLI 已实现；模式、语义层与分析预算分别配置；不主动调用提取出的 API |
 | [JS 请求采集浏览器插件（黑盒一）](docs/JS%20请求采集浏览器插件.md) | 自研 MV3 插件，当前浏览器所有窗口中的 HTTP/HTTPS 网页自动接入，Filter 控制留存，CDP 记录真实请求及可取得调用栈 | 只覆盖实际触发且可观测场景；采集缺失明确记录 |
 | [网站 JS 收集与静态分析（黑盒二）](docs/网站%20JS%20收集与静态分析.md) | 获取部署脚本，分析请求与字段候选 | 脚本引用最多三层；需适配打包代码与页面上下文 |
 
-**黑盒一已按用户要求实现独立 MV3 插件；白盒和黑盒二继续 PoC 与集成。** [插件开发与安装](docs/插件开发与安装.md)列出功能、命令、参考版本和待验收范围。 jshound、Vespasian、Akto、OpenAPI DevTools 和流量转 OpenAPI 工具已经覆盖大部分通用能力；先验证现成输出，再只补调用栈、源码定位、缺口状态和统一 Excel。白盒与网站 JS 分析的复用范围用同版源码/产物对照确定。
+**白盒源码模式已有独立 API 提取 CLI；黑盒一已有独立 MV3 插件；构建增强和黑盒二继续 PoC 与集成。** [插件开发与安装](docs/插件开发与安装.md)列出功能、命令、参考版本和待验收范围。 jshound、Vespasian、Akto、OpenAPI DevTools 和流量转 OpenAPI 工具已经覆盖大部分通用能力；先验证现成输出，再只补调用栈、源码定位、缺口状态和统一 Excel。白盒与网站 JS 分析的复用范围用同版源码/产物对照确定。
 
 三路可以独立运行。结果分别标记“仓库静态 / 网站 JS 静态 / 插件实测”，可关联而不抹平版本、调用和字段差异。工作簿包含 API 总表、参数明细、分析缺口，另保留 `analysis.json` 证据底稿。
 
-## 源码分析 PoC
+## 前端代码仓 API 提取（白盒·源码模式）
 
-[frontend-api-extractor](frontend-api-extractor/README.md) 为独立的 JS/TS 源码接口提取验证工程，支持自定义层次、跨文件请求封装和多框架脚本。安装与测试在该子目录执行；这是源码方法验证，不替代白盒按固定提交构建的正式流程。[外部试跑记录](frontend-api-extractor/docs/alibaba-real-world.md)仅保存测试仓库链接与结果，外部源码和扫描产物不纳入 Git。
+[frontend-api-extractor](frontend-api-extractor/README.md) 扫描本地前端仓库，支持 JS/TS、React/Vue/Svelte 等脚本、自定义入口与语义层、跨文件请求封装和有限条件候选。结果包含方法、地址、参数、源码位置、调用链和未解析原因。调用者先将目标仓库检出到所需 Commit；源码模式不要求目标构建成功。
+
+```bash
+cd frontend-api-extractor
+npm ci
+npm test
+node src/cli.js /path/to/frontend --out reports/apis.json
+```
+
+扫描范围、别名和预算见[配置示例](frontend-api-extractor/api-extractor.config.example.json)。当前交付 JSON/Markdown；统一任务前端与 Excel 适配待接入。[外部试跑记录](frontend-api-extractor/docs/alibaba-real-world.md)只保留测试仓库固定版本链接和结果，外部源码与扫描产物不纳入 Git。
 
 ## 文档与目录
 
@@ -40,6 +49,7 @@ js-security/
 ├── docs/                  # 当前方案、交付规则、验证计划
 ├── Temp/                  # 候选工具与研究讨论，非实测结论
 ├── references/            # 工具、插件、项目评估与固定核查依据
+├── frontend-api-extractor/ # 独立前端源码 API 提取 CLI、配置、测试及小样例
 └── browser-extension/     # 独立浏览器插件工程（依赖、源码、构建、测试）
     ├── src/               # MV3 后台、管理标签页、详情侧栏与采集模块
     ├── tests/             # 核心、转存、真实 CDP、页面与现场测试

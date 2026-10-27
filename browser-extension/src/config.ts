@@ -1,6 +1,59 @@
-import type { Config } from "./model";
+import { SLS_FIELDS } from "./sls-fields";
+import type { Config, SlsConfig } from "./model";
 import { validateFilter } from "./filter";
 import { OPTIONAL_FIELDS } from "./field-selection";
+export function validateSlsConfig(sls: SlsConfig | undefined) {
+  if (!sls) return;
+  if (
+    sls.upload_fields !== undefined &&
+    (!Array.isArray(sls.upload_fields) ||
+      new Set(sls.upload_fields).size !== sls.upload_fields.length ||
+      sls.upload_fields.some((x) => !SLS_FIELDS.some((f) => f[0] === x)))
+  )
+    throw Error("SLS 上传字段配置无效");
+  if (
+    typeof sls.enabled !== "boolean" ||
+    !["sts", "web_tracking"].includes(sls.mode) ||
+    !Number.isInteger(sls.batch_size) ||
+    sls.batch_size < 1 ||
+    sls.batch_size > 1000 ||
+    !Number.isInteger(sls.batch_bytes) ||
+    sls.batch_bytes < 256 * 1024 ||
+    sls.batch_bytes > 3 * 1024 * 1024 ||
+    !Number.isInteger(sls.interval_ms) ||
+    sls.interval_ms < 1000
+  )
+    throw Error("SLS 配置无效：批次 1～1000 条、256 KB～3 MB，间隔至少 1 秒");
+  if (!sls.enabled) return;
+  if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(sls.project))
+    throw Error("SLS Project 名称无效");
+  if (!/^[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]$/.test(sls.logstore))
+    throw Error("SLS Logstore 名称无效");
+  const endpoint = sls.endpoint.trim().replace(/\/+$/, "");
+  if (!endpoint) throw Error("请填写 SLS Endpoint");
+  if (/^https:\/\//i.test(endpoint)) {
+    const url = new URL(endpoint);
+    if (
+      url.protocol !== "https:" ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.pathname !== "/" && url.pathname !== "")
+    )
+      throw Error("SLS 自定义 Endpoint 必须是无路径、凭据和参数的 HTTPS 地址");
+  } else if (endpoint.includes("/") || !/^[A-Za-z0-9.-]+$/.test(endpoint))
+    throw Error("SLS Endpoint 应类似 cn-hangzhou.log.aliyuncs.com");
+  else if (endpoint.toLowerCase().startsWith(sls.project + "."))
+    throw Error("SLS Endpoint 不要重复包含 Project；Project 请单独填写");
+  if (
+    typeof sls.topic !== "string" ||
+    typeof sls.source !== "string" ||
+    sls.topic.length > 128 ||
+    sls.source.length > 128
+  )
+    throw Error("SLS Topic 和 Source 必须是不超过 128 字符的字符串");
+}
 export function validateConfig(c: Config) {
   validateFilter(c.filter);
   if (
@@ -75,4 +128,5 @@ export function validateConfig(c: Config) {
     )
       throw Error("服务须为无凭据、无 query/fragment 的 HTTPS 地址");
   }
+  validateSlsConfig(c.sls);
 }

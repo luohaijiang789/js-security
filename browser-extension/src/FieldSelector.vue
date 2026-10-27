@@ -82,8 +82,11 @@ function toggle(field: OptionalField, checked: boolean) {
   <fieldset class="field-selector" :disabled="disabled">
     <div class="field-selector-heading">
       <div>
-        <legend>保存字段</legend>
-        <p>默认全部保存。请求 ID、时间、URL、Method、类型和状态始终保留。</p>
+        <legend>本地保存字段</legend>
+        <p>
+          默认全部保存。SLS 上传字段独立选择，未采集的字段无法补传。请求
+          ID、时间、URL、Method、类型和状态始终保留。
+        </p>
       </div>
       <button
         type="button"

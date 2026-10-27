@@ -357,6 +357,150 @@ const examples = [
       </div>
     </div>
 
+    <div class="panel usage-highlight">
+      <h2>自动保存到阿里云 SLS</h2>
+      <p>
+        新建采集任务时，可在“自动保存与转存”中直接启用、配置并测试
+        SLS；任务创建后也可打开左侧“存储与转存”调整完整策略。启用后会把当前任务中尚未转存的已保存记录和之后的新记录持续写入
+        Logstore；本地数据不会因为 SLS
+        成功或失败而删除。设置页保存或测试成功、新建任务测试或创建成功后，都会更新同一份可复用
+        SLS
+        配置。新建任务直接读取这份配置；签名凭证仍只从当前浏览器会话读取，并且只显示脱敏后的
+        AccessKey ID 与凭证存在状态。
+      </p>
+      <p>
+        设置页尚未保存的修改不会被新任务复用。共享配置不会自动修改已有任务：过滤只更新过滤，采集策略只更新采集字段，点击“保存全部转存策略”才改变当前任务的转存策略。已有配置在新建弹窗默认收起，点击“修改
+        SLS 配置”展开。
+      </p>
+      <p>
+        连接测试成功后才替换会话凭证，失败保留原凭证。已保存凭证可以直接沿用，无需重复输入。批次列表显示各批次的实际目标；结束任务也可以通过“修改失败
+        SLS
+        批次目标并重试”恢复失败批次，完成批次不变。改发前会确认目标及可能重复的情况。
+      </p>
+      <p>
+        发送间隔是后台运行时的调度目标，后台休眠、网络耗时及排队可能延迟发送。“预览当前页”只统计已加载的这一页；清空过滤规则后需点击应用才能生效。
+      </p>
+      <ol class="usage-troubleshooting">
+        <li>
+          在阿里云日志服务创建 Project 和 Logstore，并确认使用公网 Endpoint
+          或浏览器能够访问的自定义 HTTPS 域名。
+        </li>
+        <li>
+          推荐选择“AccessKey / STS 签名”并使用 STS
+          临时凭证。为临时身份只授予目标 Logstore 的
+          <code>log:PostLogStoreLogs</code> 写入权限，并设置尽量短的有效期。
+        </li>
+        <li>
+          Endpoint 填地域地址，例如
+          <code>cn-hangzhou.log.aliyuncs.com</code>，不要带 Project；Project 和
+          Logstore 分别填写控制台中的实际名称。自定义域名填写完整
+          <code>https://logs.example.com</code>，不能带路径、Query 或凭据。
+        </li>
+        <li>
+          填入 AccessKey ID 和 AccessKey Secret；使用 STS 临时凭证时
+          SecurityToken 也必须填写，长期 AccessKey 没有
+          SecurityToken，可留空。点击“保存复用配置与会话凭证”，再点击“测试连接”。测试会向目标
+          Logstore 真实写入一条 <code>connection_test=true</code> 的日志，并显示
+          SLS Request
+          ID；成功后点击“保存全部转存策略”。凭证只存在当前浏览器会话，不写入任务、IndexedDB
+          或导出文件；浏览器重启或凭证过期后需要重新填写。
+        </li>
+        <li>
+          可点击“立即归档 /
+          转存”马上发送；否则按发送间隔自动形成批次。在“批次进度”查看完成、失败、重试次数和
+          SLS Request ID。
+        </li>
+      </ol>
+      <div class="usage-callout">
+        <strong>RAM 最小权限：</strong>
+        <code>Action: log:PostLogStoreLogs</code>
+        <span
+          >Resource 只限定到实际 Project /
+          Logstore；不要给浏览器长期主账号密钥。</span
+        >
+      </div>
+      <div class="usage-notes">
+        <p>
+          <strong>上传字段：</strong>“SLS
+          上传字段”独立于本地“保存字段”，新建任务和设置页均可选择。默认上传核心分析内容、完整调用栈、基础网络和采集状态；默认不上传
+          TLS、性能缓存细节、内部标识。支持“恢复推荐”“全选上传字段”“仅基本信息”。未在本地采集的内容无法通过
+          SLS 勾选补回。配置对新批次生效，已形成批次保留当时快照。
+        </p>
+        <p>
+          <strong>正文只保存一份：</strong>JSON 和表单使用
+          <code>value_kind=parsed</code>；文本、HTML、XML、multipart、二进制
+          Base64、解析失败或不安全解析内容使用
+          <code>value_kind=raw</code>，正文统一位于 <code>value</code>。重复
+          JSON 键、高精度数字、非法表单编码会回退 raw。JSON
+          空白和数字写法、表单编码写法可能变化，原始请求仍可在本地回查。响应头仅保留有序键值对，不重复上传原始头文本。
+        </p>
+        <p>
+          <strong>完整调用栈：</strong><code>initiator_stack</code> 中
+          <code>scripts</code> 是本条日志的 URL 字典；<code>stack</code> 中每个
+          <code>url_ref</code> 按从 0 开始的索引取回
+          URL。函数名、行列号、帧顺序和异步 parent 链全部保留，不裁剪到前五帧。
+        </p>
+        <p>
+          <strong>精简元数据：</strong>不上传内部 <code>group_key</code> 或固定
+          <code>redacted:false</code>；成功采集状态只存
+          complete，异常状态保留原因以便排查。任务和批次标识保留用于关联与去重，上传格式不承诺与本地
+          RecordEntry 相同。
+        </p>
+        <p>
+          <strong>SLS 日志内容：</strong>每条日志直接提供
+          <code>method</code
+          >、<code>request_url</code>、<code>domain</code>、<code>status_code</code>、<code>resource_type</code>、<code>scan_id</code>、<code
+            >request_id</code
+          >
+          等检索字段。新格式
+          <code>schema_version=sls-2</code> 中每个字段只出现一次，不再附带完整
+          RecordEntry。复杂字段以 JSON 字符串保存，可为这些字段配置 SLS JSON
+          索引。
+        </p>
+        <p>
+          <strong>建立索引：</strong>首次写入后，在 SLS 为
+          <code>request_url</code
+          >、<code>domain</code>、<code>method</code>、<code>status_code</code>、<code>resource_type</code>、<code>scan_id</code>、<code>request_id</code>、<code
+            >transfer_batch_id</code
+          >
+          建立字段索引；否则数据已经写入也不便按字段检索。
+        </p>
+        <p>
+          <strong>超大记录还原：</strong>按相同
+          <code>record_sha256</code> 汇总，依照
+          <code>record_chunk_index</code> 从 1 到
+          <code>record_chunk_total</code> 拼接
+          <code>compact_json_chunk</code>，再 JSON.parse 即可恢复所选字段；使用
+          SHA-256 校验拼接文本。仅
+          <code>sls-2-chunk</code>
+          大记录使用此方式；普通日志无需分片或重组。旧格式日志仍使用
+          <code>record_json_chunk</code>，已有旧批次重试保留原格式。
+        </p>
+        <p>
+          <strong>重复处理：</strong>SLS
+          属于至少一次投递。响应丢失后重试可能产生重复日志，可用
+          <code>transfer_batch_id + request_id + record_chunk_index</code>
+          去重（普通日志分片序号视为 1）；分批请求的标签由
+          <code>transfer_part_index / transfer_part_total</code> 标识。
+        </p>
+        <p>
+          <strong>连接测试：</strong
+          >测试按钮不是只检查网址，它会真实执行一次与自动转存相同的签名和写入请求。测试日志可在
+          SLS 中通过 <code>connection_test:true</code> 检索；测试失败会显示 HTTP
+          状态和 SLS 返回的错误详情。
+        </p>
+        <p>
+          <strong>WebTracking：</strong>该模式不需要凭证，但必须在 Logstore
+          开启公网匿名写入，任何人都可能写入脏数据。只有明确接受这个风险时才选择。
+        </p>
+        <p>
+          <strong>失败与重试：</strong>网络错误、权限错误、STS 过期和 SLS 非 2xx
+          响应都会保留失败批次及错误信息；自动最多尝试 3
+          次，之后可在界面重新授权并点击“重试失败批次”。部分分片已成功但回执丢失时，重试仍可能重复，因此必须按上述键去重。
+        </p>
+      </div>
+    </div>
+
     <div class="panel">
       <h2>没有采集到预期请求时</h2>
       <ol class="usage-troubleshooting">
