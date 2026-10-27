@@ -1,21 +1,47 @@
 # 前端代码仓JS请求API采集
 
-**输入前端仓库、固定 Commit、构建配置和环境参数，按项目方式完成构建，联合源码、构建产物和 source map 输出请求与参数候选。** 当前仅设计，候选工具尚未在本项目样例上验证。
+**扫描固定版本的前端代码仓，提取 API、参数与代码证据；需要部署环境和产物关联时，再显式选择构建增强模式。** 源码模式已有 [frontend-api-extractor CLI](../frontend-api-extractor/README.md)，构建增强和统一交付仍待集成。
+
+## 0. 已加入的源码 API 提取能力
+
+调用者将仓库检出到目标 Commit，向 CLI 提供本地路径；它不自动克隆或校验 Commit，不以目标构建成功为前提。支持 JS/TS/JSX/TSX、Vue/Svelte 脚本、ESM/基础 CommonJS、fetch/axios/ofetch/ky 及显式声明的客户端；沿必要的导入、函数封装和参数继续追踪到请求位置。
+
+```bash
+cd frontend-api-extractor
+npm ci
+node src/cli.js /path/to/frontend --out reports/apis.json
+```
+
+| 配置维度 | 用途 |
+| --- | --- |
+| entries/include/exclude | 选择入口与可用于解析的源码文件；未指定 entries 时按库存模式扫描 |
+| layers | 自定义页面、hook、service、transport 等语义标注，不按固定目录截断调用链 |
+| aliases/clients | 路径别名和无法进入实现的 HTTP 客户端声明 |
+| maxDepth/maxSteps/maxCandidates | 分别约束调用深度、求值步数和条件候选/路径数量，与外部 JS 下载层数无关 |
+
+当前 JSON/Markdown 保留 method、url、query、body、headers、调用链、源码行列、conditions 与 diagnostics。它是静态候选，不表示网络上实际发送，也尚未转换为项目统一 analysis.json/Excel。普通类实例工厂、拦截器和复杂页面控制流仍有缺口；源码解析失败、未知依赖或预算耗尽都必须保留。
+
+52 项自动化测试和指定真实源码范围的试跑见[测试说明](../frontend-api-extractor/docs/testing.md)与[外部仓库链接/结果](../frontend-api-extractor/docs/alibaba-real-world.md)。外部仓库、依赖和扫描产物不纳入 Git。后续统一任务前端接入仓库版本、扫描配置、接口/参数列表、代码证据与诊断导出；当前 CLI 已可独立运行。
 
 ## 1. 输入、流程与边界
 
-必需材料是代码仓、Commit、锁文件、目标环境配置和可执行的正式构建命令。构建所需私有包凭据、代码生成输入和依赖服务替身也属于输入条件。白盒任务以构建成功为前提；失败时输出构建日志并终止本次分析，修复输入后重跑，不把残缺源码结果包装成完整白盒结论。
+源码模式的必需材料是本地固定版本代码及所需的扫描配置。构建增强模式另需锁文件、目标环境配置和正式构建命令；私有包凭据、代码生成输入和依赖服务替身也属于该模式输入。构建增强以构建成功为前提；失败时输出日志并终止该模式，不静默切换为源码成功。两种模式的结果和缺口分别记录。
 
 ```mermaid
 flowchart LR
-    R["仓库 + Commit + 锁文件 + 环境配置"] --> A["M1 可重复构建与资产清单"]
+    R["本地前端仓库 + 固定 Commit"] --> S["源码模式：已实现 CLI"]
+    S --> O["JSON/Markdown + 代码证据 + 诊断"]
+    R --> A["构建增强：M1 构建与资产清单（待集成）"]
     A --> B["M2 请求行为发现"]
     B --> C["M3 Host、URL、Method"]
     C --> D["M4 参数结构与改写"]
-    D --> E["M5 统一结果与 Excel"]
+    D --> E["M5 统一结果与 Excel（待接入）"]
+    O -.-> E
 ```
 
-只追还原请求和参数所需的关系，不建设全仓通用调用图，不做完整 Source→Sink 溯源。优先从构建产物恢复请求，再借助 source map、源码 AST 和必要跨文件追踪补充位置与构造过程。插件和外部网站不是白盒运行前提；如项目本身提供本地预览命令，可在隔离环境中只用于加载静态资源和观察启动流量。
+只追还原请求和参数所需的关系，不建设全仓通用调用图，不做完整 Source→Sink 溯源。源码模式直接使用 AST 与必要跨文件追踪；构建增强优先从产物恢复请求，再借助 source map 和源码补充位置。插件和外部网站不是白盒运行前提。
+
+以下 M1～M5 是构建增强与统一交付的目标规格，不代表当前源码 CLI 已实现全部机制。若项目提供本地预览，可在隔离环境中用于加载静态资源和观察启动流量。
 
 ## 2. M1：构建与 JS 资产解析
 

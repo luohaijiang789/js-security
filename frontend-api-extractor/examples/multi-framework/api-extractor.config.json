@@ -1,0 +1,14 @@
+{
+  "entries": ["src/pages/**", "src/app/**", "src/entries/**"],
+  "maxDepth": 12,
+  "layers": [
+    { "name": "page", "match": ["src/pages/**", "src/app/**", "src/entries/**"] },
+    { "name": "hook", "match": ["src/hooks/**"] },
+    { "name": "service", "match": ["src/services/**"] },
+    { "name": "transport", "match": ["src/transport/**"] }
+  ],
+  "clients": [
+    { "name": "this.http", "kind": "axios" },
+    { "name": "uni", "kind": "axios" }
+  ]
+}

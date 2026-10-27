@@ -10,9 +10,11 @@
 
 | 方案 | 文档 | 负责说明 |
 |---|---|---|
-| 白盒 | [前端代码仓JS请求API采集](前端代码仓JS请求API采集.md) | 固定 Commit 构建、源码与产物联合分析、外部资产一层、M1～M5 |
+| 白盒 | [前端代码仓JS请求API采集](前端代码仓JS请求API采集.md) | 已实现源码扫描 CLI；构建增强、外部资产一层与 M1～M5 交付集成 |
 | 黑盒一 | [JS 请求采集浏览器插件](JS%20请求采集浏览器插件.md) | CDP 实际请求采集、过滤、存储、导出与验收规格 |
 | 黑盒二 | [网站 JS 收集与静态分析](网站%20JS%20收集与静态分析.md) | 部署脚本收集、上下文恢复与静态请求提取 |
+
+前端代码仓源码扫描入口：[frontend-api-extractor](../frontend-api-extractor/README.md)。支持自定义入口/语义层和跨文件追踪，当前输出 JSON/Markdown；任务前端与统一交付仍待接入。
 
 ## 3. 交付约定
 
@@ -24,4 +26,4 @@
 
 验证计划所需的候选工具、插件、开源项目与许可证评估见 [references](../references/README.md)。
 
-黑盒一的独立工程在 [browser-extension](../browser-extension/README.md)，见[插件开发与安装](插件开发与安装.md)及[界面、交互与升级改进](插件界面与交互改进.md)；完整插件现场验收仍待执行，其他两路继续 PoC 与集成。现成工具已覆盖大量通用能力，评估见 [references](../references/README.md)；只有验证后确认的调用栈、源码定位、证据状态和交付差距才进入开发。示例均为设计说明，不是实际扫描结果。更新：2026-10-22。
+黑盒一的独立工程在 [browser-extension](../browser-extension/README.md)，见[插件开发与安装](插件开发与安装.md)及[界面、交互与升级改进](插件界面与交互改进.md)；完整插件现场验收仍待执行，其他两路继续 PoC 与集成。现成工具已覆盖大量通用能力，评估见 [references](../references/README.md)；只有验证后确认的调用栈、源码定位、证据状态和交付差距才进入开发。设计示例与实测记录分开；源码 CLI 的[测试说明](../frontend-api-extractor/docs/testing.md)和[外部试跑链接](../frontend-api-extractor/docs/alibaba-real-world.md)明确列出已验证范围。更新：2026-10-27。
