@@ -58,3 +58,13 @@ test('分析源码不会执行目标仓库的顶层 JS', async t => {
   assert.deepEqual(JSON.parse(result.stdout).endpoints.map(e => e.url), ['/safe']);
   await assert.rejects(fs.access(path.join(root,'executed.txt')), {code:'ENOENT'});
 });
+test('CLI 显式资产级补漏输出独立 JSON 列表和 Markdown 说明',async t=>{
+  const root=await fixture(t,{'api-extractor.config.json':JSON.stringify({entries:['entry.js']}),'entry.js':`import('./lazy.js').then(m=>m[unknownName]())`,'lazy.js':`export const send=()=>fetch('/unlinked')`});
+  const json=run(root,['.','--include-unlinked']);
+  assert.equal(json.status,0,json.stderr);
+  const report=JSON.parse(json.stdout);
+  assert.equal(report.endpoints.length,0);assert.equal(report.assetCandidates.length,1);
+  const md=run(root,['.','--include-unlinked','--format','markdown']);
+  assert.equal(md.status,0,md.stderr);
+  assert.match(md.stdout,/资产级候选/);assert.match(md.stdout,/\/unlinked/);
+});

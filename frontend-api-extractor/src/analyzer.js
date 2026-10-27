@@ -8,6 +8,7 @@ import { scriptSource } from './adapters.js';
 import { validateConfig } from './config.js';
 import { TAG, UNKNOWN, unknown, hasUnknown, isUnknown, isChoice, text, dynamic, clean, mergeConditions, cloneEnv, createDomain } from './values.js';
 import { libraryClient, requestCall } from './request-clients.js';
+import {referencePath,reachableAssets} from './asset-graph.js';
 import {addressEvidence,parameterFields,builtinNames,staticOperation} from './request-evidence.js';
 
 function mergeObject(target, source, label = 'spread') {
@@ -80,17 +81,19 @@ export async function analyze(root, options = {}) {
   });
   const program = ts.createProgram([...sources.keys()], compilerOptions, host);
   const checker = program.getTypeChecker();
+  const mutableWrites=new Set();
   const assets=files.map(file=>{
     const sf=program.getSourceFile(file),imports=[];
     if(sf && sources.has(file)) {
       const visit=node=>{
+        if(ts.isBinaryExpression(node) && node.operatorToken.kind>=ts.SyntaxKind.FirstAssignment && node.operatorToken.kind<=ts.SyntaxKind.LastAssignment && ts.isIdentifier(node.left))mutableWrites.add(symbol(node.left));
         let specifier,kind;
         if((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier){specifier=node.moduleSpecifier;kind=ts.isImportDeclaration(node)?'import':'re-export';}
         else if(ts.isCallExpression(node) && (node.expression.kind===ts.SyntaxKind.ImportKeyword || ts.isIdentifier(node.expression) && node.expression.text==='require' && !symbol(node.expression)?.declarations?.some(d=>sources.has(d.getSourceFile().fileName)))){specifier=node.arguments[0];kind=node.expression.kind===ts.SyntaxKind.ImportKeyword?'dynamic-import':'require';}
         if(specifier){
           const literal=ts.isStringLiteralLike(specifier),name=literal?specifier.text:specifier.getText();
           const resolved=literal?host.resolveModuleNames([name],file)[0]?.resolvedFileName:null;
-          imports.push({specifier:name,kind,...locate(specifier),resolvedFile:resolved&&sources.has(resolved)?path.relative(root,resolved).split(path.sep).join('/'):null,
+          imports.push({specifier:name,kind,typeOnly:Boolean(node.isTypeOnly || node.importClause?.isTypeOnly),...locate(specifier),resolvedFile:resolved&&sources.has(resolved)?path.relative(root,resolved).split(path.sep).join('/'):null,
             state:!literal?'dynamic':resolved&&sources.has(resolved)?'internal':/^https?:/.test(name)?'external-not-fetched':'unresolved-or-unscanned'});
         }
         ts.forEachChild(node,visit);
@@ -146,7 +149,8 @@ export async function analyze(root, options = {}) {
     };visit(sf);
   }
   const attachBinding=(value,node)=>isChoice(value) ? lift([value],v=>attachBinding(v,node),node) : value?.[TAG]==='client' ? {...value,bindingIds:[...new Set([...(value.bindingIds??[]),bindingId(node)].filter(Boolean))]} : value;
-  const endpoints = new Map();
+  const endpoints = new Map(),assetCandidateMap=new Map(),observedSinks=new Set();
+  const sinkKey=node=>`${node.getSourceFile().fileName}:${node.getStart()}`;
   const analyzedFunctions = new Map();
   let steps = 0, exhausted = false;
   function tick(node) {
@@ -155,6 +159,9 @@ export async function analyze(root, options = {}) {
     return false;
   }
   function record(node, client, method, url, data, ctx) {
+    if(ctx.discovery==='asset-local' && observedSinks.has(sinkKey(node)))return;
+    if(ctx.discovery!=='asset-local')observedSinks.add(sinkKey(node));
+    const collector=ctx.discovery==='asset-local'?assetCandidateMap:endpoints;
     data = mergeConfig(client, data);
     const rawUrl = clean(url ?? unknown('url'));
     method = clean(method);
@@ -172,13 +179,15 @@ export async function analyze(root, options = {}) {
     for (const [key, value] of Object.entries({ url: rawUrl, method, baseURL: base, ...fields, spread: data[UNKNOWN] })) {
       if (dynamic(value) || key === 'spread' && value) unresolved.push(key === 'spread' ? `未知配置展开: ${value}` : `${key} 含动态值`);
     }
+    if(ctx.discovery==='asset-local')unresolved.push('业务入口未连接，值仅为资产级局部候选');
     if(hooks.length){unresolved.push('request hook 未建模，Host/URL/参数可能继续变化');diagnostic('REQUEST_HOOK_UNMODELED','检测到可能的请求拦截器；仅报告调用处构造值',node);}
     if (ctx.conditions?.length) unresolved.push('接口属于条件分支候选');
     const resolution = isUnknown(rawUrl) ? 'unresolved' : unresolved.length ? 'partial' : 'resolved';
     const key = JSON.stringify([verb, effective]);
-    const usage = { entry: ctx.entry, callChain: [...ctx.chain, { symbol: node.expression.getText(), ...locate(node) }], unresolved, conditions:ctx.conditions ?? [], resolution, ...fields, ...hookEvidence };
-    if (!endpoints.has(key)) endpoints.set(key, { method: verb, url: effective, resolution, ...fields, ...hookEvidence, usages: [] });
-    const ep = endpoints.get(key);
+    const linkage={linkState:ctx.discovery==='asset-local'?'unlinked':'entry-trace',referencedBy:ctx.referencedBy??[],assetPath:referencePath(assets,ctx.entry,locate(node).file)};
+    const usage = { ...linkage, entry: ctx.entry, callChain: [...ctx.chain, { symbol: node.expression.getText(), ...locate(node) }], unresolved, conditions:ctx.conditions ?? [], resolution, ...fields, ...hookEvidence };
+    if (!collector.has(key)) collector.set(key, { method: verb, url: effective, resolution, ...fields, ...hookEvidence, usages: [] });
+    const ep = collector.get(key);
     if(hooks.length){ep.postHookState='unknown';ep.hooks=[...new Map([...ep.hooks,...hooks].map(h=>[JSON.stringify(h),h])).values()];if(ep.address.host)ep.address={...ep.address,hostState:'partial'};}
     if ({resolved:0,partial:1,unresolved:2}[resolution] > {resolved:0,partial:1,unresolved:2}[ep.resolution]) ep.resolution = resolution;
     if (!ep.usages.some(u => JSON.stringify(u) === JSON.stringify(usage))) ep.usages.push(usage);
@@ -198,7 +207,8 @@ export async function analyze(root, options = {}) {
       let selected;
       if (element.dotDotDotToken && !isUnknown(value) && value != null) {
         selected = ts.isArrayBindingPattern(pattern) ? value.slice(index) : Object.fromEntries(Object.entries(value).filter(([k]) => !pattern.elements.some(e => !e.dotDotDotToken && (e.propertyName?.text ?? e.name?.text) === k)));
-      } else if (value?.[TAG] === 'client') selected = { ...value, member: String(key) };
+      } else if(value?.[TAG]==='module')selected=moduleExport(value,key,env,ctx,element);
+      else if (value?.[TAG] === 'client') selected = { ...value, member: String(key) };
       else if (isUnknown(value) || value == null) selected = unknown(`${text(value)}.${key}`);
       else selected = value[key];
       if (selected === undefined && element.initializer) selected = evaluate(element.initializer, env, ctx);
@@ -229,9 +239,49 @@ export async function analyze(root, options = {}) {
     }
     return result;
   }
+  const activeExports=new Set();
+  function moduleExport(namespace,name,env,ctx,node) {
+    if(isUnknown(name)){diagnostic('DYNAMIC_EXPORT_UNRESOLVED','模块导出名无法确定',node);return unknown('dynamic export');}
+    const key=namespace.file+':'+String(name);
+    if(activeExports.has(key)){diagnostic('MODULE_EXPORT_CYCLE','模块导出初始化循环，值保持未知',node);return unknown('cyclic export');}
+    activeExports.add(key);
+    try {
+    const sf=program.getSourceFile(namespace.file);
+    const moduleSymbol=checker.getSymbolAtLocation(sf) ?? sf.symbol;
+    let exported=moduleSymbol && checker.getExportsOfModule(moduleSymbol).find(s=>s.name===String(name));
+    if(exported?.flags & ts.SymbolFlags.Alias){try{exported=checker.getAliasedSymbol(exported);}catch{}}
+    const d=exported?.valueDeclaration ?? exported?.declarations?.[0];
+    if(!d || !sources.has(d.getSourceFile().fileName)){diagnostic('MODULE_EXPORT_UNRESOLVED',`未取得模块导出 ${String(name)}`,node);return unknown(`export ${String(name)}`);}
+    if(ts.isFunctionDeclaration(d))return evaluate(d,env,ctx);
+    if(ts.isVariableDeclaration(d))return evaluate(d.name,env,ctx);
+    if(ts.isExportAssignment(d))return evaluate(d.expression,env,ctx);
+    diagnostic('MODULE_EXPORT_UNRESOLVED',`暂不支持该模块导出形态 ${String(name)}`,node);
+    return unknown(`export ${String(name)}`);
+    }finally{activeExports.delete(key);}
+  }
+  function dynamicModule(node,env,ctx,visiting) {
+    const argument=node.arguments[0];
+    if(!argument){diagnostic('DYNAMIC_IMPORT_UNRESOLVED','动态 import 缺少路径',node);return unknown('import');}
+    return lift([evaluate(argument,env,ctx,visiting)],specifier=>{
+      const resolved=typeof specifier==='string' && !dynamic(specifier) ? host.resolveModuleNames([specifier],node.getSourceFile().fileName)[0]?.resolvedFileName : null;
+      if(!resolved || !sources.has(resolved)){diagnostic('DYNAMIC_IMPORT_UNRESOLVED','动态模块未解析或不在扫描范围内，不自动下载',node);return unknown(node.getText());}
+      const asset=assets.find(a=>a.file===locate(node).file),relative=path.relative(root,resolved).split(path.sep).join('/');
+      if(asset && !asset.imports.some(i=>i.resolvedFile===relative && i.line===locate(argument).line && i.column===locate(argument).column))asset.imports.push({kind:'dynamic-import',specifier:argument.getText(),resolvedSpecifier:specifier,...locate(argument),resolvedFile:relative,state:'computed-internal'});
+      return {[TAG]:'module-promise',namespace:{[TAG]:'module',file:resolved}};
+    },node);
+  }
+  function mergeExpressionEffects(scope,paths,node) {
+    const signature=value=>JSON.stringify(clean(value && typeof value==='object' && value[TAG]!=='function'?Object.fromEntries(Object.entries(value)):value));
+    for(const key of new Set(paths.flatMap(p=>[...p.env.keys()]))) {
+      const before=scope.get(key);
+      if(paths.every(p=>p.env.get(key)===before || signature(p.env.get(key))===signature(before)))continue;
+      scope.set(key,choice(paths.map(p=>({value:p.env.get(key),conditions:p.conditions})),node));
+    }
+  }
   function evaluate(node, env, ctx, visiting = new Set()) {
     if (!node || !tick(node)) return unknown('missing');
-    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node) || ts.isSatisfiesExpression(node) || ts.isAwaitExpression(node)) return evaluate(node.expression, env, ctx, visiting);
+    if(ts.isAwaitExpression(node))return lift([evaluate(node.expression,env,ctx,visiting)],value=>value?.[TAG]==='module-promise'?value.namespace:value,node);
+    if (ts.isParenthesizedExpression(node) || ts.isAsExpression(node) || ts.isNonNullExpression(node) || ts.isSatisfiesExpression(node)) return evaluate(node.expression, env, ctx, visiting);
     if (ts.isStringLiteralLike(node) || ts.isNumericLiteral(node)) return ts.isNumericLiteral(node) ? Number(node.text) : node.text;
     if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
     if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
@@ -247,6 +297,7 @@ export async function analyze(root, options = {}) {
       for (const span of node.templateSpans) value = lift([value,evaluate(span.expression,env,ctx,visiting)],(a,b) => text(a)+text(b)+span.literal.text,node);
       return value;
     }
+    if(ts.isBinaryExpression(node) && node.operatorToken.kind===ts.SyntaxKind.CommaToken){evaluate(node.left,env,ctx,visiting);return evaluate(node.right,env,ctx,visiting);}
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
       const value = evaluate(node.right,env,ctx,visiting);
       if (ts.isIdentifier(node.left)) env.set(symbol(node.left),value);
@@ -291,8 +342,9 @@ export async function analyze(root, options = {}) {
           const take = op !== ts.SyntaxKind.BarBarToken;
           const condition = outcome => ({...branch(node.left,outcome),...(op === ts.SyntaxKind.QuestionQuestionToken ? {expression:`${node.left.getText()} == null`} : {})});
           const next = branchContext({...ctx,conditions:base},condition(take));
+          const skipped=cloneEnv(env),taken=cloneEnv(env);
           options.push({value:option.value,conditions:[...option.conditions,condition(!take)]});
-          if (next) options.push({value:evaluate(node.right,cloneEnv(env),next,visiting),conditions:[...option.conditions,condition(take)]});
+          if(next){const value=evaluate(node.right,taken,next,visiting);options.push({value,conditions:[...option.conditions,condition(take)]});mergeExpressionEffects(env,[{env:skipped,conditions:[condition(!take)]},{env:taken,conditions:[condition(take)]}],node);}
         }
       }
       return choice(options,node);
@@ -328,6 +380,8 @@ export async function analyze(root, options = {}) {
       if (ts.isPropertyAccessExpression(node)) {
         const object = evaluate(node.expression,env,ctx,visiting);
         if (object != null && !isUnknown(object)) return lift([object],value => {
+          if(value?.[TAG]==='module')return moduleExport(value,node.name.text,env,ctx,node);
+          if(value?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:value.namespace};
           if (value?.[TAG] === 'client') return {...value,member:node.name.text};
           if ((Array.isArray(value) && ['map','forEach','join','concat'].includes(node.name.text)) || typeof value==='string' && node.name.text==='concat') return {[TAG]:'intrinsic',method:node.name.text,receiver:value};
           return value != null && Object.hasOwn(value,node.name.text) ? value[node.name.text] : unknown(node.getText());
@@ -337,6 +391,7 @@ export async function analyze(root, options = {}) {
       if (d && sources.has(d.getSourceFile().fileName) && !visiting.has(d)) {
         const next = new Set(visiting).add(d);
         if (ts.isVariableDeclaration(d) || ts.isPropertyDeclaration(d) || ts.isPropertyAssignment(d) || ts.isParameter(d)) {
+          if(ts.isVariableDeclaration(d) && mutableWrites.has(s) && !(d.parent.flags & ts.NodeFlags.Const)){diagnostic('CAPTURED_STATE_UNRESOLVED','捕获的可变变量存在写入，当前上下文未绑定其实际值',node);return unknown(d.name.getText());}
           if (d.initializer) return attachBinding(evaluate(d.initializer, env, ctx, next),d.name);
         } else if (ts.isBindingElement(d)) {
           let declaration = d.parent;
@@ -355,6 +410,8 @@ export async function analyze(root, options = {}) {
         if (node.name.text === 'fetch' && ts.isIdentifier(node.expression) && ['globalThis', 'window', 'self'].includes(node.expression.text) && !symbol(node.expression)?.valueDeclaration && !lexicalDeclaration(node,node.expression.text)) return { [TAG]: 'client', kind: 'fetch' };
         const object = evaluate(node.expression, env, ctx, visiting);
         return lift([object],object => {
+          if(object?.[TAG]==='module')return moduleExport(object,node.name.text,env,ctx,node);
+          if(object?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:object.namespace};
           if (object?.[TAG] === 'client') return {...object,member:node.name.text};
           if ((Array.isArray(object) && ['map','forEach','join','concat'].includes(node.name.text)) || typeof object==='string' && node.name.text==='concat') return {[TAG]:'intrinsic',method:node.name.text,receiver:object};
           if (object && !isUnknown(object) && Object.hasOwn(object,node.name.text)) return object[node.name.text];
@@ -365,7 +422,7 @@ export async function analyze(root, options = {}) {
     }
     if (ts.isElementAccessExpression(node)) {
       const value = evaluate(node.expression, env, ctx, visiting), key = evaluate(node.argumentExpression, env, ctx, visiting);
-      return lift([value,key],(v,k) => !isUnknown(v) && v != null && !isUnknown(k) ? v[k] : unknown(node.getText()),node);
+      return lift([value,key],(v,k) => v?.[TAG]==='module' ? moduleExport(v,k,env,ctx,node) : !isUnknown(v) && v != null && !isUnknown(k) ? v[k] : unknown(node.getText()),node);
     }
     if (ts.isNewExpression(node)) {
       const name = node.expression.getText();
@@ -384,6 +441,7 @@ export async function analyze(root, options = {}) {
       return unknown(node.getText());
     }
     if (ts.isCallExpression(node)) {
+      if(node.expression.kind===ts.SyntaxKind.ImportKeyword)return dynamicModule(node,env,ctx,visiting);
       if (ts.isIdentifier(node.expression) && node.expression.text === 'require' && !symbol(node.expression)?.declarations?.some(d => sources.has(d.getSourceFile().fileName))) return requireModule(node, env, ctx, visiting);
       const target = evaluate(node.expression, env, ctx, visiting);
       if(target?.[TAG]==='intrinsic' && target.method==='Object.assign') {
@@ -437,6 +495,7 @@ export async function analyze(root, options = {}) {
     }
     if (target?.[TAG] === 'function') return invoke(target,args,ctx,node);
     if (target?.[TAG] === 'intrinsic') {
+      if(target.method==='module-then'){if(args[0]?.[TAG]==='function')return invoke(args[0],[target.namespace],ctx,node);diagnostic('ASYNC_CALLBACK_UNRESOLVED','动态模块 then 回调不可解析',node);return unknown(node.getText());}
       if(builtinNames.has(target.method))return staticOperation(target.method,args,node.getText(),()=>diagnostic('STATIC_DECODE_UNRESOLVED','静态编码操作失败或超过限制',node));
       if(target.method==='join')return target.receiver.map(text).join(args[0]===undefined ? ',' : text(args[0]));
       if(target.method==='concat')return Array.isArray(target.receiver) ? target.receiver.concat(...args) : target.receiver+args.map(text).join('');
@@ -562,26 +621,37 @@ export async function analyze(root, options = {}) {
     return result.returns.length ? choice(result.returns,node) : unknown('return');
   }
   const entryMatch = config.entries.length ? picomatch(config.entries) : () => true;
-  let entryCount = 0;
-  for (const file of sources.keys()) {
-    const relative = path.relative(root, file).split(path.sep).join('/');
-    if (!entryMatch(relative)) continue;
-    entryCount++;
-    const sf = program.getSourceFile(file);
-    const ctx = { entry: relative, chain: [], active: new Set() };
-    // Explore top-level execution, and potential function bodies without assuming lifecycle execution.
-    run(sf, new Map(), ctx);
-    const visit = n => {
-      if (ts.isFunctionLike(n) && n.body && !analyzedFunctions.get(n)?.has(relative)) {
-        invoke({ node: n, env: new Map() }, [], ctx, { expression: n.name ?? n, getSourceFile: () => sf, getStart: () => n.getStart() });
+  const entryFiles=[...sources.keys()].filter(file=>entryMatch(path.relative(root,file).split(path.sep).join('/')));
+  const entryCount=entryFiles.length;
+  function scanFile(file,ctx) {
+    const sf=program.getSourceFile(file);
+    run(sf,new Map(),ctx);
+    const visit=n=>{
+      if(exhausted)return;
+      if(ts.isFunctionLike(n) && n.body && !analyzedFunctions.get(n)?.has(ctx.entry))invoke({node:n,env:new Map()},[],ctx,{expression:n.name??n,getSourceFile:()=>sf,getStart:()=>n.getStart()});
+      ts.forEachChild(n,visit);
+    };visit(sf);
+  }
+  for(const file of entryFiles){scanFile(file,{entry:path.relative(root,file).split(path.sep).join('/'),chain:[],active:new Set()});if(exhausted)break;}
+  if(config.includeUnlinked && config.entries.length && !exhausted) {
+    const roots=entryFiles.map(file=>path.relative(root,file).split(path.sep).join('/'));
+    const visited=new Set(roots);
+    while(!exhausted) {
+      const references=reachableAssets(assets,roots);
+      const pending=[...references].filter(([relative])=>!visited.has(relative) && sources.has(path.resolve(root,relative)));
+      if(!pending.length)break;
+      for(const [relative,parents] of pending) {
+        visited.add(relative);
+        scanFile(path.resolve(root,relative),{entry:relative,chain:[],active:new Set(),discovery:'asset-local',referencedBy:[...parents]});
+        if(exhausted)break;
       }
-      ts.forEachChild(n, visit);
-    };
-    visit(sf);
-    if (exhausted) break;
+    }
+    const finalReferences=reachableAssets(assets,roots);
+    for(const endpoint of assetCandidateMap.values())for(const usage of endpoint.usages)usage.referencedBy=[...(finalReferences.get(usage.callChain.at(-1).file)??[])];
+    if(assetCandidateMap.size)diagnostic('UNLINKED_ASSET_CANDIDATES','已保留资产级候选；其参数和业务入口调用关系尚未连接');
   }
   if (!entryCount) diagnostic('NO_ENTRIES', '没有匹配的入口文件');
-  return { schemaVersion: 1, assets, mode: config.entries.length ? 'entries' : 'inventory', stats: { files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
+  return { schemaVersion: 1, assets, assetCandidates:[...assetCandidateMap.values()].sort((a,b)=>`${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), mode: config.entries.length ? 'entries' : 'inventory', stats: { unlinkedScan:!config.includeUnlinked?'disabled':!entryCount?'no-entries':!config.entries.length?'inventory-mode':exhausted?'incomplete':'completed', files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
     endpoints: [...endpoints.values()].sort((a, b) => `${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), diagnostics };
 }
 
@@ -590,5 +660,5 @@ export function markdown(report) {
   return `# 前端接口提取\n\n模式：${report.mode}；文件：${report.stats.files}；接口：${report.endpoints.length}；诊断：${report.diagnostics.length}。\n\n静态潜在调用结果，不代表运行时覆盖率。参数及每条调用链见 JSON。条件之间的 AND/OR 关系以 JSON 中每条 usage 为准。\n\n| 方法 | Host（调用处） | URL | 解析状态 | 条件 | 调用位置 |\n| --- | --- | --- | --- | --- | --- |\n` + report.endpoints.map(e => {
     const conditions = [...new Set(e.usages.flatMap(u=>(u.conditions ?? []).map(c=>`${c.expression} = ${c.outcome}`)))].join('; ') || '—';
     return `| ${escape(e.method)} | ${escape(e.address?.host ?? "未知")} | ${escape(e.url)} | ${e.resolution} | ${escape(conditions)} | ${escape(e.usages.map(u => { const p = u.callChain.at(-1); return `${p.file}:${p.line}`; }).join(', '))} |`;
-  }).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
+  }).join('\n') + `\n\n## 未连接业务入口的资产级候选\n\n这些结果不计入入口接口表；字段和调用关系可能不完整。补漏状态：${report.stats.unlinkedScan ?? '未记录'}。\n\n` + (report.assetCandidates??[]).map(e=>`- ${escape(e.method)} ${escape(e.url)}（${escape(e.usages.map(u=>{const p=u.callChain.at(-1);return p.file+':'+p.line;}).join(', '))}）`).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
 }

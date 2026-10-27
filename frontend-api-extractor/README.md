@@ -1,6 +1,6 @@
 # Frontend API Extractor
 
-从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.3.0。
+从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.4.0。
 
 这是主项目白盒的源码模式实现，不执行目标仓库业务代码、不要求先构建；构建产物联合分析属于独立的增强模式。整体关系见[前端代码仓采集方案](../docs/前端代码仓JS请求API采集.md)。当前为 CLI，统一任务前端与交付模型适配尚待接入。
 
@@ -24,6 +24,16 @@ npm run demo
 
 输出新增 JS assets 清单、address.host/hostState、参数字段路径与构造阶段，以及请求 hook 位置。原有 resolution 仍描述调用处候选；相对 URL 的 Host 可能未知，请单独读取 address.hostState。hook 后的最终网络值没有被静态证明。
 
+## 深层和动态 JS
+
+支持本地 ESM 的 await import/then、模块导出和实参传播，并在 usage.assetPath 中保留可核对的 JS 引用路径。断链时可显式补漏：
+
+```bash
+node src/cli.js /path/to/frontend --include-unlinked --out reports/apis.json
+```
+
+补漏只分析已知引用可达的本地匹配文件，独立输出 assetCandidates，不冒充已连通入口。它不下载远程 JS，也不是浏览器采集器。公开阿里云 JS、实际压缩分块对照和国际站网络阻断记录见[深层 JS 验证](docs/async-assets.md)。
+
 ## 能力与边界
 
 - JS/TS/JSX/TSX、Vue/Svelte 脚本解析；React、Next、Solid、Angular 等脚本共享分析内核。
@@ -35,7 +45,7 @@ npm run demo
 
 ## 文档与测试
 
-- [测试说明](docs/testing.md)：70 项自动化测试；自写的轻量多框架样例包含 19 个预期接口。
+- [测试说明](docs/testing.md)：88 项自动化测试；自写的轻量多框架样例包含 19 个预期接口。
 - [外部源码试跑记录](docs/alibaba-real-world.md)：只记录外部仓库链接、固定提交、范围和结果。
 - [迭代记录](docs/changelog.md)。
 
