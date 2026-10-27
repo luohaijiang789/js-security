@@ -46,6 +46,7 @@ node src/cli.js /path/to/frontend --include-unlinked --out reports/apis.json
 
 ## 文档与测试
 
+- [后续迭代与验证方案](../docs/前端API提取迭代路线与验证.md)：阶段顺序、逐项验收、样本与 AI 边界。
 - [测试说明](docs/testing.md)：99 项自动化测试；自写的轻量多框架样例包含 19 个预期接口。
 - [外部源码试跑记录](docs/alibaba-real-world.md)：只记录外部仓库链接、固定提交、范围和结果。
 - [阿里云站点与新样本分析](docs/aliyun-sites-analysis.md)：站点可达性、Nacos 压缩对照及 OSS SDK/hook 缺口。
