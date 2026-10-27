@@ -6,12 +6,14 @@ import glob from 'fast-glob';
 import picomatch from 'picomatch';
 import { scriptSource } from './adapters.js';
 import { validateConfig } from './config.js';
-import { TAG, UNKNOWN, unknown, hasUnknown, isUnknown, isChoice, text, dynamic, clean, mergeConditions, cloneEnv, createDomain } from './values.js';
+import { TAG, CHANGES, UNKNOWN, unknown, hasUnknown, isUnknown, isChoice, text, dynamic, clean, mergeConditions, cloneEnv, createDomain } from './values.js';
+import {rememberChange,collectChanges,mergeChanges} from './object-changes.js';
 import { libraryClient, requestCall } from './request-clients.js';
 import {referencePath,reachableAssets} from './asset-graph.js';
 import {addressEvidence,parameterFields,builtinNames,staticOperation} from './request-evidence.js';
 
 function mergeObject(target, source, label = 'spread') {
+  if(source?.[CHANGES])target[CHANGES]=mergeChanges(target[CHANGES],source[CHANGES]);
   if (hasUnknown(source)) {
     for (const key of Object.keys(target)) target[key] = unknown(`${label}.${key}`);
     target[UNKNOWN] = source[UNKNOWN];
@@ -38,7 +40,7 @@ export async function analyze(root, options = {}) {
     const k = JSON.stringify(d);
     if (!seenDiagnostics.has(k)) { seenDiagnostics.add(k); diagnostics.push(d); }
   }
-  const {choice,expand,lift} = createDomain(config.maxCandidates,diagnostic);
+  const {choice,expand,lift,references,liftRefs} = createDomain(config.maxCandidates,diagnostic);
   const branch = (node,outcome) => ({expression:node.getText(),outcome,...locate(node)});
   const branchContext = (ctx,condition) => {
     const conditions = mergeConditions(ctx.conditions ?? [],[condition]);
@@ -185,7 +187,9 @@ export async function analyze(root, options = {}) {
     const hooks=[...new Map((client.bindingIds??[]).flatMap(id=>hookRegistrations.get(id)??[]).map(h=>[JSON.stringify(h),h])).values()];
     const address=addressEvidence(rawUrl,base,effective,hooks);
     const extractedFields=parameterFields(constructed,isUnknown(rawUrl)?null:rawUrl);
-    const hookEvidence={address,parameterFields:extractedFields,parameterStage:"call-site",postHookState:hooks.length ? "unknown" : "not-observed",hooks};
+    const objectChanges=collectChanges(data,constructed);
+    if(objectChanges.some(c=>c.operation==='history-truncated'))diagnostic('OBJECT_CHANGE_LIMIT','对象改写证据有截断，不代表完整历史',node);
+    const hookEvidence={address,parameterFields:extractedFields,objectChanges,parameterStage:"call-site",postHookState:hooks.length ? "unknown" : "not-observed",hooks};
     const fields = clean({ query: data.params ?? null, body: data.data !== undefined ? data.data : data.body ?? null, headers: data.headers ?? null });
     const unresolved = [];
     for (const [key, value] of Object.entries({ url: rawUrl, method, baseURL: base, ...fields, spread: data[UNKNOWN] })) {
@@ -290,6 +294,39 @@ export async function analyze(root, options = {}) {
       scope.set(key,choice(paths.map(p=>({value:p.env.get(key),conditions:p.conditions})),node));
     }
   }
+  function effect(ctx,kind) {
+    for(let frame=ctx.effectFrame;frame;frame=frame.parent)frame[kind]=true;
+  }
+  const trackChange=(target,event,node)=>rememberChange(target,event,()=>diagnostic('OBJECT_CHANGE_LIMIT','单对象改写证据超过 128 条，历史已截断，当前值仍按模型求值',node));
+  function invalidateObject(target,reason,node,ctx,seen=new Set()) {
+    if(!target || typeof target!=='object' || target[TAG] || isUnknown(target) || seen.has(target))return;
+    seen.add(target);
+    effect(ctx,'mutated');
+    if(isChoice(target)){for(const option of references([target],node))if(!isUnknown(option.value))invalidateObject(option.value[0],reason,node,ctx,seen);return;}
+    for(const value of Object.values(target))invalidateObject(value,reason,node,ctx,seen);
+    for(const key of Object.keys(target))Object.defineProperty(target,key,{value:unknown(`${reason}.${key}`),enumerable:true,writable:true,configurable:true});
+    target[UNKNOWN]=reason;
+    trackChange(target,{operation:'unknown-write',key:null,expression:node.getText(),conditions:ctx.conditions??[],...locate(node)},node);
+  }
+  function propertyReference(node,env,ctx,visiting) {
+    return {target:evaluate(node.expression,env,ctx,visiting),key:ts.isPropertyAccessExpression(node)?node.name.text:evaluate(node.argumentExpression,env,ctx,visiting),scope:env};
+  }
+  function writeProperty(reference,value,node,ctx,operation='set') {
+    const {target,key}=reference;
+    if(!target || typeof target!=='object' || target[TAG] || isUnknown(target)&&!target[CHANGES]) {
+      diagnostic('UNRESOLVED_ASSIGNMENT','无法确定属性改写对象',node);return;
+    }
+    effect(ctx,'mutated');
+    if(isChoice(target) || isChoice(key) || isUnknown(key) || !['string','number'].includes(typeof key)) {
+      invalidateObject(target,'dynamic property mutation',node,ctx);
+      if(isChoice(target))for(const value of reference.scope?.values()??[])invalidateObject(value,'ambiguous mutation alias',node,ctx);
+      diagnostic('DYNAMIC_PROPERTY_MUTATION','属性目标或键不确定，可能覆盖/删除的字段保持未知',node);return;
+    }
+    const name=String(key),previous=Object.hasOwn(target,name)?clean(target[name]):undefined;
+    if(operation==='delete')delete target[name];
+    else Object.defineProperty(target,name,{value,enumerable:true,writable:true,configurable:true});
+    trackChange(target,{operation,key:name,previous,...(operation==='delete'?{}:{value:clean(value)}),expression:node.getText(),conditions:ctx.conditions??[],...locate(node)},node);
+  }
   function evaluate(node, env, ctx, visiting = new Set()) {
     if (!node || !tick(node)) return unknown('missing');
     if(ts.isAwaitExpression(node))return lift([evaluate(node.expression,env,ctx,visiting)],value=>value?.[TAG]==='module-promise'?value.namespace:value,node);
@@ -298,8 +335,17 @@ export async function analyze(root, options = {}) {
     if (node.kind === ts.SyntaxKind.TrueKeyword) return true;
     if (node.kind === ts.SyntaxKind.FalseKeyword) return false;
     if (node.kind === ts.SyntaxKind.NullKeyword) return null;
+    if(ts.isDeleteExpression(node)) {
+      if(ts.isPropertyAccessExpression(node.expression) || ts.isElementAccessExpression(node.expression)){writeProperty(propertyReference(node.expression,env,ctx,visiting),undefined,node,ctx,'delete');return true;}
+      diagnostic('UNRESOLVED_ASSIGNMENT','delete 目标不受支持',node);return unknown(node.getText());
+    }
     if (ts.isIdentifier(node) && node.text === 'undefined' && !symbol(node)?.valueDeclaration) return undefined;
     if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) return { [TAG]: 'function', node, env };
+    if((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken,ts.SyntaxKind.MinusMinusToken].includes(node.operator)) {
+      if(ts.isPropertyAccessExpression(node.operand) || ts.isElementAccessExpression(node.operand))writeProperty(propertyReference(node.operand,env,ctx,visiting),unknown(node.getText()),node,ctx);
+      else if(ts.isIdentifier(node.operand))env.set(symbol(node.operand),unknown(node.getText()));
+      diagnostic('UNRESOLVED_ASSIGNMENT','自增/自减尚未建模，改写值保持未知',node);return unknown(node.getText());
+    }
     if (ts.isPrefixUnaryExpression(node)) {
       const value = evaluate(node.operand,env,ctx,visiting);
       return lift([value],v => isUnknown(v) ? unknown(node.getText()) : node.operator === ts.SyntaxKind.ExclamationToken ? !v : node.operator === ts.SyntaxKind.MinusToken ? -v : node.operator === ts.SyntaxKind.PlusToken ? +v : unknown(node.getText()),node);
@@ -311,15 +357,23 @@ export async function analyze(root, options = {}) {
     }
     if(ts.isBinaryExpression(node) && node.operatorToken.kind===ts.SyntaxKind.CommaToken){evaluate(node.left,env,ctx,visiting);return evaluate(node.right,env,ctx,visiting);}
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.EqualsToken) {
+      const reference=ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left)?propertyReference(node.left,env,ctx,visiting):null;
       const value = evaluate(node.right,env,ctx,visiting);
       if (ts.isIdentifier(node.left)) env.set(symbol(node.left),value);
-      else if (ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left)) {
-        const target = evaluate(node.left.expression,env,ctx,visiting);
-        const key = ts.isPropertyAccessExpression(node.left) ? node.left.name.text : evaluate(node.left.argumentExpression,env,ctx,visiting);
-        if (target && typeof target === 'object' && !isUnknown(target) && !isUnknown(key)) Object.defineProperty(target,key,{value,enumerable:true,writable:true,configurable:true});
-        else diagnostic('UNRESOLVED_ASSIGNMENT','无法精确更新属性赋值',node);
-      }
+      else if(reference)writeProperty(reference,value,node,ctx);
       return value;
+    }
+    if(ts.isBinaryExpression(node) && node.operatorToken.kind>=ts.SyntaxKind.FirstCompoundAssignment && node.operatorToken.kind<=ts.SyntaxKind.LastCompoundAssignment) {
+      if(ts.isPropertyAccessExpression(node.left) || ts.isElementAccessExpression(node.left)) {
+        const reference=propertyReference(node.left,env,ctx,visiting);
+        const previous=!isUnknown(reference.key) && reference.target!=null?reference.target[reference.key]:unknown(node.left.getText());
+        const right=evaluate(node.right,env,ctx,visiting);
+        const value=node.operatorToken.kind===ts.SyntaxKind.PlusEqualsToken?lift([previous,right],(a,b)=>typeof a==='number'&&typeof b==='number'?a+b:text(a)+text(b),node):unknown(node.getText());
+        if(node.operatorToken.kind!==ts.SyntaxKind.PlusEqualsToken)diagnostic('UNRESOLVED_ASSIGNMENT','复合赋值操作未建模，值保持未知',node);
+        writeProperty(reference,value,node,ctx);return value;
+      }
+      evaluate(node.right,env,ctx,visiting);
+      diagnostic('UNRESOLVED_ASSIGNMENT','复合变量赋值未建模',node);if(ts.isIdentifier(node.left))env.set(symbol(node.left),unknown(node.getText()));return unknown(node.getText());
     }
     if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.PlusToken) {
       const a = evaluate(node.left, env, ctx, visiting), b = evaluate(node.right, env, ctx, visiting);
@@ -350,6 +404,7 @@ export async function analyze(root, options = {}) {
           const useRight = op === ts.SyntaxKind.AmpersandAmpersandToken ? Boolean(option.value) : op === ts.SyntaxKind.BarBarToken ? !option.value : option.value == null;
           options.push({value:useRight ? evaluate(node.right,env,{...ctx,conditions:base},visiting) : option.value,conditions:option.conditions});
         } else {
+          effect(ctx,'branched');
           diagnostic('DYNAMIC_BRANCH','短路表达式按潜在调用分析',node);
           const take = op !== ts.SyntaxKind.BarBarToken;
           const condition = outcome => ({...branch(node.left,outcome),...(op === ts.SyntaxKind.QuestionQuestionToken ? {expression:`${node.left.getText()} == null`} : {})});
@@ -366,11 +421,17 @@ export async function analyze(root, options = {}) {
       for (const p of node.properties) {
         if (ts.isSpreadAssignment(p)) {
           const value = evaluate(p.expression, env, ctx, visiting);
-          obj = lift([obj,value],(base,value) => mergeObject({...base},value,p.expression.getText()),p);
+          obj = liftRefs([obj,value],(base,value) => mergeObject({...base},value,p.expression.getText()),p);
         } else if (ts.isPropertyAssignment(p) || ts.isShorthandPropertyAssignment(p)) {
-          const key = ts.isComputedPropertyName(p.name) ? text(evaluate(p.name.expression, env, ctx, visiting)) : p.name.text;
+          const key = ts.isComputedPropertyName(p.name) ? evaluate(p.name.expression, env, ctx, visiting) : p.name.text;
           const value = evaluate(ts.isPropertyAssignment(p) ? p.initializer : p.name,env,ctx,visiting);
-          obj = lift([obj,key,value],(base,key,value) => ({...base,[key]:value}),p);
+          obj = liftRefs([obj,key,value],(base,key,value) => {
+            const result={...base};
+            if(isUnknown(key) || !['string','number'].includes(typeof key)) {
+              invalidateObject(result,'dynamic object key',p,ctx);diagnostic('DYNAMIC_PROPERTY_MUTATION','对象字面量的计算键未知',p);
+            } else Object.defineProperty(result,String(key),{value,enumerable:true,writable:true,configurable:true});
+            return result;
+          },p);
         } else if (ts.isMethodDeclaration(p)) obj = lift([obj],base => ({...base,[p.name.text]:{[TAG]:'function',node:p,env}}),p);
       }
       return obj;
@@ -391,7 +452,7 @@ export async function analyze(root, options = {}) {
       if (ts.isIdentifier(node) && node.text === 'fetch' && s?.declarations?.every(d => program.isSourceFileDefaultLibrary(d.getSourceFile()))) return { [TAG]: 'client', kind: 'fetch' };
       if (ts.isPropertyAccessExpression(node)) {
         const object = evaluate(node.expression,env,ctx,visiting);
-        if (object != null && !isUnknown(object)) return lift([object],value => {
+        if (object != null && !isUnknown(object)) return liftRefs([object],value => {
           if(value?.[TAG]==='module')return moduleExport(value,node.name.text,env,ctx,node);
           if(value?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:value.namespace};
           if (value?.[TAG] === 'client') return {...value,member:node.name.text};
@@ -421,7 +482,7 @@ export async function analyze(root, options = {}) {
       if (ts.isPropertyAccessExpression(node)) {
         if (node.name.text === 'fetch' && ts.isIdentifier(node.expression) && ['globalThis', 'window', 'self'].includes(node.expression.text) && !symbol(node.expression)?.valueDeclaration && !lexicalDeclaration(node,node.expression.text)) return { [TAG]: 'client', kind: 'fetch' };
         const object = evaluate(node.expression, env, ctx, visiting);
-        return lift([object],object => {
+        return liftRefs([object],object => {
           if(object?.[TAG]==='module')return moduleExport(object,node.name.text,env,ctx,node);
           if(object?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:object.namespace};
           if (object?.[TAG] === 'client') return {...object,member:node.name.text};
@@ -434,7 +495,7 @@ export async function analyze(root, options = {}) {
     }
     if (ts.isElementAccessExpression(node)) {
       const value = evaluate(node.expression, env, ctx, visiting), key = evaluate(node.argumentExpression, env, ctx, visiting);
-      return lift([value,key],(v,k) => v?.[TAG]==='module' ? moduleExport(v,k,env,ctx,node) : !isUnknown(v) && v != null && !isUnknown(k) ? v[k] : unknown(node.getText()),node);
+      return liftRefs([value,key],(v,k) => v?.[TAG]==='module' ? moduleExport(v,k,env,ctx,node) : !isUnknown(v) && v != null && !isUnknown(k) && Object.hasOwn(v,k) ? v[k] : unknown(node.getText()),node);
     }
     if (ts.isNewExpression(node)) {
       const name = node.expression.getText();
@@ -458,14 +519,17 @@ export async function analyze(root, options = {}) {
       const target = evaluate(node.expression, env, ctx, visiting);
       if(target?.[TAG]==='intrinsic' && target.method==='Object.assign') {
         const args=node.arguments.map(a=>evaluate(a,env,ctx,visiting));
-        if(!args[0] || typeof args[0]!=='object' || isUnknown(args[0]) || args.some(isChoice)){diagnostic('UNMODELED_ASSIGN','动态 Object.assign 不能精确更新',node);return unknown(node.getText());}
-        for(const source of args.slice(1))mergeObject(args[0],source,'Object.assign');
+        if(!args[0] || typeof args[0]!=='object' || isUnknown(args[0]) || args.some(isChoice)){invalidateObject(args[0],'dynamic Object.assign',node,ctx);diagnostic('UNMODELED_ASSIGN','动态 Object.assign 不能精确更新',node);return unknown(node.getText());}
+        for(const source of args.slice(1)) {
+          if(hasUnknown(source)){invalidateObject(args[0],'unknown Object.assign source',node,ctx);diagnostic('UNMODELED_ASSIGN','Object.assign 来源含未知覆盖',node);}
+          if(source!=null)for(const [key,value] of Object.entries(source))if(key!==UNKNOWN)writeProperty({target:args[0],key},value,node,ctx);
+        }
         return args[0];
       }
       let args = [];
       for (const argument of node.arguments) {
         const value = evaluate(ts.isSpreadElement(argument) ? argument.expression : argument,env,ctx,visiting);
-        args = lift([args,value],(previous,value) => {
+        args = liftRefs([args,value],(previous,value) => {
           if (!ts.isSpreadElement(argument)) return [...previous,value];
           if (Array.isArray(value)) return [...previous,...value];
           diagnostic('DYNAMIC_SPREAD','实参展开不是静态数组，后续实参位置未知',argument);
@@ -473,7 +537,7 @@ export async function analyze(root, options = {}) {
         },argument);
       }
       const options = [];
-      for (const option of expand([target,args],node)) {
+      for (const option of references([target,args],node)) {
         const conditions = mergeConditions(ctx.conditions ?? [],option.conditions);
         if (!conditions) continue;
         options.push({value:isUnknown(option.value) ? option.value : applyCall(option.value[0],option.value[1],{...ctx,conditions},node),conditions:option.conditions});
@@ -482,28 +546,38 @@ export async function analyze(root, options = {}) {
     }
     if (ts.isConditionalExpression(node)) {
       const condition = evaluate(node.condition, env, ctx, visiting);
-      const options = [];
+      const options = [],paths=[];
       for (const option of expand(condition,node.condition)) {
         const base = mergeConditions(ctx.conditions ?? [],option.conditions);
         if (!base) continue;
         const known = !isUnknown(option.value);
-        if (!known) diagnostic('DYNAMIC_BRANCH','三元表达式保留两个候选',node);
+        if (!known) {effect(ctx,'branched');diagnostic('DYNAMIC_BRANCH','三元表达式保留两个候选',node);}
         for (const outcome of known ? [Boolean(option.value)] : [true,false]) {
           const conditions = known ? option.conditions : [...option.conditions,branch(node.condition,outcome)];
           const next = mergeConditions(base,conditions);
-          if (next) options.push({value:evaluate(outcome ? node.whenTrue : node.whenFalse,cloneEnv(env),{...ctx,conditions:next},visiting),conditions});
+          if (next) {
+            const scope=cloneEnv(env);
+            options.push({value:evaluate(outcome ? node.whenTrue : node.whenFalse,scope,{...ctx,conditions:next},visiting),conditions});
+            paths.push({env:scope,conditions});
+          }
         }
       }
+      if(paths.length)mergeExpressionEffects(env,paths,node);
       return choice(options,node);
     }
     return unknown(node.getText());
   }
   function applyCall(target,args,ctx,node) {
     if (target?.[TAG] === 'client') {
-      const result = requestCall(target,args,mergeConfig);
-      if (Object.hasOwn(result,'value')) return result.value;
-      record(node,target,result.method,result.url,result.data,ctx);
-      return unknown('response');
+      const results=[];
+      for(const option of expand(args,node)) {
+        const conditions=mergeConditions(ctx.conditions??[],option.conditions);if(!conditions)continue;
+        if(isUnknown(option.value)){results.push({value:option.value,conditions});continue;}
+        const result=requestCall(target,option.value,mergeConfig);
+        if(Object.hasOwn(result,'value'))results.push({value:result.value,conditions});
+        else {record(node,target,result.method,result.url,result.data,{...ctx,conditions});results.push({value:unknown('response'),conditions});}
+      }
+      return choice(results,node);
     }
     if (target?.[TAG] === 'function') return invoke(target,args,ctx,node);
     if (target?.[TAG] === 'intrinsic') {
@@ -521,6 +595,11 @@ export async function analyze(root, options = {}) {
       return target.method === 'map' ? results : undefined;
     }
     for (const arg of args) if (arg?.[TAG] === 'function') invoke(arg,[],ctx,node);
+    const mutableArgs=args.filter(arg=>arg && typeof arg==='object'&&!arg[TAG]&&!isUnknown(arg));
+    if(mutableArgs.length) {
+      diagnostic('UNKNOWN_CALL_EFFECTS','未知调用可能修改传入对象，后续值保守保持未知',node);
+      for(const arg of mutableArgs)invalidateObject(arg,'unknown call effects',node,ctx);
+    }
     const name = node.expression.getText();
     if (ts.isIdentifier(node.expression) && !['require','console'].includes(name)) diagnostic('UNRESOLVED_CALL',`无法追踪调用 ${name}`,node);
     return unknown(node.getText());
@@ -535,8 +614,14 @@ export async function analyze(root, options = {}) {
       const value = p.dotDotDotToken ? args.slice(i) : args[i] !== undefined ? args[i] : p.initializer ? evaluate(p.initializer, env, ctx) : unknown(p.name.getText());
       bind(p.name, value, env, ctx);
     });
-    const next = { ...ctx, active: new Set(ctx.active).add(fn.node), chain: [...ctx.chain, { symbol: fn.node.name?.getText() ?? call.expression.getText(), ...locate(call) }] };
-    return fn.node.body && ts.isBlock(fn.node.body) ? run(fn.node.body, env, next) : evaluate(fn.node.body, env, next);
+    const frame={parent:ctx.effectFrame,branched:false,mutated:false};
+    const next = { ...ctx,effectFrame:frame, active: new Set(ctx.active).add(fn.node), chain: [...ctx.chain, { symbol: fn.node.name?.getText() ?? call.expression.getText(), ...locate(call) }] };
+    const result=fn.node.body && ts.isBlock(fn.node.body) ? run(fn.node.body, env, next) : evaluate(fn.node.body, env, next);
+    if(frame.branched && frame.mutated) {
+      diagnostic('CONDITIONAL_CALL_EFFECTS','函数内条件改写尚未精确合并到调用方，对象副作用保持未知',call);
+      const seen=new Set();for(const value of [...args,...fn.env.values()])invalidateObject(value,'conditional call effects',call,ctx,seen);
+    }
+    return result;
   }
   function run(node, env, ctx) {
     const empty = (continuations = []) => ({continuations,returns:[],breaks:[],continues:[]});
@@ -609,7 +694,7 @@ export async function analyze(root, options = {}) {
           const known = !isUnknown(option.value) && !isChoice(option.value);
           const base = mergeConditions(state.ctx.conditions ?? [],option.conditions);
           if (!base) continue;
-          if (!known) diagnostic('DYNAMIC_BRANCH','动态条件按独立候选路径分析',n);
+          if (!known) {effect(state.ctx,'branched');diagnostic('DYNAMIC_BRANCH','动态条件按独立候选路径分析',n);}
           for (const outcome of known ? [Boolean(option.value)] : [true,false]) {
             const next = known ? {...state.ctx,conditions:base} : branchContext({...state.ctx,conditions:base},branch(n.expression,outcome));
             if (!next) continue;
