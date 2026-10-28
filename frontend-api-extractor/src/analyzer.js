@@ -6,7 +6,8 @@ import glob from 'fast-glob';
 import picomatch from 'picomatch';
 import { scriptSource } from './adapters.js';
 import { validateConfig } from './config.js';
-import { TAG, CHANGES, UNKNOWN, unknown, hasUnknown, isUnknown, isChoice, text, dynamic, clean, mergeConditions, cloneEnv, createDomain } from './values.js';
+import { TAG, CHANGES, CLIENT_STATE, UNKNOWN, unknown, hasUnknown, isUnknown, isChoice, text, dynamic, clean, mergeConditions, cloneEnv, createDomain } from './values.js';
+import {newHookState,interceptorProperty,inspectHook} from './request-hooks.js';
 import {rememberChange,collectChanges,mergeChanges} from './object-changes.js';
 import { libraryClient, requestCall } from './request-clients.js';
 import {referencePath,reachableAssets} from './asset-graph.js';
@@ -33,12 +34,85 @@ function mergeConfig(base, overrides) {
 export async function analyze(root, options = {}) {
   root = path.resolve(root);
   const config = validateConfig(root, options);
+  let hookDiagnosticCodes=null;
   const diagnostics = [], seenDiagnostics = new Set();
   function diagnostic(code, message, node) {
+    hookDiagnosticCodes?.push(code);
     const location = node ? locate(node) : undefined;
     const d = { code, message, ...location };
     const k = JSON.stringify(d);
     if (!seenDiagnostics.has(k)) { seenDiagnostics.add(k); diagnostics.push(d); }
+  }
+  function controlHook(target,args,ctx,node) {
+    const state=target.state,key=siteKey(node);
+    state.seen.add(key);
+    if(ctx.conditions?.length||ctx.discovery==='asset-local')state.gaps.push('conditional or unlinked interceptor control');
+    if(target.method==='axios-request-use') {
+      const gap=inspectHook(args[0],args[1],args[2],expression=>{
+        const root=ts.isPropertyAccessExpression(expression)?expression.expression:expression;
+        return !symbol(root)?.declarations?.length&&!lexicalDeclaration(expression,root.getText());
+      },symbol,identifier=>{
+        const s=symbol(identifier),d=s?.valueDeclaration??s?.declarations?.[0];
+        if(d&&d.getSourceFile()===args[0].node.getSourceFile()&&d.pos>=args[0].node.pos&&d.end<=args[0].node.end)return true;
+        const value=args[0].env.get(s);
+        if(value&&typeof value==='object'&&!isUnknown(value))return false;
+        return !d?.initializer||!ts.isObjectLiteralExpression(d.initializer)&&!ts.isArrayLiteralExpression(d.initializer)&&!ts.isNewExpression(d.initializer);
+      });
+      const registration={id:state.nextId++,fn:args[0],gap,evidence:{kind:'request',...locate(node),expression:node.expression.getText(),state:gap?'unmodeled':'eligible'}};
+      state.hooks.push(registration);
+      if(!gap){if(!analyzedFunctions.has(args[0].node))analyzedFunctions.set(args[0].node,new Set());analyzedFunctions.get(args[0].node).add(ctx.entry);}
+      return registration.id;
+    }
+    if(target.method==='axios-request-clear'){state.hooks=[];return undefined;}
+    if(!Number.isInteger(args[0])){state.gaps.push('eject ID unresolved');return undefined;}
+    state.hooks=state.hooks.filter(h=>h.id!==args[0]);return undefined;
+  }
+  function hookInfo(client,node) {
+    const state=client[CLIENT_STATE];
+    const controls=[...new Map((client.bindingIds??[]).flatMap(id=>hookControls.get(id)??[]).map(c=>[c.key,c])).values()];
+    const topLevel=n=>{for(let p=n.parent;p&&!ts.isSourceFile(p);p=p.parent)if(ts.isFunctionLike(p)||ts.isIfStatement(p)||ts.isBlock(p))return false;return true;};
+    const unseen=controls.filter(c=>!state?.seen.has(c.key)&&!(c.node.getSourceFile()===node.getSourceFile()&&c.node.getStart()>node.getStart()&&topLevel(c.node)&&topLevel(node)));
+    const registrations=state?.hooks??[];
+    return {registrations,hooks:[...registrations.map(h=>h.evidence),...unseen.map(c=>c.evidence)],gaps:[...(state?.gaps??[]),...unseen.map(()=> 'interceptor control not connected to this instance')],observed:Boolean(state?.seen.size||state?.gaps.length||unseen.length)};
+  }
+  function modelHooks(info,method,url,data,ctx,node) {
+    const fail=gap=>({state:'unknown',variants:[],executionOrder:[],gaps:[gap]});
+    if(info.gaps.length)return {...fail('interceptor order/registration unresolved'),gaps:[...new Set(info.gaps)]};
+    let cfg={...data,method:typeof method==='string'?method.toLowerCase():method,url:url??unknown('url'),headers:data.headers??{}};
+    for(const key of [TAG,CLIENT_STATE,'bindingIds','kind','member'])delete cfg[key];
+    cfg=cloneEnv(new Map([['cfg',cfg]])).get('cfg');
+    const order=[];
+    for(const registration of [...info.registrations].reverse()) {
+      if(registration.gap)return fail(registration.gap);
+      const previous=hookDiagnosticCodes;hookDiagnosticCodes=[];
+      let result,codes;
+      try {result=invoke({...registration.fn,env:cloneEnv(registration.fn.env)},[cfg],{...ctx,hookEvaluation:true},node);codes=hookDiagnosticCodes;}
+      finally {hookDiagnosticCodes=previous;}
+      if(codes.length)return fail('hook evaluation gap: '+[...new Set(codes)].join(', '));
+      if(!result||typeof result!=='object'||isUnknown(result)||isChoice(result)||result[TAG]||!Object.hasOwn(result,'url')||!Object.hasOwn(result,'method'))return fail('hook did not return a supported config object');
+      cfg=result;order.push(registration.evidence);
+    }
+    const variants=[];
+    for(const option of expand(cfg,node)) {
+      if(isUnknown(option.value))return fail('hook result candidates unresolved');
+      const conditions=mergeConditions(ctx.conditions??[],option.conditions);if(!conditions)continue;
+      const value=option.value,requestUrl=clean(value.url??unknown('url')),base=clean(value.baseURL??null);
+      let effective=text(requestUrl);
+      if(base&&!/^([a-z]+:)?\/\//i.test(effective))effective=`${text(base).replace(/\/$/,'')}/${effective.replace(/^\//,'')}`;
+      const fields={query:value.params??null,body:value.data??value.body??null,headers:value.headers??null};
+      const payloadFields={...fields},serializationInputFields=[];
+      if(fields.body?.[TAG]==='serialized') {
+        serializationInputFields.push(...parameterFields({body:fields.body.input},null).map(f=>({...f,stage:'serialization-input'})));
+        const encoded=fields.body.value;
+        if(typeof encoded==='string'){try{payloadFields.body=JSON.parse(encoded);}catch{payloadFields.body=unknown('encoded body structure');}}
+        else payloadFields.body=encoded===undefined?undefined:unknown('encoded body structure');
+      }
+      const address={...addressEvidence(requestUrl,base,effective),stage:'after-request-hooks'};
+      const changes=collectChanges(value,fields).map(c=>({...c,stage:'after-request-hooks'}));
+      const methodValue=clean(value.method??unknown('method'));
+      variants.push({method:isUnknown(methodValue)?text(methodValue):String(methodValue).toUpperCase(),url:effective,address,...clean(fields),parameterFields:parameterFields(payloadFields,requestUrl).map(f=>({...f,stage:'after-request-hooks'})),serializationInputFields,objectChanges:changes,conditions,resolution:dynamic({requestUrl,method:value.method,base,...fields,spread:value[UNKNOWN]})||conditions.length?'partial':'resolved'});
+    }
+    return {state:'modeled',variants,executionOrder:order,gaps:[],scope:'supported synchronous request interceptors; before Axios transport/transformRequest'};
   }
   const {choice,expand,lift,references,liftRefs} = createDomain(config.maxCandidates,diagnostic);
   const branch = (node,outcome) => ({expression:node.getText(),outcome,...locate(node)});
@@ -83,6 +157,15 @@ export async function analyze(root, options = {}) {
   });
   const program = ts.createProgram([...sources.keys()], compilerOptions, host);
   const checker = program.getTypeChecker();
+  const axiosLibraryStates=new Map();
+  const knownLibrary=(name,member,ctx)=>{
+    const value=libraryClient(name,member);
+    if(config.modelRequestHooks&&value?.kind==='axios') {
+      if(!axiosLibraryStates.has(ctx.entry))axiosLibraryStates.set(ctx.entry,newHookState());
+      value[CLIENT_STATE]=axiosLibraryStates.get(ctx.entry);
+    }
+    return value;
+  };
   const mutableWrites=new Set();
   const assets=files.map(file=>{
     const sf=program.getSourceFile(file),imports=[];
@@ -137,14 +220,20 @@ export async function analyze(root, options = {}) {
     }
     return d ? `${d.getSourceFile().fileName}:${d.getStart()}` : null;
   };
-  const hookRegistrations=new Map();
+  const hookRegistrations=new Map(),hookControls=new Map();
+  const siteKey=node=>`${node.getSourceFile().fileName}:${node.getStart()}`;
+  const access=node=>ts.isPropertyAccessExpression(node)?{object:node.expression,name:node.name.text}:ts.isElementAccessExpression(node)&&node.argumentExpression&&ts.isStringLiteralLike(node.argumentExpression)?{object:node.expression,name:node.argumentExpression.text}:null;
   for(const sf of program.getSourceFiles().filter(s=>sources.has(s.fileName))) {
     const visit=node=>{
-      if(ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-        const use=node.expression,request=use.expression;
-        if(use.name.text==='use' && ts.isPropertyAccessExpression(request) && request.name.text==='request' && ts.isPropertyAccessExpression(request.expression) && request.expression.name.text==='interceptors') {
-          const id=bindingId(request.expression.expression);
-          if(id){if(!hookRegistrations.has(id))hookRegistrations.set(id,[]);hookRegistrations.get(id).push({kind:'request',...locate(node),expression:use.getText(),state:'unmodeled'});}
+      if(ts.isCallExpression(node)) {
+        const use=access(node.expression),request=use&&access(use.object),interceptors=request&&access(request.object);
+        if(use&&['use','eject','clear'].includes(use.name)&&request?.name==='request'&&interceptors?.name==='interceptors') {
+          const id=bindingId(interceptors.object);
+          if(id){
+            const evidence={kind:'request',...locate(node),expression:node.expression.getText(),state:'unmodeled'};
+            if(!hookControls.has(id))hookControls.set(id,[]);hookControls.get(id).push({node,key:siteKey(node),evidence});
+            if(use.name==='use'){if(!hookRegistrations.has(id))hookRegistrations.set(id,[]);hookRegistrations.get(id).push(evidence);}
+          }
         }
       }
       ts.forEachChild(node,visit);
@@ -184,7 +273,8 @@ export async function analyze(root, options = {}) {
     if (base && !/^([a-z]+:)?\/\//i.test(effective)) effective = `${text(base).replace(/\/$/, '')}/${effective.replace(/^\//, '')}`;
     const verb = isUnknown(method) ? text(method) : String(method ?? 'GET').toUpperCase();
     const constructed = { query: data.params ?? null, body: data.data !== undefined ? data.data : data.body ?? null, headers: data.headers ?? null };
-    const hooks=[...new Map((client.bindingIds??[]).flatMap(id=>hookRegistrations.get(id)??[]).map(h=>[JSON.stringify(h),h])).values()];
+    const info=config.modelRequestHooks?hookInfo(client,node):null;
+    const hooks=info?info.hooks:[...new Map((client.bindingIds??[]).flatMap(id=>hookRegistrations.get(id)??[]).map(h=>[JSON.stringify(h),h])).values()];
     const address=addressEvidence(rawUrl,base,effective,hooks);
     const extractedFields=parameterFields(constructed,isUnknown(rawUrl)?null:rawUrl);
     const objectChanges=collectChanges(data,constructed);
@@ -196,7 +286,7 @@ export async function analyze(root, options = {}) {
       if (dynamic(value) || key === 'spread' && value) unresolved.push(key === 'spread' ? `未知配置展开: ${value}` : `${key} 含动态值`);
     }
     if(ctx.discovery==='asset-local')unresolved.push('业务入口未连接，值仅为资产级局部候选');
-    if(hooks.length){unresolved.push('request hook 未建模，Host/URL/参数可能继续变化');diagnostic('REQUEST_HOOK_UNMODELED','检测到可能的请求拦截器；仅报告调用处构造值',node);}
+    if(hooks.length||info?.observed){unresolved.push(config.modelRequestHooks?'request hook 后结果另见 afterRequestHooks':'request hook 未建模，Host/URL/参数可能继续变化');if(!config.modelRequestHooks)diagnostic('REQUEST_HOOK_UNMODELED','检测到可能的请求拦截器；仅报告调用处构造值',node);}
     if (ctx.conditions?.length) unresolved.push('接口属于条件分支候选');
     const resolution = isUnknown(rawUrl) ? 'unresolved' : unresolved.length ? 'partial' : 'resolved';
     const key = JSON.stringify([verb, effective]);
@@ -207,12 +297,21 @@ export async function analyze(root, options = {}) {
     if(hooks.length){ep.postHookState='unknown';ep.hooks=[...new Map([...ep.hooks,...hooks].map(h=>[JSON.stringify(h),h])).values()];if(ep.address.host)ep.address={...ep.address,hostState:'partial'};}
     if ({resolved:0,partial:1,unresolved:2}[resolution] > {resolved:0,partial:1,unresolved:2}[ep.resolution]) ep.resolution = resolution;
     if (!ep.usages.some(u => JSON.stringify(u) === JSON.stringify(usage))) ep.usages.push(usage);
+    if(info?.observed) {
+      // Keep the call-site result even if hook evaluation hits the shared budget.
+      const after={state:'unknown',variants:[],executionOrder:[],gaps:['hook evaluation interrupted']};
+      usage.afterRequestHooks=after;
+      Object.assign(after,modelHooks(info,method,url,data,ctx,node));
+      usage.postHookState=after.state==='modeled'?'modeled':'unknown';
+      ep.postHookState=ep.usages.some(u=>u.postHookState==='unknown')?'unknown':ep.usages.some(u=>u.postHookState==='modeled')?'modeled':'not-observed';
+      if(after.state==='unknown')diagnostic('REQUEST_HOOK_UNMODELED',after.gaps.join('; '),node);
+    }
   }
-  function clientImport(s) {
+  function clientImport(s,ctx) {
     for (const d of s?.declarations ?? []) {
       let p = d;
       while (p && !ts.isImportDeclaration(p)) p = p.parent;
-      if (p) return libraryClient(p.moduleSpecifier.text,ts.isImportSpecifier(d) ? d.propertyName?.text ?? d.name.text : ts.isNamespaceImport(d) ? '*' : 'default');
+      if (p) return knownLibrary(p.moduleSpecifier.text,ts.isImportSpecifier(d) ? d.propertyName?.text ?? d.name.text : ts.isNamespaceImport(d) ? '*' : 'default',ctx);
     }
   }
   function bind(pattern, value, env, ctx) {
@@ -235,7 +334,7 @@ export async function analyze(root, options = {}) {
   function requireModule(node, env, ctx, visiting) {
     const name = node.arguments[0];
     if (!name || !ts.isStringLiteralLike(name)) { diagnostic('DYNAMIC_REQUIRE', '无法解析动态 require', node); return unknown(node.getText()); }
-    const library = libraryClient(name.text);
+    const library = knownLibrary(name.text,'default',ctx);
     if (library) return library;
     const resolved = ts.resolveModuleName(name.text, node.getSourceFile().fileName, compilerOptions, host).resolvedModule?.resolvedFileName;
     if (!resolved || !sources.has(resolved)) { diagnostic('UNRESOLVED_MODULE', `未扫描的 require 模块 ${name.text}`, node); return unknown(node.getText()); }
@@ -314,6 +413,7 @@ export async function analyze(root, options = {}) {
   function writeProperty(reference,value,node,ctx,operation='set') {
     const {target,key}=reference;
     if(!target || typeof target!=='object' || target[TAG] || isUnknown(target)&&!target[CHANGES]) {
+      if(config.modelRequestHooks&&target?.[CLIENT_STATE])target[CLIENT_STATE].gaps.push('unsupported client/defaults write');
       diagnostic('UNRESOLVED_ASSIGNMENT','无法确定属性改写对象',node);return;
     }
     effect(ctx,'mutated');
@@ -444,8 +544,8 @@ export async function analyze(root, options = {}) {
     if (ts.isIdentifier(node) || ts.isPropertyAccessExpression(node)) {
       const original = checker.getSymbolAtLocation(node), s = symbol(node);
       if (env.has(s)) return env.get(s);
-      const imported = clientImport(original);
-      if (imported) return imported;
+      const imported = clientImport(original,ctx);
+      if (imported) return config.modelRequestHooks?attachBinding(imported,node):imported;
       if (ts.isIdentifier(node) && node.text === 'fetch' && !s) return { [TAG]: 'client', kind: 'fetch' };
       if (ts.isIdentifier(node) && node.text === '$fetch' && !s) return {[TAG]:'client',kind:'ofetch'};
       // lib.dom's global fetch is a declaration, whereas project-local fetch is not.
@@ -453,6 +553,7 @@ export async function analyze(root, options = {}) {
       if (ts.isPropertyAccessExpression(node)) {
         const object = evaluate(node.expression,env,ctx,visiting);
         if (object != null && !isUnknown(object)) return liftRefs([object],value => {
+          if(config.modelRequestHooks){const interceptor=interceptorProperty(value,node.name.text);if(interceptor)return interceptor;if(value?.[TAG]==='intrinsic'&&value.method.startsWith('axios-'))return unknown(node.getText());}
           if(value?.[TAG]==='module')return moduleExport(value,node.name.text,env,ctx,node);
           if(value?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:value.namespace};
           if (value?.[TAG] === 'client') return {...value,member:node.name.text};
@@ -483,6 +584,7 @@ export async function analyze(root, options = {}) {
         if (node.name.text === 'fetch' && ts.isIdentifier(node.expression) && ['globalThis', 'window', 'self'].includes(node.expression.text) && !symbol(node.expression)?.valueDeclaration && !lexicalDeclaration(node,node.expression.text)) return { [TAG]: 'client', kind: 'fetch' };
         const object = evaluate(node.expression, env, ctx, visiting);
         return liftRefs([object],object => {
+          if(config.modelRequestHooks){const interceptor=interceptorProperty(object,node.name.text);if(interceptor)return interceptor;if(object?.[TAG]==='intrinsic'&&object.method.startsWith('axios-'))return unknown(node.getText());}
           if(object?.[TAG]==='module')return moduleExport(object,node.name.text,env,ctx,node);
           if(object?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:object.namespace};
           if (object?.[TAG] === 'client') return {...object,member:node.name.text};
@@ -495,7 +597,13 @@ export async function analyze(root, options = {}) {
     }
     if (ts.isElementAccessExpression(node)) {
       const value = evaluate(node.expression, env, ctx, visiting), key = evaluate(node.argumentExpression, env, ctx, visiting);
-      return liftRefs([value,key],(v,k) => v?.[TAG]==='module' ? moduleExport(v,k,env,ctx,node) : !isUnknown(v) && v != null && !isUnknown(k) && Object.hasOwn(v,k) ? v[k] : unknown(node.getText()),node);
+      return liftRefs([value,key],(v,k) => {
+        if(config.modelRequestHooks) {
+          const interceptor=interceptorProperty(v,k);if(interceptor)return interceptor;
+          if(v?.[TAG]==='intrinsic'&&v.method.startsWith('axios-')){if(v.state&&isUnknown(k))v.state.gaps.push('dynamic interceptor property');return unknown(node.getText());}
+        }
+        return v?.[TAG]==='module'?moduleExport(v,k,env,ctx,node):!isUnknown(v)&&v!=null&&!isUnknown(k)&&Object.hasOwn(v,k)?v[k]:unknown(node.getText());
+      },node);
     }
     if (ts.isNewExpression(node)) {
       const name = node.expression.getText();
@@ -581,6 +689,8 @@ export async function analyze(root, options = {}) {
     }
     if (target?.[TAG] === 'function') return invoke(target,args,ctx,node);
     if (target?.[TAG] === 'intrinsic') {
+      if(target.method.startsWith('axios-response-'))return unknown('response interceptor registration; not evaluated as request hook');
+      if(target.method.startsWith('axios-request-'))return controlHook(target,args,ctx,node);
       if(target.method==='module-then'){if(args[0]?.[TAG]==='function')return invoke(args[0],[target.namespace],ctx,node);diagnostic('ASYNC_CALLBACK_UNRESOLVED','动态模块 then 回调不可解析',node);return unknown(node.getText());}
       if(builtinNames.has(target.method))return staticOperation(target.method,args,node.getText(),()=>diagnostic('STATIC_DECODE_UNRESOLVED','静态编码操作失败或超过限制',node));
       if(target.method==='join')return target.receiver.map(text).join(args[0]===undefined ? ',' : text(args[0]));
@@ -595,6 +705,7 @@ export async function analyze(root, options = {}) {
       return target.method === 'map' ? results : undefined;
     }
     for (const arg of args) if (arg?.[TAG] === 'function') invoke(arg,[],ctx,node);
+    if(config.modelRequestHooks)for(const arg of args)if(arg?.[CLIENT_STATE])arg[CLIENT_STATE].gaps.push('client passed to unknown setup call');
     const mutableArgs=args.filter(arg=>arg && typeof arg==='object'&&!arg[TAG]&&!isUnknown(arg));
     if(mutableArgs.length) {
       diagnostic('UNKNOWN_CALL_EFFECTS','未知调用可能修改传入对象，后续值保守保持未知',node);
@@ -778,8 +889,10 @@ export async function analyze(root, options = {}) {
 
 export function markdown(report) {
   const escape = v => String(v).replaceAll('|', '\\|').replaceAll('\n', ' ');
+  const hookRows=report.endpoints.flatMap(e=>e.usages.filter(u=>u.afterRequestHooks).flatMap(u=>{const h=u.afterRequestHooks;return h.variants.length?h.variants.map(v=>`| ${escape(v.method)} | ${escape(v.address.host??'未知')} | ${escape(v.url)} | ${h.state}/${v.resolution} |`):[`| — | 未知 | ${escape(e.url)} | ${h.state}: ${escape(h.gaps.join('; '))} |`];}));
+  const hookMarkdown=hookRows.length?'\n\n## 请求 hook 后候选\n\n独立阶段；仍在 Axios transport/transformRequest 之前，不代表实际网络载荷。\n\n| 方法 | Host | URL | 状态 |\n| --- | --- | --- | --- |\n'+hookRows.join('\n'):'';
   return `# 前端接口提取\n\n模式：${report.mode}；文件：${report.stats.files}；接口：${report.endpoints.length}；诊断：${report.diagnostics.length}。\n\n静态潜在调用结果，不代表运行时覆盖率。参数及每条调用链见 JSON。条件之间的 AND/OR 关系以 JSON 中每条 usage 为准。\n\n| 方法 | Host（调用处） | URL | 解析状态 | 条件 | 调用位置 |\n| --- | --- | --- | --- | --- | --- |\n` + report.endpoints.map(e => {
     const conditions = [...new Set(e.usages.flatMap(u=>(u.conditions ?? []).map(c=>`${c.expression} = ${c.outcome}`)))].join('; ') || '—';
     return `| ${escape(e.method)} | ${escape(e.address?.host ?? "未知")} | ${escape(e.url)} | ${e.resolution} | ${escape(conditions)} | ${escape(e.usages.map(u => { const p = u.callChain.at(-1); return `${p.file}:${p.line}`; }).join(', '))} |`;
-  }).join('\n') + '\n\n## 文件求值预算\n\nfinished 仅表示本分区未被步数预算中断，不能证明语义或运行时覆盖完整。\n\n| 文件 | 阶段 | 状态 | 步数/配额 | 原因 |\n| --- | --- | --- | --- | --- |\n' + (report.stats.partitions??[]).map(p=>`| ${escape(p.file)} | ${p.phase} | ${p.state} | ${p.steps}/${p.limit} | ${p.reason??'—'} |`).join('\n') + `\n\n## 未连接业务入口的资产级候选\n\n这些结果不计入入口接口表；字段和调用关系可能不完整。补漏状态：${report.stats.unlinkedScan ?? '未记录'}。\n\n` + (report.assetCandidates??[]).map(e=>`- ${escape(e.method)} ${escape(e.url)}（${escape(e.usages.map(u=>{const p=u.callChain.at(-1);return p.file+':'+p.line;}).join(', '))}）`).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
+  }).join('\n') + hookMarkdown + '\n\n## 文件求值预算\n\nfinished 仅表示本分区未被步数预算中断，不能证明语义或运行时覆盖完整。\n\n| 文件 | 阶段 | 状态 | 步数/配额 | 原因 |\n| --- | --- | --- | --- | --- |\n' + (report.stats.partitions??[]).map(p=>`| ${escape(p.file)} | ${p.phase} | ${p.state} | ${p.steps}/${p.limit} | ${p.reason??'—'} |`).join('\n') + `\n\n## 未连接业务入口的资产级候选\n\n这些结果不计入入口接口表；字段和调用关系可能不完整。补漏状态：${report.stats.unlinkedScan ?? '未记录'}。\n\n` + (report.assetCandidates??[]).map(e=>`- ${escape(e.method)} ${escape(e.url)}（${escape(e.usages.map(u=>{const p=u.callChain.at(-1);return p.file+':'+p.line;}).join(', '))}）`).join('\n') + '\n\n## 诊断\n\n' + report.diagnostics.map(d => `- ${d.code}: ${escape(d.message)}${d.file ? ` (${d.file}:${d.line})` : ''}`).join('\n') + '\n';
 }

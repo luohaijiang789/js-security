@@ -1,5 +1,12 @@
 # 迭代记录
 
+## 0.7.0
+
+- 可选 modelRequestHooks，默认关闭；有限显式同步 Axios request hook 按逆注册顺序求值，支持已知 eject/clear 与实例隔离。
+- usage.afterRequestHooks 独立保存后阶段候选、执行次序和缺口，不覆盖调用处；JSON 输入字段与编码后字段分开。
+- 异步/条件/未知控制、捕获堆、defaults 改写等保守未知；预算中断保留调用处记录，Markdown 分阶段展示。
+- 146 项测试通过；新增 22 项，真实 Axios 1.7.9 本地 adapter 对照通过。Nacos 原始记录保留，其复杂 hook 仍未还原，见[验证](request-hooks.md)。
+
 ## 0.6.0
 
 - 分离引用选择和发送快照，修复属性读取、对象构造与传参丢失别名/副作用。
