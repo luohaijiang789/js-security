@@ -85,3 +85,12 @@ test("定向CLI哈希/目录越界失败，不生成伪成功交付", async (t) 
     await assert.rejects(fs.stat(path.join(root, "out", "analysis.json")));
   }
 });
+test('generic build artifact baseline checks exact query shape, known fields and unexpected sending points',async t=>{
+ const code=`fetch('https://api.test/items?lat=1&lon=2');`,root=await fixture(t,{'dist/app.js':code}),file=path.join(root,'manifest.json');
+ const original={schemaVersion:1,kind:'targeted-build-artifact',files:[{path:'dist/app.js',sha256:createHash('sha256').update(code).digest('hex')}],artifactDirs:['dist'],expected:[{generatedFile:'dist/app.js',generatedLine:1,generatedColumn:1,method:'GET',host:'api.test',urlPath:'/items',queryFields:['lat','lon'],role:'business-url-query-shape'}]};
+ for(const change of [null,{queryFields:['lat']},{queryFields:['lat','lon','q']},{host:'other.test'},{method:'POST'},{generatedColumn:2}]){
+  const manifest=structuredClone(original);Object.assign(manifest.expected[0],change);await fs.writeFile(file,JSON.stringify(manifest));const out=path.join(root,'out');
+  let stdout;try{stdout=(await run(process.execPath,[cli,'--manifest',file,'--source-root',root,'--out',out])).stdout;}catch(e){assert.equal(e.code,1);stdout=e.stdout;}
+  const result=JSON.parse(stdout);assert.equal(result.validationPassed,change===null);if(change)assert.equal(result.unexpected,1);
+ }
+});

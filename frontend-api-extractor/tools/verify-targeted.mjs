@@ -27,7 +27,7 @@ try {
   const m = JSON.parse(await fs.readFile(values.manifest, "utf8"));
   if (
     m.schemaVersion !== 1 ||
-    !["targeted-source-wrapper", "targeted-webpack-artifact"].includes(
+    !["targeted-source-wrapper", "targeted-webpack-artifact", "targeted-build-artifact"].includes(
       m.kind,
     ) ||
     !Array.isArray(m.files) ||
@@ -64,7 +64,7 @@ try {
       );
     const out = path.resolve(values.out);
     const built =
-        m.kind === "targeted-webpack-artifact"
+        m.kind !== "targeted-source-wrapper"
           ? await analyzeBuild(
               root,
               m.artifactDirs,
@@ -89,7 +89,15 @@ try {
         },
         built?.locations,
       );
-    const check = (e, row) =>
+    const urlShape=(e,row)=>{
+      if(!Object.hasOwn(e,'urlPath')&&!Object.hasOwn(e,'queryFields'))return true;
+      let url;try{url=new URL(row.url);}catch{return false;}
+      if(Object.hasOwn(e,'urlPath')&&url.pathname!==e.urlPath)return false;
+      if(e.queryFields){const actual=[...new Set(url.searchParams.keys())].sort(),expected=[...new Set(e.queryFields)].sort();if(JSON.stringify(actual)!==JSON.stringify(expected))return false;
+        if(!expected.every(name=>row.parameterFields.some(f=>f.carrier==='query'&&f.path.join('.')===name&&f.state==='known-field')))return false;}
+      return true;
+    };
+    const check = (e, row) => urlShape(e,row) &&
       [
         "sourceFile",
         "sourceLine",
@@ -114,6 +122,8 @@ try {
       (!e.gapContains || row.gaps.some((g) => g.includes(e.gapContains)));
     const checks = m.expected.map((e, index) => ({
         index,
+        role:e.role??'request',
+        matches:rows.filter(row=>check(e,row)).length,
         passed: rows.some((row) => check(e, row)),
       })),
       unexpected = rows.filter((row) => !m.expected.some((e) => check(e, row)));

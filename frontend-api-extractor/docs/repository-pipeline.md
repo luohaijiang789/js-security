@@ -1,6 +1,6 @@
 # 仓库地址 → 构建 JS → 请求表
 
-0.8.1，2026-10-28。新增 npm/Docker 构建增强首版，源码扫描 CLI 继续独立运行。构建模式要求 Node 22+、Git 和可用的本地 Docker Unix socket；镜像内 Node 版本与分析器运行环境分别记录。
+0.9.2，2026-10-28。新增 npm/Docker 构建增强首版，源码扫描 CLI 继续独立运行。构建模式要求 Node 22+、Git 和可用的本地 Docker Unix socket；镜像内 Node 版本与分析器运行环境分别记录。
 
 在提取器目录运行已验证的公开项目：
 
@@ -11,7 +11,7 @@ npm run scan:repository -- https://github.com/aliyun/alibabacloud-gdb-console --
 
 该地址自动采用[固定构建配置](../profiles/gdb-console.json)：Commit 49336dbcc958236e233a921f60353802cbd43130、Node 16.20.2、原 npm build 脚本及 build 产物目录。它引用阿里云 UI JS 组件库，不代表已经支持云 SDK 的网络协议。
 
-其他 GitHub HTTPS/npm 项目可使用 --profile build-profile.json，配置 dockerImage、buildScript、artifactDirs、buildEnv、analysis 等；--ref 必须是完整 Commit SHA。未指定版本且无内置配置时先固定远端 HEAD。当前只支持仓库根目录 npm package-lock v1/v2/v3 与已声明的 npm 构建脚本，默认 Node 22、dist，不声称任意框架或 monorepo 零配置构建。
+其他 GitHub HTTPS/npm 项目可使用 --profile build-profile.json，配置 dockerImage、buildScript、artifactDirs、buildEnv、analysis 等；--ref 必须是完整 Commit SHA。未指定版本且无内置配置时先固定远端 HEAD。支持 projectDir 子目录、npm package-lock v1/v2/v3，以及固定版本 pnpm/Yarn Classic 的对应锁文件与已声明构建脚本，默认 Node 22、dist，不声称任意框架或 monorepo 零配置构建。
 
 ## 实际流程
 
@@ -41,6 +41,12 @@ GDB 的旧锁文件明确配置 registry.npmmirror.com→官方 npm 的 tarball 
 
 ## 验证
 
-170 项自动化测试通过；0.8.1 新增 8 项部署上下文回归，0.8.0 新增 13 项任务/映射/表格测试，并补 3 项真实全量分析暴露的数组长度和实参候选超限回归。离线自写流程测试替代子进程，不能冒充真实构建；另确实从 GitHub 地址完成 GDB 的真实 Docker/npm 构建与分析，见[完整请求表及证据](gdb-build-pilot.md)。
+历史 170 项自动化测试通过；0.8.1 新增 8 项部署上下文回归，0.8.0 新增 13 项任务/映射/表格测试，并补 3 项真实全量分析暴露的数组长度和实参候选超限回归。离线自写流程测试替代子进程，不能冒充真实构建；另确实从 GitHub 地址完成 GDB 的真实 Docker/npm 构建与分析，见[完整请求表及证据](gdb-build-pilot.md)。
 
 首轮真实运行保留“构建成功、分析失败”记录；修复模型异常和 CRA 相对 sources 命名识别后，从仓库地址重新完整运行成功。同版产物经独立 AST 位置/URL/字段核对，并复核导出协议。分析完整性仍为 false，原因在表格和任务记录中保留。
+
+## 构建前检查和原生编译器补充（0.9.2）
+
+`--inspect-only` 只固定仓库版本并检查 package.json/锁文件，输出 build-plan.json 后以 inspected 状态停止；不检查或启动 Docker、不安装依赖、不执行构建。正常构建也先执行相同 preflight。镜像默认 Node 22，产物默认 dist，其他布局须显式配置。npm 的显式工具版本会校验容器实际版本，冲突则失败。
+
+`nativeDependencies` 只允许固定版本和 SHA512 的 esbuild Linux 平台包，须与锁定父包声明一致，并记录独立补充来源；不能将新增平台包冒充原锁依赖。原锁保持不变，不运行安装脚本。跨平台真实失败、补装、构建及独立 Vite 无 map 验证见[0.9.2](release-0.9.2.md)。

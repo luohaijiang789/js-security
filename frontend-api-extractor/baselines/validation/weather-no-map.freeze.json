@@ -1,0 +1,143 @@
+{
+  "schemaVersion": 1,
+  "datasetRole": "validation-first-evaluation",
+  "frozenBeforeFirstAnalysis": true,
+  "engineCommit": "96158b9e27bc8b1beab7ee93b7d597397af5723b",
+  "analysisRuleNote": "Only repository build orchestration/native dependency supplement changed before first analysis; request extraction rules unchanged from 0.9.1",
+  "repository": "https://github.com/pekkiriscim/weather",
+  "commit": "a562276f077ff8c02f8931495d99888af3182fac",
+  "frozenAt": "2026-10-28T17:01:13.333Z",
+  "config": {
+    "maxSteps": 400000,
+    "maxCandidates": 16
+  },
+  "source": [
+    {
+      "path": "src/js/currentWeatherData.js",
+      "sha256": "5df89f6e2e6b4ef54a609f7a1a6feb026fa34bfff47b67e06cb63714f7b298a5"
+    },
+    {
+      "path": "src/js/weatherForecastData.js",
+      "sha256": "bed55dc02c71cc1307b3b937a0d2435ba7371f11848b3e79dc1b6dc5478be7bb"
+    },
+    {
+      "path": "src/js/weatherApp.js",
+      "sha256": "4651ddc4e695471bf43bfd21181b87a8dba262258b63d5825a52ed3a963ec0d9"
+    },
+    {
+      "path": "package.json",
+      "sha256": "c3caed1af5efbbbea62327cad8e2da73d693ef6f1b87aac2dacb28291bb5dffc"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "0c9bc7644641a372ebdecf0da7117bc7de4eb0f523637192d865267ce268d1c1"
+    },
+    {
+      "path": "vite.config.js",
+      "sha256": "116b5d32a692d926617d914e80ac57356a3f4989f616c18237efce0486a90e14"
+    }
+  ],
+  "assets": [
+    {
+      "path": "dist/assets/index-197ba97d.js",
+      "sha256": "994ef905136f81ae8ab6352d9d470da40ee6771b52316aa66336535f034a93fc"
+    }
+  ],
+  "engineFiles": [
+    {
+      "path": "src/analyzer.js",
+      "sha256": "590f0c0039865c34ff021c5f1e8d228bde84e9bd20773cc1f81d00c8abd2a344"
+    },
+    {
+      "path": "src/values.js",
+      "sha256": "a7d128ffeed6bf2965b87fb3c588994483e97ef0623c4d720c253cc755f1090d"
+    },
+    {
+      "path": "src/build-assets.js",
+      "sha256": "d68a9d36b6ae058285e542b496f8aa582206cfd676e192b4f2ef43e01665a925"
+    },
+    {
+      "path": "src/compiled-clients.js",
+      "sha256": "79479328e6516394c18ae4223b3c4e3bfbde5711de7e02e7c2f2ab705d864fe9"
+    },
+    {
+      "path": "src/request-clients.js",
+      "sha256": "923195e69c3956748857bd7ced81942f84f03d79c1cae0a32bcab011ec2fc0be"
+    },
+    {
+      "path": "src/request-evidence.js",
+      "sha256": "b0540502a451244603b4ffeb673db9075b6491ff73c7c7ab750b8b6f4128a9e1"
+    },
+    {
+      "path": "src/request-table.js",
+      "sha256": "4d40b749bb5575186403f7a81c23e1aa46601c7e03f99eb6096120b13d12e269"
+    },
+    {
+      "path": "src/config.js",
+      "sha256": "19b94643840a6944e9e77aad9abac0834320f8b98577186d4f2b93a887dad13a"
+    }
+  ],
+  "expected": [
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 5074,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/weather",
+      "queryFields": [
+        "lat",
+        "lon",
+        "appid",
+        "units"
+      ]
+    },
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 5074,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/weather",
+      "queryFields": [
+        "q",
+        "appid",
+        "units"
+      ]
+    },
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 7758,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/forecast",
+      "queryFields": [
+        "lat",
+        "lon",
+        "appid",
+        "units"
+      ]
+    },
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 7758,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/forecast",
+      "queryFields": [
+        "q",
+        "appid",
+        "units"
+      ]
+    }
+  ],
+  "assetFetch": {
+    "generatedFile": "dist/assets/index-197ba97d.js",
+    "generatedLine": 1,
+    "generatedColumn": 690,
+    "host": null,
+    "note": "Vite-injected modulepreload fetch. URL depends on DOM link.href. Only location/unknown Host in scope; HTTP method excluded from this denominator."
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "ref": "a562276f077ff8c02f8931495d99888af3182fac",
+  "dockerImage": "node:22-bookworm-slim",
+  "buildScript": "build",
+  "artifactDirs": [
+    "dist"
+  ],
+  "analysis": {
+    "maxSteps": 400000,
+    "maxCandidates": 16
+  },
+  "timeoutMs": 900000,
+  "nativeDependencies": [
+    {
+      "name": "@esbuild/linux-x64",
+      "version": "0.16.17",
+      "integrity": "sha512-mdPjPxfnmoqhgpiEArqi4egmBAMYvaObgn4poorpUaqmvzzbvqbowRllQ+ZgzGVMGKaPkqUmPDOOFQRUFDmeUw=="
+    }
+  ]
+}
