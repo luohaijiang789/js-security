@@ -1,5 +1,11 @@
 # 迭代记录
 
+## 0.8.3
+
+- 冻结 GDB/Nacos/OSS 的有限外部源码切片 manifest 与人工字段/条件预期；新增 verify:external CLI，隔离冻结文件后核对逐条结果，独立保留 validationPassed/extractionComplete。
+- 修复未知配置把未解析 Query/Body/Header 显示为无字段的问题，保留载体未知；显式覆盖和已知缺省仍区分。
+- 193 项测试通过；固定上游 11 文件哈希一致，18 个限定发送位置/22 条候选预期通过，但提取完整性均 false。清单 P0-04 勾选，独立盲测仍待推进，见[外部基准验证](external-baselines.md)。
+
 ## 0.8.2
 
 - 增加持续维护的[实施清单](../../docs/前端API提取实施清单.md)，限定完成项逐项勾选，整阶段未完成保持待办。

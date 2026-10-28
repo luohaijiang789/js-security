@@ -39,7 +39,7 @@ export function requestCsv(rows) {
 export function requestMarkdown(rows,metadata={}) {
   const escape=value=>String(value??'未知').replaceAll('|','\\|').replaceAll('\n','<br>').replaceAll('\r','');
   const location=(file,line,column)=>file?`${file}:${line}:${column}`:'未映射';
-  return `# 构建关联的请求表\n\n仓库：${metadata.repository??'未知'}\n\nCommit：${metadata.commit??'未知'}\n\n模式：${metadata.mode??'source-static'}；记录：${rows.length}。每行保留独立调用/条件/阶段。静态发送候选不证明运行时执行；未知和缺口必须保留。\n\n部署基址：${escape(metadata.deploymentUrl)}。deployment-context/context-candidate 表示给定基址下的候选 Host；不证明真实部署或运行请求。解析 URL 未合并 Query 配置、未证明最终序列化。\n\n| 产物 JS 位置 | 对应源码位置 | 方法 | Host | Host 依据/状态 | 原始 URL | 解析 URL | Query | Body | Header | 阶段/状态 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n`+
+  return `# ${metadata.mode==='source-static'?'源码请求候选表':'构建关联的请求表'}\n\n仓库：${metadata.repository??'未知'}\n\nCommit：${metadata.commit??'未知'}\n\n模式：${metadata.mode??'source-static'}；记录：${rows.length}。每行保留独立调用/条件/阶段。静态发送候选不证明运行时执行；未知和缺口必须保留。\n\n部署基址：${escape(metadata.deploymentUrl)}。deployment-context/context-candidate 表示给定基址下的候选 Host；不证明真实部署或运行请求。解析 URL 未合并 Query 配置、未证明最终序列化。\n\n| 产物 JS 位置 | 对应源码位置 | 方法 | Host | Host 依据/状态 | 原始 URL | 解析 URL | Query | Body | Header | 阶段/状态 |\n| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |\n`+
     rows.map(r=>'| '+[location(r.generatedFile,r.generatedLine,r.generatedColumn),location(r.sourceFile,r.sourceLine,r.sourceColumn),r.method,r.host,r.hostBasis+'/'+r.hostState,r.url,r.resolvedUrl,json(r.query),json(r.body),json(r.headers),r.stage+'/'+r.resolution].map(escape).join(' | ')+' |').join('\n')+
     '\n\n## 缺口\n\n'+[...new Set([...(metadata.gaps??[]),...rows.flatMap(r=>r.gaps)])].map(g=>'- '+escape(g)).join('\n')+'\n';
 }
