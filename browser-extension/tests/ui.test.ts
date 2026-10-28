@@ -1119,3 +1119,13 @@ it("在途长连接完成前可查看已取得字段，完成后已打开详情�
     await context.close();
   }
 }, 20000);
+
+it('JS探索导入静态交付并独立显示字段、证据和缺口，不改写实测任务',async()=>{
+ const {context,page,errors}=await openWorkspace();
+ try{
+  await page.getByRole('button',{name:'JS 探索',exact:true}).click();
+  const document={schemaVersion:'2.0.0',scope:{complete:false},records:[{id:'static-r',sourceKind:'website-js-static',method:'POST',host:'api.example.test',url:'/api/items',sourceFile:'https://cdn.example.test/deep.js',sourceLine:12,sourceColumn:4,evidenceId:'static-e',gapIds:['static-g'],stage:'call-site'}],parameters:[{id:'static-f',recordId:'static-r',carrier:'body',path:['account','id'],stage:'constructed',state:'known-field'}],gaps:[{id:'static-g',recordId:'static-r',reason:'运行配置未知'}],evidence:[{id:'static-e',raw:{url:'/api/items',body:{account:{id:7}}}}]};
+  await page.getByLabel('导入JS分析结果').setInputFiles({name:'analysis.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(document))});
+  const explorer=page.getByRole('region',{name:'JS探索工作台'});await explorer.getByText('api.example.test',{exact:true}).waitFor();expect(await explorer.textContent()).toContain('body.account.id');await explorer.getByText('api.example.test',{exact:true}).click();await page.getByRole('complementary',{name:'JS请求证据'}).waitFor();expect(await page.getByRole('complementary',{name:'JS请求证据'}).textContent()).toContain('运行配置未知');await page.getByRole('button',{name:'请求工作台',exact:true}).click();expect(await page.locator('[data-request-id="ui-request-100"]').count()).toBe(1);expect(errors).toEqual([]);
+ }finally{await context.close();}
+},20000);

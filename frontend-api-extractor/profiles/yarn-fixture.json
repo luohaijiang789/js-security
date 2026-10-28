@@ -1,0 +1,18 @@
+{
+  "ref": "1529f4ad8174ac016b5174030724015a442145d7",
+  "projectDir": "manager-fixtures/yarn",
+  "packageManager": "yarn",
+  "packageManagerVersion": "1.22.22",
+  "dockerImage": "node:22-bookworm-slim",
+  "artifactDirs": [
+    "dist"
+  ],
+  "analysis": {
+    "maxSteps": 100000,
+    "maxCandidates": 8,
+    "entries": [
+      "src/entry.js"
+    ]
+  },
+  "timeoutMs": 900000
+}

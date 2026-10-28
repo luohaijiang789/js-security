@@ -27,7 +27,7 @@ npm run verify:external -- --manifest baselines/external/oss.json --source-root 
 - OSS：第 24 行 $http(opt) 是显式配置客户端下的未解析发送候选；第 16、20 行两个独立条件按四种组合分别保留。整个 opt 未绑定，Query/Body/Header 均未知，不能解释为没有参数。$http 配置不是 AngularJS DI 自动推导。
 - STS/RAM endpoint 与 SDK 操作只放 manualFindings，是人工发现、未自动恢复 HTTP 的缺口。它们不进入请求表，也不计入自动 HTTP 恢复成功。
 
-每条预期有本地标注 ID、源位置和依据；条件精确配对，不使用接口总数替代逐项验证。ID 仅用于该基准，统一资产/字段/缺口 ID 仍待设计。人工标注不从分析器输出自动更新；修改预期须解释源码语义或已登记模型限制，更新哈希并重新评审。
+每条预期有本地标注 ID、源位置和依据；条件精确配对，不使用接口总数替代逐项验证。ID 仅用于该基准，统一交付的资产/字段/缺口 ID 见[协议2.0](../../docs/delivery-protocol.md)，不能替换这里的人工标注身份。人工标注不从分析器输出自动更新；修改预期须解释源码语义或已登记模型限制，更新哈希并重新评审。
 
 ## 执行与边界
 

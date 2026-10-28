@@ -134,3 +134,7 @@ test('构建失败保留任务和日志，不生成接口表或切换源码成�
   assert.equal(manifest.state,'failed');assert.equal(manifest.stages.find(s=>s.name==='build').exitCode,7);
   await assert.rejects(fs.access(path.join(failure.taskDir,'requests.csv')),{code:'ENOENT'});
 });
+test('子目录与包管理器配置必须固定安全版本，不能混用锁文件改写',()=>{
+ assert.equal(taskProfile({projectDir:'apps/client',buildArgs:['--sourcemap']}).projectDir,'apps/client');assert.equal(taskProfile({packageManager:'pnpm',packageManagerVersion:'9.15.4'}).packageManager,'pnpm');
+ for(const p of [{projectDir:'../other'},{projectDir:'x,y'},{packageManager:'pnpm'},{packageManager:'yarn',packageManagerVersion:'4.0.0'},{packageManager:'pnpm',packageManagerVersion:'9.15.4',legacyPeerDeps:true}])assert.throws(()=>taskProfile(p));
+});

@@ -46,3 +46,21 @@ export function inspectHook(fn,rejected,options,isIntrinsic,resolveSymbol,safeCa
   visit(node.body);
   return gap;
 }
+
+// Syntax-only field evidence for hooks that cannot safely be evaluated.
+export function hookFieldCandidates(callback,locate,checker){
+ if(!callback||!ts.isFunctionLike(callback)||!ts.isIdentifier(callback.parameters[0]?.name??{}))return [];
+ const configSymbol=checker.getSymbolAtLocation(callback.parameters[0].name),aliases=new Set([configSymbol]),result=[];
+ const member=n=>ts.isPropertyAccessExpression(n)?[n.expression,n.name.text]:ts.isElementAccessExpression(n)&&ts.isStringLiteralLike(n.argumentExpression??{})?[n.expression,n.argumentExpression.text]:null;
+ const access=n=>{const parts=[];for(let p;(p=member(n));){parts.unshift(p[1]);n=p[0];}return ts.isIdentifier(n)&&aliases.has(checker.getSymbolAtLocation(n))?parts:null;};
+ const carrier=key=>({params:'query',data:'body',body:'body',headers:'headers'}[key]);
+ const conditions=node=>{const values=[];for(let parent=node.parent;parent&&parent!==callback;parent=parent.parent)if(ts.isIfStatement(parent)){let child=node;while(child.parent&&child.parent!==parent)child=child.parent;values.push({expression:parent.expression.getText(),outcome:child===parent.thenStatement,...locate(parent.expression)});}return values.reverse();};
+ const emit=(node,path,operation,expression)=>{const c=carrier(path[0]);if(c&&result.length<128)result.push({carrier:c,path:path.slice(1),operation,expression,conditions:conditions(node),state:'unapplied-candidate',stage:'unapplied-request-hook',...locate(node)});};
+ const visit=node=>{
+  if(node!==callback&&ts.isFunctionLike(node))return;
+  if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)&&node.initializer&&access(node.initializer)?.length===0)aliases.add(checker.getSymbolAtLocation(node.name));
+  if(ts.isBinaryExpression(node)&&node.operatorToken.kind===ts.SyntaxKind.EqualsToken){const path=access(node.left);if(path?.length){emit(node,path,'set',node.right.getText());if(path.length===1){const literals=[];if(ts.isObjectLiteralExpression(node.right))literals.push(node.right);if(ts.isCallExpression(node.right))for(const arg of node.right.arguments)if(ts.isObjectLiteralExpression(arg))literals.push(arg);for(const object of literals)for(const p of object.properties)if((ts.isPropertyAssignment(p)||ts.isShorthandPropertyAssignment(p))&&!ts.isComputedPropertyName(p.name))emit(node,[...path,p.name.text],'field-mentioned-in-replacement',p.getText());}}}
+  if(ts.isDeleteExpression(node)){const path=access(node.expression);if(path?.length)emit(node,path,'delete',node.getText());}
+  ts.forEachChild(node,visit);
+ };visit(callback.body);return result;
+}

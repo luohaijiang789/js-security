@@ -33,11 +33,11 @@ source-map-assisted 是产物关联源码分析，不是已实现通用 Webpack 
 | analysis.json | JS 哈希、source assets/引用、source map 关联、逐调用证据及诊断 |
 | task.json、logs/ | 仓库/Commit、镜像 digest、原始/应用锁文件哈希、阶段、配置与构建日志 |
 
-主表按调用处记录，有限 hook 后结果另列阶段，不混并参数。未知 Host 不取脚本 CDN 域名或开发 proxy；未提供运行/部署上下文时保留未知。可通过 --deployment-url 或 profile.deploymentUrl 提供页面基址，规则与验证见[部署上下文](deployment-context.md)。无显式字段、动态值和缺失信息分开表示。CSV 对外部字符串做公式保护；当前并未宣称统一 api_assets.xlsx/analysis.json 交付协议已全部接入。
+主表按调用处记录，有限 hook 后结果另列阶段，不混并参数。未知 Host 不取脚本 CDN 域名或开发 proxy；未提供运行/部署上下文时保留未知。可通过 --deployment-url 或 profile.deploymentUrl 提供页面基址，规则与验证见[部署上下文](deployment-context.md)。无显式字段、动态值和缺失信息分开表示。CSV 对外部字符串做公式保护；0.9 同时输出 delivery/analysis.json（Schema 2.0.0）及 delivery/api_assets.xlsx；旧根目录 analysis.json 仍是分析底稿，勿混淆。
 
 GDB 的旧锁文件明确配置 registry.npmmirror.com→官方 npm 的 tarball 地址规范化；只改变下载位置，保留锁定名称、版本、integrity，保存两份锁文件哈希。legacyPeerDeps 也在配置中显式启用，不使用 --force，不升级 React。其他项目不自动套用这些兼容选项。
 
-资源上限：单 JS 32 MiB/1000 文件、单 map 32 MiB/合计 128 MiB、应用 sourcesContent 64 MiB；求值深度/候选/分区预算继续由分析配置约束。暂不覆盖 Yarn/pnpm 安装、外部 JS 抓取、纯混淆 bundle 的完整还原或 AI 释义。
+资源上限：单 JS 32 MiB/1000 文件、单 map 32 MiB/合计 128 MiB、应用 sourcesContent 64 MiB；求值深度/候选/分区预算继续由分析配置约束。0.9 新增 projectDir/buildArgs、固定版本 pnpm 与 Yarn Classic 冻结安装；profile 与真实运行见[0.9 验证](release-0.9.md)。外部 JS 收集为独立显式命令，构建流程不会自动继承浏览器登录或抓取任意 URL。纯混淆 bundle 的完整还原不在已验证范围。
 
 ## 验证
 

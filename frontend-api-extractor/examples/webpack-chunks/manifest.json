@@ -1,0 +1,74 @@
+{
+  "kind": "authored-webpack-build",
+  "versions": {
+    "webpack4": "4.47.0",
+    "webpack5": "5.99.9"
+  },
+  "configuration": {
+    "mode": "production",
+    "devtool": false,
+    "optimization": {
+      "concatenateModules": false,
+      "runtimeChunk": "single"
+    },
+    "publicPath": "/static/"
+  },
+  "manualExpected": [
+    {
+      "method": "POST",
+      "host": "api.example.test",
+      "url": "https://api.example.test/users/lookup",
+      "body": {
+        "account": {
+          "id": 7
+        }
+      }
+    },
+    {
+      "method": "POST",
+      "host": "deep.example.test",
+      "url": "https://deep.example.test/v2/query",
+      "body": {
+        "id": 9
+      }
+    }
+  ],
+  "files": [
+    {
+      "path": "src/deep.js",
+      "sha256": "59003ec0d607fa4d925611157c8ebbc0be264a44af9c011c26318e564fd0221d"
+    },
+    {
+      "path": "src/index.js",
+      "sha256": "63c3af199f761060651e65960a1cc1a907034c8f4379a8e972fa52b88755d421"
+    },
+    {
+      "path": "src/service.js",
+      "sha256": "2a6b58eb5e9baf509c21bc30b566c58ca9559122de8a5b38aa31754ece2d200e"
+    },
+    {
+      "path": "webpack4/2.6cbe1dada229cf96ae18.js",
+      "sha256": "e50ac28ae57ff4d05105a823a41385fe0e73870ef61d65db76929451fce813df"
+    },
+    {
+      "path": "webpack4/main.3d9b96f66a52ff6253bb.js",
+      "sha256": "b8891cb9ae43603af84a195f005aa2cff03f0a4342a7ecab3a7376122f8fc894"
+    },
+    {
+      "path": "webpack4/runtime.js",
+      "sha256": "873066d82021b43b8a413ec47998ee684692a6ab68ee4cbb3a4a017e3995e703"
+    },
+    {
+      "path": "webpack5/944.da838a798376fb8a63ee.js",
+      "sha256": "7de515909205ef71fe8ca9f5ff74676660ed966d48740a8ea69170f4003d3c56"
+    },
+    {
+      "path": "webpack5/main.js",
+      "sha256": "2353d816058b20441be6041e7083dacd4697951ad8ffff80e9c4b17780b068e6"
+    },
+    {
+      "path": "webpack5/runtime.js",
+      "sha256": "ea977bdc99038c259abfa72f1cb94ee3a6d1011f086ead28452a0000c859352d"
+    }
+  ]
+}

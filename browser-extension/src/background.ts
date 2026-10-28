@@ -1,3 +1,4 @@
+import {captureLoadedScripts} from "./capture-scripts";
 import { Recorder } from "./recorder";
 import * as db from "./store";
 import {
@@ -88,6 +89,7 @@ let eventTail = Promise.resolve(),
 let controlTail: Promise<void> = Promise.resolve();
 const controlMessages = new Set([
   "start",
+  "capture_scripts",
   "pause",
   "resume",
   "stop",
@@ -518,6 +520,9 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           pending: recorder.pendingCount(),
           failure: recorder.failure,
         };
+      case "capture_scripts":
+        if(recorder.scan&&recorder.scan.state!=="ended")throw Error("请先停止实测采集，再读取已加载JS");
+        return await captureLoadedScripts();
       case "start": {
         validateConfig(message.config);
         const scope = message.tab_scope === "selected" ? "selected" : "all";

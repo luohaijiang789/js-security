@@ -1,0 +1,535 @@
+{
+  "schemaVersion": 1,
+  "expectedComplete": false,
+  "annotationBasis": "新引入的Ant Design Pro切片：首次分析前按源码语义标注，未用此切片修改分析规则。8个request位置/16条options条件预期。",
+  "calls": [
+    {
+      "id": "currentUser-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 7,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": "/api/currentUser",
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 11,
+          "column": 9,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "currentUser-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 7,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "/api/currentUser",
+        "query": null,
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 11,
+          "column": 9,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    },
+    {
+      "id": "outLogin-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 17,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": "/api/login/outLogin",
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 19,
+          "column": 9,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "outLogin-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 17,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/login/outLogin",
+        "query": null,
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 19,
+          "column": 9,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    },
+    {
+      "id": "login-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 25,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": "/api/login/account",
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 31,
+          "column": 9,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "login-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 25,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/login/account",
+        "query": null,
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "resolution": "partial"
+      },
+      "knownFields": [
+        {
+          "carrier": "headers",
+          "path": [
+            "Content-Type"
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 31,
+          "column": 9,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    },
+    {
+      "id": "getNotices-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 37,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": "/api/notices",
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 39,
+          "column": 9,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "getNotices-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 37,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "/api/notices",
+        "query": null,
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 39,
+          "column": 9,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    },
+    {
+      "id": "rule-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 54,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": "/api/rule",
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 59,
+          "column": 9,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "rule-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 54,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "/api/rule",
+        "query": {
+          "$unknown": true
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 59,
+          "column": 9,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    },
+    {
+      "id": "updateRule-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 65,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/rule",
+        "query": null,
+        "body": {
+          "$unknown": true
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "method"
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 69,
+          "column": 11,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "updateRule-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 65,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/rule",
+        "query": null,
+        "body": {
+          "method": "update"
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "method"
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 69,
+          "column": 11,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    },
+    {
+      "id": "addRule-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 76,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/rule",
+        "query": null,
+        "body": {
+          "$unknown": true
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "method"
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 80,
+          "column": 11,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "addRule-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 76,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/rule",
+        "query": null,
+        "body": {
+          "method": "post"
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "method"
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 80,
+          "column": 11,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    },
+    {
+      "id": "removeRule-options-true",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 87,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/rule",
+        "query": null,
+        "body": {
+          "$unknown": true
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "method"
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 91,
+          "column": 11,
+          "expression": "options",
+          "outcome": true
+        }
+      ]
+    },
+    {
+      "id": "removeRule-options-false",
+      "file": "src/services/ant-design-pro/api.ts",
+      "line": 87,
+      "column": 10,
+      "evidence": "人工按实际request调用标注；注释不作为HTTP方法依据。options || {}在未知配置下有两条路径；不按API类型补造字段。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "/api/rule",
+        "query": null,
+        "body": {
+          "method": "delete"
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "method"
+          ]
+        }
+      ],
+      "conditions": [
+        {
+          "file": "src/services/ant-design-pro/api.ts",
+          "line": 91,
+          "column": 11,
+          "expression": "options",
+          "outcome": false
+        }
+      ]
+    }
+  ],
+  "manualFindings": [
+    {
+      "finding": "updateRule/removeRule注释声称PUT/DELETE，实际代码均POST，method=update/delete只在Body中。不能从注释生成HTTP方法。"
+    }
+  ]
+}

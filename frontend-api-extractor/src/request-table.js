@@ -5,7 +5,8 @@ const json=value=>value===undefined?'未知':value===null?'无显式字段':JSON
 export const sinkId=p=>`${p.file}:${p.line}:${p.column}`;
 
 export function requestRows(report,metadata={},locations=new Map()) {
-  const result=[],base=deploymentUrl(metadata.deploymentUrl);
+  const result=[],base=deploymentUrl(metadata.deploymentUrl),prefix=metadata.projectDir&&metadata.projectDir!=='.'?metadata.projectDir.replace(/\/$/,'')+'/':'';
+  const sourcePath=file=>file?prefix+file:null;
   for(const [kind,endpoints] of [['entry',report.endpoints],['unlinked',report.assetCandidates??[]]])for(const endpoint of endpoints)for(const usage of endpoint.usages) {
     const sink=usage.callChain.at(-1),positions=locations.get(sinkId(sink))??[];
     const stages=[{stage:'call-site',method:endpoint.method,url:endpoint.url,address:usage.address,query:usage.query,body:usage.body,headers:usage.headers,resolution:usage.resolution,parameterFields:usage.parameterFields}];
@@ -15,13 +16,16 @@ export function requestRows(report,metadata={},locations=new Map()) {
       const gaps=[...usage.unresolved,...address.gaps];
       if(!address.host)gaps.push('Host 未解析');
       if(metadata.mode==='source-map-assisted'&&!position)gaps.push('发送位置未找到产物映射，保留源码候选');
-      const row={sourceKind:'repository-static',discoveryBasis:kind==='unlinked'?'unlinked-asset':metadata.mode??'source-static',repository:metadata.repository??null,commit:metadata.commit??null,
-        generatedFile:position?.file??null,generatedLine:position?.line??null,generatedColumn:position?.column??null,
-        sourceFile:sink.file,sourceLine:sink.line,sourceColumn:sink.column,sourceVersionMatch:position?.sourceVersionMatch??null,
+      const row={sourceKind:'repository-static',entry:usage.entry??null,discoveryBasis:kind==='unlinked'?'unlinked-asset':metadata.mode??'source-static',repository:metadata.repository??null,commit:metadata.commit??null,
+        generatedFile:sourcePath(position?.file),generatedLine:position?.line??null,generatedColumn:position?.column??null,
+        sourceFile:sourcePath(sink.file),sourceLine:sink.line,sourceColumn:sink.column,sourceVersionMatch:position?.sourceVersionMatch??null,
         method:stage.method,host:address.host,hostBasis:address.hostBasis,hostState:address.hostState,url:stage.url,resolvedUrl:address.resolvedUrl,deploymentUrl:base,query:stage.query,body:stage.body,headers:stage.headers,stage:stage.stage,resolution:stage.resolution,
-        parameterFields:stage.parameterFields??[],conditions:stage.conditions??usage.conditions??[],callChain:usage.callChain,gaps:[...new Set(gaps)]};
+        parameterFields:stage.parameterFields??[],hookFieldCandidates:usage.hookFieldCandidates??[],conditions:stage.conditions??usage.conditions??[],callChain:usage.callChain.map(p=>({...p,file:sourcePath(p.file)})),gaps:[...new Set(gaps)]};
       row.id=createHash('sha256').update(JSON.stringify(row)).digest('hex').slice(0,20);result.push(row);
     }
+  }
+  for(const candidate of report.sdkCandidates??[])if(candidate.modeledHttp){
+    const h=candidate.modeledHttp,p=candidate.location,row={sourceKind:'repository-static',discoveryBasis:'sdk-protocol-model',repository:metadata.repository??null,commit:metadata.commit??null,sourceFile:sourcePath(p.file),sourceLine:p.line,sourceColumn:p.column,generatedFile:null,generatedLine:null,generatedColumn:null,sourceVersionMatch:null,method:h.method,host:h.host,hostBasis:'sdk-protocol-model',hostState:h.host?'partial':'unknown',url:h.url,resolvedUrl:h.host?h.url:null,deploymentUrl:null,query:h.query,body:h.body,headers:h.headers,parameterFields:h.parameterFields,stage:'sdk-protocol-build',resolution:'partial',conditions:[],callChain:[{symbol:candidate.operation,...p}],gaps:['SDK协议构建候选，不证明实际发送；签名/运行时值未知；操作位置不是SDK transport发送位置'],sdkModel:h.model};row.id=createHash('sha256').update(JSON.stringify(row)).digest('hex').slice(0,20);result.push(row);
   }
   return result;
 }

@@ -1,0 +1,1 @@
+"use strict";(self.webpackChunk=self.webpackChunk||[]).push([[944],{944:(e,t,s)=>{function u(e){return fetch("https://deep.example.test/v2/query",{method:"POST",body:JSON.stringify({id:e})})}s.r(t),s.d(t,{query:()=>u})}}]);
