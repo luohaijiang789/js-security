@@ -1,6 +1,6 @@
 # 前端代码仓JS请求API采集
 
-**扫描固定版本的前端代码仓，提取 API、参数与代码证据；需要部署环境和产物关联时，再显式选择构建增强模式。** 源码模式已有 [frontend-api-extractor CLI](../frontend-api-extractor/README.md)，另有 npm/Docker 构建关联首版；完整产物/SDK 分析和统一交付仍待扩展。
+**扫描固定版本的前端代码仓，提取 API、参数与代码证据；需要部署环境和产物关联时，再显式选择构建增强模式。** 源码模式已有 [frontend-api-extractor CLI](../frontend-api-extractor/README.md)，另有 npm/Docker 构建关联首版；0.9 已接统一 Schema/Excel、有限 Webpack4/5 与固定 SDK 模型；完整产物/SDK 恢复仍有限，见[当前验证](../frontend-api-extractor/docs/release-0.9.md)。
 
 ## 0. 已加入的源码 API 提取能力
 
@@ -33,11 +33,11 @@ node src/cli.js /path/to/frontend --out reports/apis.json
 flowchart LR
     R["本地前端仓库 + 固定 Commit"] --> S["源码模式：已实现 CLI"]
     S --> O["JSON/Markdown + 代码证据 + 诊断"]
-    R --> A["构建增强：M1 构建与资产清单（待集成）"]
+    R --> A["构建增强：M1 构建与资产清单"]
     A --> B["M2 请求行为发现"]
     B --> C["M3 Host、URL、Method"]
     C --> D["M4 参数结构与改写"]
-    D --> E["M5 统一结果与 Excel（待接入）"]
+    D --> E["M5 统一结果与 Excel（Schema 2.0）"]
     O -.-> E
 ```
 

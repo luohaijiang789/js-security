@@ -2,13 +2,14 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import {writeDelivery} from './delivery-cli.js';
 import { analyze, markdown } from './analyzer.js';
 
 try {
   const { values, positionals } = parseArgs({ allowPositionals: true, options: {
-    config: { type: 'string' }, out: { type: 'string' }, format: { type: 'string', default: 'json' }, help: { type: 'boolean', short: 'h' }, 'include-unlinked':{type:'boolean'},
+    'delivery-dir':{type:'string'},config: { type: 'string' }, out: { type: 'string' }, format: { type: 'string', default: 'json' }, help: { type: 'boolean', short: 'h' }, 'include-unlinked':{type:'boolean'},
   } });
-  if (values.help) console.log('用法: node src/cli.js <仓库目录> [--config config.json] [--out report.json] [--format json|markdown] [--include-unlinked]');
+  if (values.help) console.log('用法: node src/cli.js <仓库目录> [--config config.json] [--out report.json] [--format json|markdown] [--include-unlinked] [--delivery-dir directory]');
   else {
     if (positionals.length > 1) throw new Error('仅支持一个仓库目录');
     if (!['json', 'markdown'].includes(values.format)) throw new Error('--format 必须是 json 或 markdown');
@@ -23,6 +24,7 @@ try {
       config.includeUnlinked=true;
     }
     const report = await analyze(root, config);
+    if(values['delivery-dir'])await writeDelivery(report,path.resolve(values['delivery-dir']),{mode:'source-static'});
     const output = values.format === 'markdown' ? markdown(report) : JSON.stringify(report, null, 2) + '\n';
     if (values.out) { await fs.mkdir(path.dirname(path.resolve(values.out)), { recursive: true }); await fs.writeFile(values.out, output); }
     else process.stdout.write(output);

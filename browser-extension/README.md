@@ -105,3 +105,11 @@ npm run test:extension
 前两项包含核心、转存、真实 CDP 和页面交互测试；页面测试可替代扩展 API，不等于完整 MV3 现场验收。`test:extension` 真正加载扩展，需要浏览器策略允许安装自定义扩展。Linux 浏览器默认 `/usr/bin/chromium`，可用 `CHROMIUM_PATH` 指定已安装的浏览器。
 
 目录中的 `src/`、`tests/`、依赖锁文件与构建配置均属于本插件；其他方案的实现不要放在此目录。运行时第三方许可证见 [THIRD_PARTY_NOTICES](THIRD_PARTY_NOTICES.md)。
+
+## JS 探索（黑盒二，0.7）
+
+管理页新增 JS探索，独立于浏览器实测任务。可导入提取器 Schema 2.0.0 的 analysis.json，查看 JS位置、Host、URL、Method、参数字段与缺口；静态候选和插件实测分视图。也可提交页面 URL/深度，或读取所有已打开网页中已解析的 JS 交给本地 Node 分析进程。后者使用 CDP 读取源文本，不执行脚本或主动调用发现的 API，父链未知、未加载脚本和失败均保留缺口。
+
+先在浏览器所在机器运行[分析服务](../frontend-api-extractor/docs/release-0.9.md)，在面板填写服务地址及临时令牌，并授权访问该服务。令牌不保存到扩展存储。匿名 URL 收集不继承登录 Cookie；已加载 JS 读取不保证所有 iframe/worker/动态分块，当前无法从企业策略限制的测试浏览器完成完整扩展现场验收。实测采集中该读取被禁止，以免调试会话冲突。
+
+导出统一 JSON；通过服务完成的任务可下载三 Sheet Excel。旧实测导出保持原协议，可解包后用提取器 delivery-cli 转统一交付。AI 释义在提取器中显式启用，插件不默认外发脚本到模型。三路结果均不可因 URL 相同就合并为已验证请求。

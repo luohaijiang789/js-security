@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
+import StaticExplorer from "./StaticExplorer.vue";
 import SimpleFilter from "./SimpleFilter.vue";
 import FieldSelector from "./FieldSelector.vue";
 import SlsFieldSelector from "./SlsFieldSelector.vue";
@@ -48,6 +49,7 @@ const detail = ref<RecordEntry | null>(null),
 const filterText = ref("{}"),
   filterValid = ref(true),
   filterFeedback = ref("");
+const jsCapturing=ref(false);
 const section = ref("请求"),
   mode = ref("原始"),
   search = ref(""),
@@ -103,6 +105,7 @@ const navItems = [
   { id: "Filter", name: "过滤规则", icon: "filter" },
   { id: "存储与转存", name: "存储与转存", icon: "database" },
   { id: "历史任务", name: "历史任务", icon: "clock" },
+  { id: "JS探索", name: "JS 探索", icon: "search" },
   { id: "使用说明", name: "使用说明", icon: "help" },
 ];
 const title = computed(
@@ -142,7 +145,7 @@ watch(filterText, () => {
   filterFeedback.value = "";
 });
 const canStart = computed(
-  () => !current.value || current.value.state === "ended",
+  () => !jsCapturing.value&&(!current.value || current.value.state === "ended"),
 );
 function safeForm(value: unknown, base: any): any {
   if (!value || typeof value !== "object" || Array.isArray(value)) return base;
@@ -2536,7 +2539,8 @@ onUnmounted(() => {
             <p>新建采集任务后，数据会持续保存在此浏览器中。</p>
           </div>
         </section>
-        <UsageGuide v-else />
+        <UsageGuide v-else-if="section === '使用说明'" />
+        <KeepAlive><StaticExplorer v-if="section === 'JS探索'" :capture-disabled="!!current && current.state !== 'ended'" @capturing="jsCapturing=$event" /></KeepAlive>
       </main>
     </div>
     <div

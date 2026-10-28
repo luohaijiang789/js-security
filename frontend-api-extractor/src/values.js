@@ -10,8 +10,14 @@ export const isChoice = v => Boolean(v?.[CHOICES]);
 export const text = v => isUnknown(v) ? `{${v[UNKNOWN]}}` : ['string','number','boolean'].includes(typeof v) ? String(v) : '{expression}';
 export const dynamic = v => hasUnknown(v) || isChoice(v) || typeof v === 'string' && /\{[^}]+\}/.test(v) || v && typeof v === 'object' && Object.values(v).some(dynamic);
 export function clean(value, seen = new Set()) {
+  if(value?.[TAG]==='instance')return clean(value.properties,seen);
   if(value?.[TAG]==='serialized')return clean(value.value,seen);
-  if (['function','client','intrinsic','module','module-promise'].includes(value?.[TAG])) return unknown(value[TAG]);
+  if(value?.[TAG]==='form') {
+    if(value.format==='multipart')return {__multipart:value.entries.map(([name,v,filename])=>({name,value:clean(v,seen),...(filename===undefined?{}:{filename:clean(filename,seen)})})),...(value.gap?{__unknown:value.gap}:{})};
+    if(value.gap||value.entries.some(pair=>pair.some(v=>v!==null&&!['string','number','boolean','undefined'].includes(typeof v))))return unknown(value.gap??'dynamic urlencoded form');
+    return new URLSearchParams(value.entries).toString();
+  }
+  if (['function','client','intrinsic','class','module','module-promise'].includes(value?.[TAG])) return unknown(value[TAG]);
   if (!value || typeof value !== 'object') return value;
   if (seen.has(value)) return unknown('cyclic object');
   const next = new Set(seen).add(value);
@@ -76,7 +82,7 @@ export function createDomain(maxCandidates, diagnostic) {
       }
       return result;
     }
-    if (value == null || typeof value !== 'object' || isUnknown(value) || ['function','client','intrinsic','request','serialized','module','module-promise'].includes(value[TAG])) return [{value,conditions:[]}];
+    if (value == null || typeof value !== 'object' || isUnknown(value) || ['function','client','intrinsic','request','serialized','form','instance','class','module','module-promise'].includes(value[TAG])) return [{value,conditions:[]}];
     const initial=Array.isArray(value) ? [] : {};
     if(value[CHANGES])initial[CHANGES]=value[CHANGES];
     let options = [{value:initial,conditions:[]}];

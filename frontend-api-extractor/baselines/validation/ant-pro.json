@@ -1,0 +1,30 @@
+{
+  "schemaVersion": 1,
+  "kind": "external-source-slice",
+  "name": "ant-pro-validation-v1",
+  "datasetRole": "validation",
+  "frozenBeforeFirstEvaluation": true,
+  "repository": "https://github.com/ant-design/ant-design-pro",
+  "commit": "42f2cb1d303380909ea04c73b5e60679d09c321a",
+  "expectedFile": "ant-pro.expected.json",
+  "expectedSha256": "24b0e5c40e47047182705eb332f0d6e659774f3675388a71b241d5e536cbffe2",
+  "config": {
+    "entries": [
+      "src/services/ant-design-pro/api.ts"
+    ],
+    "clients": [
+      {
+        "name": "request",
+        "kind": "axios"
+      }
+    ],
+    "maxSteps": 100000,
+    "maxCandidates": 16
+  },
+  "files": [
+    {
+      "path": "src/services/ant-design-pro/api.ts",
+      "sha256": "569a17c55a75e70c1665e40db087e8634e871480fd85c2f42198468d5d0c96fb"
+    }
+  ]
+}

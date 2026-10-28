@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import {deploymentUrl} from './deployment-address.js';
+import {writeDelivery} from './delivery-cli.js';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import glob from 'fast-glob';
@@ -14,7 +15,7 @@ export function githubRepository(input) {
 }
 
 export function taskProfile(value={}) {
-  const defaults={dockerImage:'node:22-bookworm-slim',buildScript:'build',artifactDirs:['dist'],legacyPeerDeps:false,registryRewrites:{},buildEnv:{},analysis:{},timeoutMs:600000,deploymentUrl:null};
+  const defaults={dockerImage:'node:22-bookworm-slim',buildScript:'build',artifactDirs:['dist'],legacyPeerDeps:false,registryRewrites:{},buildEnv:{},analysis:{},timeoutMs:600000,deploymentUrl:null,projectDir:'.',buildArgs:[],packageManager:'npm',packageManagerVersion:null};
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('任务配置必须是对象');
   for(const key of Object.keys(value))if(!Object.hasOwn(defaults,key)&&key!=='ref')throw new Error('未知任务配置: '+key);
   const result={...defaults,...value};
@@ -23,6 +24,12 @@ export function taskProfile(value={}) {
   if(typeof result.dockerImage!=='string'||! /^[a-z0-9][a-z0-9./:@_-]+$/i.test(result.dockerImage))throw new Error('Docker 镜像名称无效');
   if(typeof result.buildScript!=='string'||!/^[a-z0-9_][\w.:-]*$/i.test(result.buildScript))throw new Error('buildScript 必须是 npm script 名称');
   if(!Array.isArray(result.artifactDirs)||!result.artifactDirs.length||result.artifactDirs.some(d=>typeof d!=='string'||!d||path.isAbsolute(d)||d.split(/[\\/]/).includes('..')||d==='.'))throw new Error('artifactDirs 必须是仓内相对目录');
+  if(!['npm','pnpm','yarn'].includes(result.packageManager))throw new Error('不支持的packageManager');
+  if(result.packageManager!=='npm'&&(typeof result.packageManagerVersion!=='string'||!/^\d+\.\d+\.\d+$/.test(result.packageManagerVersion)))throw new Error('pnpm/yarn必须固定完整工具版本');
+  if(result.packageManager==='yarn'&&!result.packageManagerVersion.startsWith('1.'))throw new Error('当前仅支持Yarn Classic 1.x');
+  if(result.packageManager!=='npm'&&(result.legacyPeerDeps||Object.keys(result.registryRewrites??{}).length))throw new Error('非npm模式不能套用npm锁文件改写/peer兼容选项');
+  if(typeof result.projectDir!=='string'||!result.projectDir||path.isAbsolute(result.projectDir)||result.projectDir.split(/[\\/]/).includes('..')||/[,\r\n]/.test(result.projectDir))throw new Error('projectDir必须为仓内相对目录');
+  if(!Array.isArray(result.buildArgs)||result.buildArgs.length>20||result.buildArgs.some(v=>typeof v!=='string'||/[\r\n]/.test(v)))throw new Error('buildArgs必须为有限字符串数组');
   if(typeof result.legacyPeerDeps!=='boolean')throw new Error('legacyPeerDeps 必须是布尔值');
   if(!Number.isSafeInteger(result.timeoutMs)||result.timeoutMs<1000||result.timeoutMs>1800000)throw new Error('timeoutMs 范围为 1000..1800000');
   for(const key of ['registryRewrites','buildEnv','analysis'])if(!result[key]||typeof result[key]!=='object'||Array.isArray(result[key]))throw new Error(key+' 必须是对象');
@@ -78,8 +85,8 @@ export async function runRepository(input,{profile={},workDir=path.resolve('work
   const config=taskProfile({...preset,...profile});
   const taskDir=path.join(path.resolve(workDir),'task-'+Date.now()+'-'+randomUUID().slice(0,8));
   await fs.mkdir(taskDir,{recursive:true});await fs.mkdir(path.join(taskDir,'logs'));
-  const checkout=path.join(taskDir,'checkout');
-  const manifest={schemaVersion:1,state:'running',repository,commit:null,startedAt:new Date().toISOString(),engineVersion:'0.8.3',stages:[],gaps:[],profile:{...config,buildEnv:Object.keys(config.buildEnv)}};
+  const checkout=path.join(taskDir,'checkout');let project=checkout;
+  const manifest={schemaVersion:1,state:'running',repository,commit:null,startedAt:new Date().toISOString(),engineVersion:'0.9.0',stages:[],gaps:[],profile:{...config,buildEnv:Object.keys(config.buildEnv)}};
   const persist=()=>fs.writeFile(path.join(taskDir,'task.json'),JSON.stringify(manifest,null,2)+'\n');
   const stage=async(name,command,args,options={})=>{
     const entry={name,state:'running',startedAt:new Date().toISOString(),log:'logs/'+name+'.log'};manifest.stages.push(entry);await persist();
@@ -94,7 +101,7 @@ export async function runRepository(input,{profile={},workDir=path.resolve('work
     const containerName='js-scan-'+randomUUID();
     const ca=process.env.CODEX_PROXY_CERT??'/etc/ssl/certs/ca-certificates.crt';await fs.access(ca);
     const args=[...dockerArgs,'run','--rm','--name',containerName,'--user',`${process.getuid()}:${process.getgid()}`,'--cap-drop=ALL','--security-opt','no-new-privileges','--memory','4g','--cpus','2','--pids-limit','512','--read-only','--tmpfs','/tmp:rw,exec,nosuid,size=1g',
-      '--mount',`type=bind,src=${checkout},dst=/app`,'--mount',`type=bind,src=${ca},dst=/run/proxy-ca.pem,readonly`,'-w','/app','-e','NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem','-e','npm_config_cache=/tmp/npm-cache',...Object.keys(config.buildEnv).flatMap(key=>['-e',key]),config.dockerImage,...command];
+      '--mount',`type=bind,src=${project},dst=/app`,'--mount',`type=bind,src=${ca},dst=/run/proxy-ca.pem,readonly`,'-w','/app','-e','NODE_EXTRA_CA_CERTS=/run/proxy-ca.pem','-e','npm_config_cache=/tmp/npm-cache',...Object.keys(config.buildEnv).flatMap(key=>['-e',key]),config.dockerImage,...command];
     try{return await stage(name,'docker',args,{env:{...dockerEnv,...config.buildEnv}});}
     finally{await execute('docker',[...dockerArgs,'rm','-f',containerName],{env:dockerEnv,timeoutMs:10000}).catch(()=>{});}
   };
@@ -104,42 +111,48 @@ export async function runRepository(input,{profile={},workDir=path.resolve('work
     await stage('clone','git',['clone','--no-checkout','--filter=blob:none','--',repository+'.git',checkout],{env:{GIT_TERMINAL_PROMPT:'0'}});
     await stage('checkout','git',['-C',checkout,'checkout','--detach',config.ref],{env:{GIT_TERMINAL_PROMPT:'0'}});
     const commit=await stage('verify','git',['-C',checkout,'rev-parse','HEAD']);if(commit!==config.ref)throw new Error('checkout Commit 不匹配');manifest.commit=commit;
-    const pkg=JSON.parse(await fs.readFile(path.join(checkout,'package.json'),'utf8'));
+    project=await fs.realpath(path.join(checkout,config.projectDir));const realCheckout=await fs.realpath(checkout);if(project!==realCheckout&&!project.startsWith(realCheckout+path.sep))throw new Error('projectDir越过checkout');
+    const pkg=JSON.parse(await fs.readFile(path.join(project,'package.json'),'utf8'));
     if(!pkg.scripts?.[config.buildScript])throw new Error('仓库未声明指定 npm 构建脚本');
     const originalHashes=new Map();let originalBytes=0;
-    for(const name of await glob('src/**/*.{js,jsx,ts,tsx,mjs,cjs,vue,svelte}',{cwd:checkout,followSymbolicLinks:false})) {
-      const file=path.join(checkout,name);if((await fs.lstat(file)).isSymbolicLink())continue;
+    for(const name of await glob('src/**/*.{js,jsx,ts,tsx,mjs,cjs,vue,svelte}',{cwd:project,followSymbolicLinks:false})) {
+      const file=path.join(project,name);if((await fs.lstat(file)).isSymbolicLink())continue;
       const bytes=await fs.readFile(file);originalBytes+=bytes.length;if(originalBytes>64*1024*1024)throw new Error('构建前源码快照超过 64 MiB');originalHashes.set(name,sha256(bytes));
     }
-    const lockPath=path.join(checkout,'package-lock.json'),original=await fs.readFile(lockPath);
-    const lock=JSON.parse(original);if(![1,2,3].includes(lock.lockfileVersion))throw new Error('仅支持 npm lockfile v1/v2/v3');
-    const count=rewriteRegistry(lock,config.registryRewrites);
-    if(count)await fs.writeFile(lockPath,JSON.stringify(lock,null,2)+'\n');
-    manifest.lock={originalSha256:sha256(original),appliedSha256:sha256(await fs.readFile(lockPath)),rewrittenUrls:count,versionsAndIntegrityPreserved:true};
-    manifest.dependencies=Object.fromEntries(Object.entries({...pkg.dependencies,...pkg.devDependencies}).filter(([name])=>name.startsWith('@alicloud/')||name.startsWith('@alifd/')||name==='ali-oss').map(([name,declared])=>[name,{declared,locked:lock.packages?.['node_modules/'+name]?.version??lock.dependencies?.[name]?.version??null}]));
+    const manager=config.packageManager,lockName={npm:'package-lock.json',pnpm:'pnpm-lock.yaml',yarn:'yarn.lock'}[manager];
+    if(pkg.packageManager&&manager!=='npm'&&(pkg.packageManager.split('@')[0]!==manager||pkg.packageManager.split('@').at(-1).split('+')[0]!==config.packageManagerVersion))throw new Error('项目packageManager与配置冲突');
+    const lockPath=path.join(project,lockName),original=await fs.readFile(lockPath);
+    let lock=null,count=0;
+    if(manager==='npm'){lock=JSON.parse(original);if(![1,2,3].includes(lock.lockfileVersion))throw new Error('仅支持npm lockfile v1/v2/v3');count=rewriteRegistry(lock,config.registryRewrites);if(count)await fs.writeFile(lockPath,JSON.stringify(lock,null,2)+'\n');}
+    manifest.lock={format:manager,file:lockName,originalSha256:sha256(original),appliedSha256:sha256(await fs.readFile(lockPath)),rewrittenUrls:count,versionsAndIntegrityPreserved:true};
+    manifest.dependencies=Object.fromEntries(Object.entries({...pkg.dependencies,...pkg.devDependencies}).filter(([name])=>name.startsWith('@alicloud/')||name.startsWith('@alifd/')||name==='ali-oss').map(([name,declared])=>[name,{declared,locked:lock?.packages?.['node_modules/'+name]?.version??lock?.dependencies?.[name]?.version??null}]));
+    const tool=manager==='npm'?['npm']:['npm','exec','--yes','--ignore-scripts','--registry=https://registry.npmjs.org','--package='+manager+'@'+config.packageManagerVersion,'--',manager];
     await stage('docker-check','docker',[...dockerArgs,'info','--format','{{.ServerVersion}}'],{env:dockerEnv});
     await stage('image-pull','docker',[...dockerArgs,'pull',config.dockerImage],{env:dockerEnv});
     manifest.imageDigests=JSON.parse(await stage('image','docker',[...dockerArgs,'image','inspect','--format','{{json .RepoDigests}}',config.dockerImage],{env:dockerEnv}));
     manifest.nodeVersion=await container('runtime',['node','--version']);
-    await container('install',['npm','ci','--ignore-scripts',...(config.legacyPeerDeps?['--legacy-peer-deps']:[]),'--no-audit','--no-fund','--strict-ssl=true']);
+    manifest.packageManagerVersion=await container('manager-runtime',[...tool,'--version']);
+    const install=manager==='npm'?[...tool,'ci','--ignore-scripts',...(config.legacyPeerDeps?['--legacy-peer-deps']:[]),'--no-audit','--no-fund','--strict-ssl=true']:manager==='pnpm'?[...tool,'install','--frozen-lockfile','--ignore-scripts','--store-dir','/tmp/pnpm-store']:[...tool,'install','--frozen-lockfile','--ignore-scripts','--non-interactive','--cache-folder','/tmp/yarn-cache'];
+    await container('install',install);
     if(sha256(await fs.readFile(lockPath))!==manifest.lock.appliedSha256)throw new Error('安装阶段更改了锁文件');
-    await container('build',['npm','run',config.buildScript]);
+    await container('build',[...tool,'run',config.buildScript,...(config.buildArgs.length?(manager==='npm'?['--',...config.buildArgs]:config.buildArgs):[])]);
     if(sha256(await fs.readFile(lockPath))!==manifest.lock.appliedSha256)throw new Error('构建阶段更改了锁文件');
     if(await stage('verify-built-head','git',['-C',checkout,'rev-parse','HEAD'])!==commit)throw new Error('构建改变了 checkout Commit');
     manifest.trackedChanges=await stage('tracked-changes','git',['-C',checkout,'diff','--name-only','HEAD']);
     const analysisStage={name:'analysis',state:'running',startedAt:new Date().toISOString()};manifest.stages.push(analysisStage);await persist();
-    const built=await analyzeBuild(checkout,config.artifactDirs,taskDir,config.analysis,originalHashes);
-    const changed=manifest.trackedChanges.split('\n').filter(name=>name&&!(count&&name==='package-lock.json'));
+    const built=await analyzeBuild(project,config.artifactDirs,taskDir,config.analysis,originalHashes);
+    const changed=manifest.trackedChanges.split('\n').filter(name=>name&&!(count&&name===path.posix.join(config.projectDir,lockName)));
     if(changed.length)built.gaps.push('构建修改了已跟踪输入: '+changed.join(', '));
     const globalGaps=[...built.gaps,...built.report.stats.partitions.filter(p=>p.state!=='finished').map(p=>`${p.file}: ${p.state} (${p.reason??'unknown'})`)];
     if(built.report.diagnostics.length)globalGaps.push(`分析器有 ${built.report.diagnostics.length} 条诊断，详见 analysis.json`);
-    const meta={mode:built.mode,repository,commit,deploymentUrl:config.deploymentUrl,gaps:globalGaps};const rows=requestRows(built.report,meta,built.locations);
+    const meta={mode:built.mode,repository,commit,projectDir:config.projectDir,deploymentUrl:config.deploymentUrl,gaps:globalGaps};const rows=requestRows(built.report,meta,built.locations);
     const bottom={...built.report,...meta,analysisMode:built.report.mode,sourceAssets:built.report.assets,assets:built.assets,mappedSources:built.mappedSources,buildGaps:built.gaps,rows};
     await fs.writeFile(path.join(taskDir,'analysis.json'),JSON.stringify(bottom,null,2)+'\n');
+    await writeDelivery(bottom,path.join(taskDir,'delivery'));
     await fs.writeFile(path.join(taskDir,'requests.csv'),requestCsv(rows));await fs.writeFile(path.join(taskDir,'requests.md'),requestMarkdown(rows,meta));
     Object.assign(analysisStage,{state:'succeeded',finishedAt:new Date().toISOString()});
     manifest.analysis={mode:built.mode,assets:built.assets,mappedSources:built.mappedSources.length,rows:rows.length,stats:built.report.stats,complete:built.report.stats.complete&&!built.gaps.length};manifest.gaps=globalGaps;
-    manifest.state='completed';manifest.finishedAt=new Date().toISOString();manifest.outputs=['requests.csv','requests.md','analysis.json'];await persist();
+    manifest.state='completed';manifest.finishedAt=new Date().toISOString();manifest.outputs=['requests.csv','requests.md','analysis.json','delivery/analysis.json','delivery/api_assets.xlsx'];await persist();
     return {taskDir,manifest,rows};
   } catch(error) {
     manifest.state='failed';manifest.error=error.message;manifest.finishedAt=new Date().toISOString();

@@ -6,6 +6,7 @@ import ts from 'typescript';
 import {TraceMap,eachMapping} from '@jridgewell/trace-mapping';
 import {pathToFileURL} from 'node:url';
 import {analyze} from './analyzer.js';
+import {unpackWebpack} from './webpack-modules.js';
 import {sinkId} from './request-table.js';
 
 export const sha256=bytes=>createHash('sha256').update(bytes).digest('hex');
@@ -68,13 +69,17 @@ export async function analyzeBuild(checkout,artifactDirs,output,options={},origi
   }
   if(!assets.length)throw new Error('构建未产生 JS 资产');
   for(const [name,source] of contents)if(!conflicts.has(name)){const target=path.join(virtual,name);await fs.mkdir(path.dirname(target),{recursive:true});await fs.writeFile(target,source.text);}
-  const mode=contents.size>conflicts.size?'source-map-assisted':'artifact-static';
-  const analysisRoot=mode==='source-map-assisted'?virtual:checkout;
-  const config=mode==='source-map-assisted'?options:{...options,include:assets.map(a=>a.file),exclude:['**/node_modules/**','**/.git/**']};
+  let mode=contents.size>conflicts.size?'source-map-assisted':'artifact-static';
+  const webpack=mode==='artifact-static'?await unpackWebpack(checkout,assets,output):null;
+  if(webpack?.files.length)mode='webpack-module-static';
+  if(webpack)gaps.push(...webpack.gaps);
+  const analysisRoot=mode==='source-map-assisted'?virtual:mode==='webpack-module-static'?webpack.root:checkout;
+  const config=mode==='source-map-assisted'?options:mode==='webpack-module-static'?{...options,entries:[],include:['**/*.js'],exclude:[]}:{...options,include:assets.map(a=>a.file),exclude:['**/node_modules/**','**/.git/**']};
   const report=await analyze(analysisRoot,config),locations=new Map(),wanted=new Map(),sendIds=new Set();
   for(const endpoint of [...report.endpoints,...report.assetCandidates])for(const usage of endpoint.usages) {
     const sink=usage.callChain.at(-1),id=sinkId(sink);if(wanted.has(id))continue;
     sendIds.add(id);
+    if(mode==='webpack-module-static'){const position=webpack.locations.get(id);if(position)locations.set(id,position);continue;}
     if(mode==='artifact-static'){locations.set(id,[{file:sink.file,line:sink.line,column:sink.column,sourceVersionMatch:null}]);continue;}
     const source=contents.get(sink.file);if(!source||conflicts.has(sink.file))continue;
     const sf=ts.createSourceFile(sink.file,source.text,ts.ScriptTarget.Latest,true,ts.ScriptKind.JSX);
@@ -104,5 +109,5 @@ export async function analyzeBuild(checkout,artifactDirs,output,options={},origi
   const unmapped=[...sendIds].filter(id=>!locations.has(id)).length;if(unmapped)gaps.push(`${unmapped} 个源码发送位置无产物映射，不能确认在产物中保留`);
   if(excludedSources)gaps.push(`未分析第三方/非 src/非脚本/缺内容 source 条目 ${excludedSources} 个；不能据此断言没有请求`);
   if(mode==='artifact-static')gaps.push('未取得可用应用 sourcesContent；打包 runtime 不保证支持');
-  return {mode,assets,report,locations,gaps,mappedSources:[...contents].filter(([name])=>!conflicts.has(name)).map(([file,s])=>({file,sha256:s.hash})),excludedSources};
+  return {mode,assets,report,locations,gaps,webpack:webpack?{modules:webpack.moduleAssets,chunks:webpack.chunks}:null,mappedSources:[...contents].filter(([name])=>!conflicts.has(name)).map(([file,s])=>({file,sha256:s.hash})),excludedSources};
 }

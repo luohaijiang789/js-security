@@ -1,5 +1,12 @@
 # 迭代记录
 
+## 0.9.0 / 插件0.7.0
+
+- 新增统一Schema2.0/Excel、真实插件包导入、JS资产收集与快照导入、本地分析服务和插件JS探索。
+- 新增jQuery、受限call/apply/reduce、普通类/显式AngularJS DI、表单与未应用hook字段候选。
+- 有限Webpack4/5模块/分块适配、精确STS/RAM SDK模型及OpenAI兼容字段释义；未知版本/参数/副作用不提升为已确认请求。
+- 真实Vue/Vite及固定pnpm/Yarn构建通过；SDK61操作离线对照、Ant Pro16候选验证通过。公开GDB无map与Nacos页面全链尚未通过，AI质量/真实站点/MV3现场待验收。[使用和限制](release-0.9.md)、[基准](validation-0.9.md)。
+
 ## 0.8.3
 
 - 冻结 GDB/Nacos/OSS 的有限外部源码切片 manifest 与人工字段/条件预期；新增 verify:external CLI，隔离冻结文件后核对逐条结果，独立保留 validationPassed/extractionComplete。

@@ -24,6 +24,7 @@ export function collectChanges(config,fields) {
   // Config-level writes are separate from nested payload/carrier writes.
   events(config,'config',[]);
   const walk=(value,carrier,path,seen=new Set())=>{
+    if(value?.[TAG]==='instance'){walk(value.properties,carrier,path,seen);return;}
     if(!value || typeof value!=='object' || seen.has(value))return;
     if(value[TAG]==='serialized'){walk(value.input,carrier,path,seen);return;}
     if(value[TAG])return;

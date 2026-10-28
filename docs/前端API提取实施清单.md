@@ -1,6 +1,6 @@
 # 前端 API 提取实施清单
 
-更新：2026-10-28（Asia/Shanghai）；当前版本 0.8.3。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
+更新：2026-10-28（Asia/Shanghai）；当前提取器版本 0.9.0 / 插件 0.7.0。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
 
 目标：输入前端 GitHub 仓库地址 → 固定版本 → 自动安装/正式构建 → 清点 JS/引用 → 有界深入分析 → 导出逐调用请求表。表格包含 JS 与源码位置、Host、URL、方法、Query/Body/Header 字段、条件、依据和未解析项。AI 释义独立附加。
 
@@ -21,9 +21,9 @@
 - [x] B06 逐调用/条件/阶段的 CSV、Markdown、JSON 请求表；真实 GDB 得到 3 个发送位置、4 行候选（0.8）。[请求表](../frontend-api-extractor/docs/gdb-build-pilot.md)
 - [x] B07 可选部署页面基址补全静态相对地址；代码 Host 与上下文候选分开（0.8.1）。[验证](../frontend-api-extractor/docs/deployment-context.md)
 
-## 已实现能力台账（累计至 0.8.3）
+## 已实现能力台账（累计至 0.9.0）
 
-下面补齐 0.1～0.8.3 的累计能力，按实际实现的子集勾选。B01～B07 保留为流程索引，详细能力以下表/条目为准；后续 P0～P5 中未完成的扩展继续保持未勾选。版本取首次交付或主要补强版本，不把历史测试数累计相加。
+下面保留 0.1～0.8.3 并补充 0.9 的累计能力，按实际实现的子集勾选。B01～B07 保留为流程索引，详细能力以下表/条目为准；后续 P0～P5 中未完成的扩展继续保持未勾选。版本取首次交付或主要补强版本，不把历史测试数累计相加。
 
 ### S：源码、配置和 JS 引用
 
@@ -100,64 +100,64 @@
 
 ### 当前能力的共同边界
 
-上面的“已实现”均指列明子集。React/Next/Angular 等支持脚本解析不代表生命周期、DI 或零配置构建；ESM 深入追踪不代表 Webpack runtime 或外部 JS 抓取；常量解码不代表通用解密；source map 关联不代表所有 vendor 已分析；静态请求候选、上下文 Host 与插件实测必须分开。完整前端任务界面、黑盒二接入、统一 Excel、SDK 协议还原和 AI 释义仍在后续待办中。
+上面的“已实现”均指列明子集。React/Next/Angular 等支持脚本解析不代表生命周期、DI 或零配置构建；ESM 深入追踪与有限 Webpack/外部收集是不同模式；常量解码不代表通用解密；source map 关联不代表所有 vendor 已分析；静态请求候选、上下文 Host 与插件实测必须分开。0.9 已接黑盒二、统一交付、固定 SDK 和 OpenAI 兼容释义；公开无map、真实页面全链、AI语义质量及现场验收仍有未完成项，详见[验证](../frontend-api-extractor/docs/release-0.9.md)。
 
-## P0 基准与差异报告：进行中
+## P0 基准与差异报告：限定范围完成
 
-0.8.2 已完成 P0-01～03；0.8.3 完成 P0-04 的限定外部切片；P0-05 为下一优先项。P0 整阶段尚未完成。
+P0-01～07 已完成各自限定范围；性能仅为自写 direct-fetch 分布，验证集仅为冻结的有限切片，不代表生产覆盖率。
 
 - [x] P0-01 定义同版调用对照锚点：源码发送位置＋条件＋阶段＋调用链＋仓库/版本/上下文；不依赖随内容变化的表格 id，不作为永久资产 ID（0.8.2）。[规则与测试](../frontend-api-extractor/docs/baselines.md)
 - [x] P0-02 自写跨文件微型基准：人工预期、脚本/预期哈希、配置、完整性断言，一条命令复跑（0.8.2）。[基准](../frontend-api-extractor/examples/request-baseline/README.md)
 - [x] P0-03 新增/丢失/字段变化/变未知/歧义及分析状态差异报告；GDB 同版历史结果对照，不能只比数量（0.8.2）。[验证](../frontend-api-extractor/docs/baselines.md)
 - [x] P0-04 固定 GDB/Nacos/OSS 有限外部切片 manifest、11 个源文件/人工预期哈希与逐调用/字段/条件核查；18 个发送位置/22 条候选预期匹配（0.8.3）。包含必须未知的缺口验收，不算全仓准确率或独立盲测。[基准与结果](../frontend-api-extractor/docs/external-baselines.md)
-- [ ] P0-05 冻结未参与调规则的验证切片；登记开发集/回归集/验证集流转，建立有限分母。
-- [ ] P0-06 明确统一记录/字段/缺口 ID、Schema 兼容与迁移规则；当前对照锚点只用于限定同版比较。
-- [ ] P0-07 冻结冷/热性能基线：耗时、峰值 RSS、求值步数和超限行为。当前差异工具只记录步数。
+- [x] P0-05 冻结 Ant Design Pro 独立切片：8调用/16条件候选先标注后首测，16/16匹配；开发/回归/验证流转登记（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [x] P0-06 统一 Schema 2.0.0、记录/字段/缺口/证据 ID、旧格式适配与未知版本拒绝（0.9）。[协议](../frontend-api-extractor/docs/delivery-protocol.md)
+- [x] P0-07 100/1000/10000 自写文件冷/热性能基线，时间/进程峰值RSS/步数/源码哈希及超限反例（0.9）。[基线](../frontend-api-extractor/docs/validation-0.9.md)
 
 ## P1 参数改写、hook 与序列化：部分实现
 
-- [ ] P1-01 补完有独立预期的条件副作用/闭包状态切片；不能沿用旧值或跨调用串值。可确定子集见 B02。
-- [ ] P1-02 核对 Nacos 的 username/accessToken/Content-Type 和 body 变换；未支持的异步、条件及 runWhen 路径仍未知。同步子集见 B03。
-- [ ] P1-03 JSON、表单、URLSearchParams、FormData 分载体验证，包含重复键、删除、编码与未知加密；输入字段不能冒充最终线上字段。
-- [ ] P1-04 OSS BaseHttp 的 opt.url/headers 改写切片与明确预期；Global.endpoint、DI 与 SDK 协议分开验证。
+- [x] P1-01 条件实例副作用保守降级、闭包中间件与多次调用隔离切片通过；不承诺一般堆状态（0.9）。[实例测试](../frontend-api-extractor/test/instances.test.js)、[封装测试](../frontend-api-extractor/test/wrappers.test.js)
+- [x] P1-02 核对 Nacos username/accessToken/Content-Type 与body替换，自动保存未应用hook候选；异步/条件/runWhen 最终值仍未知（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [x] P1-03 JSON、URLSearchParams、FormData 分载体验证重复键/删除/编码/未知值与快照；不冒充最终网络字段（0.9）。[表单测试](../frontend-api-extractor/test/forms.test.js)
+- [x] P1-04 原样 OSS BaseHttp+自写驱动，显式DI下验证opt.url/headers改写；相对Host依赖Global.endpoint，SDK另验（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
 
-## P2 请求封装与业务链：待推进
+## P2 请求封装与业务链：语义子集完成，页面全链未通过
 
-- [ ] P2-01 jQuery ajax 请求适配，正例与同名普通方法反例独立验收。
-- [ ] P2-02 受限 call/apply、静态中间件 reduce；先连通一条多文件封装链再扩大。
-- [ ] P2-03 普通类实例/工厂与 AngularJS 显式 DI 分开实施；配置命中不能冒充自动推导。
-- [ ] P2-04 GDB 页面链、Nacos globalLib/ServiceList 定向验证；区分入口连通与资产局部候选。
+- [x] P2-01 jQuery ajax/get/post/getJSON 适配与同名反例；ajaxSetup/hooks未支持则保留缺口（0.9）。[测试](../frontend-api-extractor/test/wrappers.test.js)
+- [x] P2-02 受限call/apply及静态reduce，多文件实参到发送点、未知this/参数反例通过（0.9）。[测试](../frontend-api-extractor/test/wrappers.test.js)
+- [x] P2-03 普通类自身字段/方法/工厂与AngularJS显式DI分别支持，继承/隐式DI不冒充已恢复（0.9）。[测试](../frontend-api-extractor/test/instances.test.js)
+- [ ] P2-04 已定向试跑：GDB页面已知请求来自资产补漏；Nacos globalLib/page仍未知URL，页面生命周期全链验收未通过。[实测](../frontend-api-extractor/docs/release-0.9.md)
 
-## P3 构建产物与 JS 引用：待推进
+## P3 构建产物与 JS 引用：有限适配完成，公开无 map 未通过
 
 B05 只完成 source-map 辅助关联，不代表以下项完成。
 
-- [ ] P3-01 自写正式 Webpack 5 分块基准，固定构建版本/参数、源码及存活发送点预期。
-- [ ] P3-02 识别受支持的 Webpack 5 模块表、ID/导出与引用；不执行目标 runtime。
-- [ ] P3-03 publicPath/chunk 文件名与引用图；缺 chunk、未知 runtime 记录缺口，不输出“没有接口”。
-- [ ] P3-04 同版无 source map 的压缩分块对照；随后独立公开项目验收。
-- [ ] P3-05 再补 Webpack 4；字符串表/常量解码/间接调用按具体模式逐项验证。
-- [ ] P3-06 HTML 内联/外链 JS 与外部获取协议：白盒额外获取深度最多 1，网站模式最多 3；引用父链、哈希、重定向、失败和深度截断均保留。
+- [x] P3-01 自写真实Webpack5生产压缩分块，固定版本/源码/产物哈希与人工预期（0.9）。[基准](../frontend-api-extractor/examples/webpack-chunks/README.md)
+- [x] P3-02 有限Webpack5模块表/ID/导出/引用适配，原始fetch行列可核对，不执行runtime（0.9）。[测试](../frontend-api-extractor/test/webpack.test.js)
+- [x] P3-03 有限publicPath/chunk静态表达式与引用图，缺失/未知/冲突明确缺口（0.9）。[资产测试](../frontend-api-extractor/test/script-assets.test.js)
+- [ ] P3-04 自写同版无map对照通过；公开GDB无map识别478模块但0请求行，公开请求恢复验收未通过。[实测](../frontend-api-extractor/docs/release-0.9.md)
+- [x] P3-05 有限Webpack4正式分块；已有静态字符串/编码/间接调用子集保持独立，未实现通用解密（0.9）。[测试](../frontend-api-extractor/test/webpack.test.js)
+- [x] P3-06 HTML内联/外链与显式资产收集，build最多1层、website最多3层，多父链/哈希/重定向/截断保留；构建流程不自动抓外网（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
 
-## P4 SDK 与地址：待推进
+## P4 SDK 与地址：固定 STS/RAM 子集完成
 
-- [ ] P4-01 OSS Browser 的 STS/RAM：初始化位置、SDK 版本、endpoint、operation、输入字段作为独立候选。
-- [ ] P4-02 对固定 SDK/协议模型恢复 method/path/Query/Header/body；不假定 POST 或根路径。
-- [ ] P4-03 用自写驱动和离线 transport/本地接收器交叉核查编码、重复 Query、默认参数；不调用真实业务服务。
+- [x] P4-01 OSS STS/RAM 自动提取2初始化/12静态操作及输入字段/位置/endpoint；^1.12.3不提升HTTP（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [x] P4-02 精确 aliyun-sdk1.12.3 STS/RAM 61个标量操作协议模型，载体/默认值明确；未知配置/版本拒绝（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [x] P4-03 实际SDK离线build与自写驱动交叉核对61操作、编码/默认字段/Headers，attemptedNetwork=0；重复键由通用表单反例验收（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
 
-## AI 字段释义：待推进
+## AI 字段释义：接口完成，真实质量待验收
 
-- [ ] AI-01 显式开关、最小片段和必要脱敏；记录模型/提示词版本，不默认外发整仓。
-- [ ] AI-02 独立输出字段释义、支持片段与复核提示；不生成无依据的 Host/接口/必填性，不更改静态状态。
-- [ ] AI-03 人工独立标注集核查缩写、多义词、同名异义和压缩变量名；统计无依据推断与拒答。
+- [x] AI-01 显式开关、字段路径/文件名最小外发、无原始值，记录model/promptVersion，OpenAI兼容接口及预算（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [x] AI-02 独立annotations/支持引用/复核提示，禁止结构越界与改写静态状态；真实本地HTTP兼容协议已测（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [ ] AI-03 真实模型语义质量尚未验收：用户已选OpenAI兼容协议，仍需实际endpoint/model和环境密钥；独立人工标注、无依据推断与拒答统计待完成。[边界](../frontend-api-extractor/docs/release-0.9.md)
 
-## P5 黑盒二与最终交付：待推进
+## P5 黑盒二与最终交付：实现完成，现场验收受阻
 
-- [ ] P5-01 页面/脚本资产包与导入协议，包含执行上下文、原始/最终 URL、多父链和获取状态。
-- [ ] P5-02 插件增加黑盒二入口与静态/实测双视图；选择可部署的受控分析进程，不假定 Node 引擎直接运行在扩展内。
-- [ ] P5-03 按[交付约定](结果模型与Excel交付.md)适配统一 analysis.json 与 Excel，保留三类独立证据；当前 CSV 是阶段交付。
-- [ ] P5-04 第二个框架/构建体系的完整 GitHub → 构建 → 表格流程；Yarn/pnpm/monorepo 分别配置和验收，不承诺零配置。
-- [ ] P5-05 受控多层站点、缺失/截断/不同版本验证，再做获准真实站点与 Chrome 现场验收；当前阿里云线上采集仍有环境访问阻断历史。
+- [x] P5-01 页面/脚本资产包及导入协议，上下文/URL/哈希/多父链/获取状态；已加载JS父链未知保留null（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [x] P5-02 插件JS探索、静态/实测双视图及本地受控Node服务，异步任务/令牌/Origin/结果回读；完整MV3现场另列（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [x] P5-03 统一analysis.json+三Sheet Excel，三路独立证据，实际插件包导入及长内容/公式保护（0.9）。[协议](../frontend-api-extractor/docs/delivery-protocol.md)
+- [x] P5-04 真实Vue/Vite子目录GitHub→npm构建→表格；精确pnpm9.15.4/Yarn1.22.22独立固定样例均跑通，预算不完整照实保留（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
+- [ ] P5-05 受控多层站点、缺失/截断/多版本已通过；阿里云国际/帮助站再次CONNECT403，真实站点及完整MV3现场仍受阻。[证据](../frontend-api-extractor/docs/release-0.9.md)
 
 ## 每次迭代的完成检查
 
@@ -183,3 +183,4 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 | 0.8.3 | P0-04；未知配置的三个载体明确未知 | 外部 11 文件上游哈希、22 条预期；193 项自动化测试；既有构建产物回归 | P0-05～07、P1 扩展、P2～P5 与 AI 继续推进 |
 
 2026-10-28 文档补全：按实现、测试、历次验证补录 S/E/R/Q/D/V 和独立黑盒一台账，补齐 0.1.0～0.8.2 历史；本轮不新增运行能力、不重新宣称现场验收，180 项为最近一次代码版本验证记录。
+| 0.9.0 / 插件0.7.0 | P0余项、P1子集、封装/类/表单、有限Webpack、固定SDK、OpenAI兼容接口、黑盒二与统一Excel | 验证数量与性能见本轮报告；真实Vue/pnpm/Yarn构建、SDK61操作 | [验证与未通过项](../frontend-api-extractor/docs/release-0.9.md)、[基准](../frontend-api-extractor/docs/validation-0.9.md) |

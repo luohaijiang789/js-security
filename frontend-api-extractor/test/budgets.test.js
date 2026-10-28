@@ -99,3 +99,5 @@ test('全局预算不足时已知补漏资产也标记未扫描',async t=>{
   assert.equal(r.stats.partitions.find(p=>p.file==='lazy.js').state,'skipped');
   assert.equal(r.stats.unlinkedScan,'incomplete');accounted(r);
 });
+
+test('实参条件组合超限后继续处理后续实参和独立请求，不崩溃或伪造位置',async t=>{const root=await fixture(t,{'api.js':`function send(a,b,c,d){fetch(a,{body:{b,c,d}})}send(a?'/a':'/b',b?1:2,c?3:4,d?5:6);fetch('https://survives.test/api',{method:'POST',body:{id:7}});`});const r=await analyze(root,{maxCandidates:2});assert.ok(r.endpoints.some(e=>e.url==='https://survives.test/api'));assert.ok(r.diagnostics.some(d=>d.code==='CANDIDATE_LIMIT'));assert.equal(r.stats.complete,false);});
