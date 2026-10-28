@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import {deploymentUrl} from './deployment-address.js';
 import {spawn} from 'node:child_process';
 import {randomUUID} from 'node:crypto';
 import glob from 'fast-glob';
@@ -13,7 +14,7 @@ export function githubRepository(input) {
 }
 
 export function taskProfile(value={}) {
-  const defaults={dockerImage:'node:22-bookworm-slim',buildScript:'build',artifactDirs:['dist'],legacyPeerDeps:false,registryRewrites:{},buildEnv:{},analysis:{},timeoutMs:600000};
+  const defaults={dockerImage:'node:22-bookworm-slim',buildScript:'build',artifactDirs:['dist'],legacyPeerDeps:false,registryRewrites:{},buildEnv:{},analysis:{},timeoutMs:600000,deploymentUrl:null};
   if(!value||typeof value!=='object'||Array.isArray(value))throw new Error('任务配置必须是对象');
   for(const key of Object.keys(value))if(!Object.hasOwn(defaults,key)&&key!=='ref')throw new Error('未知任务配置: '+key);
   const result={...defaults,...value};
@@ -27,6 +28,7 @@ export function taskProfile(value={}) {
   for(const key of ['registryRewrites','buildEnv','analysis'])if(!result[key]||typeof result[key]!=='object'||Array.isArray(result[key]))throw new Error(key+' 必须是对象');
   for(const [from,to] of Object.entries(result.registryRewrites))if(typeof to!=='string'||!/^[\w.-]+$/.test(from)||! /^[\w.-]+$/.test(to))throw new Error('registryRewrites 仅允许显式主机名映射');
   for(const [key,v] of Object.entries(result.buildEnv))if(!/^[A-Z_][A-Z0-9_]*$/.test(key)||['HOME','CODEX_HOME','PATH','HTTP_PROXY','HTTPS_PROXY','NO_PROXY','NODE_EXTRA_CA_CERTS'].includes(key)||key.startsWith('DOCKER_')||typeof v!=='string')throw new Error('buildEnv 键/值无效');
+  result.deploymentUrl=deploymentUrl(result.deploymentUrl);
   return result;
 }
 
@@ -77,7 +79,7 @@ export async function runRepository(input,{profile={},workDir=path.resolve('work
   const taskDir=path.join(path.resolve(workDir),'task-'+Date.now()+'-'+randomUUID().slice(0,8));
   await fs.mkdir(taskDir,{recursive:true});await fs.mkdir(path.join(taskDir,'logs'));
   const checkout=path.join(taskDir,'checkout');
-  const manifest={schemaVersion:1,state:'running',repository,commit:null,startedAt:new Date().toISOString(),engineVersion:'0.8.0',stages:[],gaps:[],profile:{...config,buildEnv:Object.keys(config.buildEnv)}};
+  const manifest={schemaVersion:1,state:'running',repository,commit:null,startedAt:new Date().toISOString(),engineVersion:'0.8.1',stages:[],gaps:[],profile:{...config,buildEnv:Object.keys(config.buildEnv)}};
   const persist=()=>fs.writeFile(path.join(taskDir,'task.json'),JSON.stringify(manifest,null,2)+'\n');
   const stage=async(name,command,args,options={})=>{
     const entry={name,state:'running',startedAt:new Date().toISOString(),log:'logs/'+name+'.log'};manifest.stages.push(entry);await persist();
@@ -131,7 +133,7 @@ export async function runRepository(input,{profile={},workDir=path.resolve('work
     if(changed.length)built.gaps.push('构建修改了已跟踪输入: '+changed.join(', '));
     const globalGaps=[...built.gaps,...built.report.stats.partitions.filter(p=>p.state!=='finished').map(p=>`${p.file}: ${p.state} (${p.reason??'unknown'})`)];
     if(built.report.diagnostics.length)globalGaps.push(`分析器有 ${built.report.diagnostics.length} 条诊断，详见 analysis.json`);
-    const meta={mode:built.mode,repository,commit,gaps:globalGaps};const rows=requestRows(built.report,meta,built.locations);
+    const meta={mode:built.mode,repository,commit,deploymentUrl:config.deploymentUrl,gaps:globalGaps};const rows=requestRows(built.report,meta,built.locations);
     const bottom={...built.report,...meta,analysisMode:built.report.mode,sourceAssets:built.report.assets,assets:built.assets,mappedSources:built.mappedSources,buildGaps:built.gaps,rows};
     await fs.writeFile(path.join(taskDir,'analysis.json'),JSON.stringify(bottom,null,2)+'\n');
     await fs.writeFile(path.join(taskDir,'requests.csv'),requestCsv(rows));await fs.writeFile(path.join(taskDir,'requests.md'),requestMarkdown(rows,meta));

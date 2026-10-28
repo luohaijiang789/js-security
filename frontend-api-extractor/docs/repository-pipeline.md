@@ -1,6 +1,6 @@
 # 仓库地址 → 构建 JS → 请求表
 
-0.8.0，2026-10-28。新增 npm/Docker 构建增强首版，源码扫描 CLI 继续独立运行。构建模式要求 Node 22+、Git 和可用的本地 Docker Unix socket；镜像内 Node 版本与分析器运行环境分别记录。
+0.8.1，2026-10-28。新增 npm/Docker 构建增强首版，源码扫描 CLI 继续独立运行。构建模式要求 Node 22+、Git 和可用的本地 Docker Unix socket；镜像内 Node 版本与分析器运行环境分别记录。
 
 在提取器目录运行已验证的公开项目：
 
@@ -33,7 +33,7 @@ source-map-assisted 是产物关联源码分析，不是已实现通用 Webpack 
 | analysis.json | JS 哈希、source assets/引用、source map 关联、逐调用证据及诊断 |
 | task.json、logs/ | 仓库/Commit、镜像 digest、原始/应用锁文件哈希、阶段、配置与构建日志 |
 
-主表按调用处记录，有限 hook 后结果另列阶段，不混并参数。未知 Host 不取脚本 CDN 域名或开发 proxy；未提供运行/部署上下文时保留未知。无显式字段、动态值和缺失信息分开表示。CSV 对外部字符串做公式保护；当前并未宣称统一 api_assets.xlsx/analysis.json 交付协议已全部接入。
+主表按调用处记录，有限 hook 后结果另列阶段，不混并参数。未知 Host 不取脚本 CDN 域名或开发 proxy；未提供运行/部署上下文时保留未知。可通过 --deployment-url 或 profile.deploymentUrl 提供页面基址，规则与验证见[部署上下文](deployment-context.md)。无显式字段、动态值和缺失信息分开表示。CSV 对外部字符串做公式保护；当前并未宣称统一 api_assets.xlsx/analysis.json 交付协议已全部接入。
 
 GDB 的旧锁文件明确配置 registry.npmmirror.com→官方 npm 的 tarball 地址规范化；只改变下载位置，保留锁定名称、版本、integrity，保存两份锁文件哈希。legacyPeerDeps 也在配置中显式启用，不使用 --force，不升级 React。其他项目不自动套用这些兼容选项。
 
@@ -41,6 +41,6 @@ GDB 的旧锁文件明确配置 registry.npmmirror.com→官方 npm 的 tarball 
 
 ## 验证
 
-162 项自动化测试通过，新增 13 项任务/映射/表格测试，并补 3 项真实全量分析暴露的数组长度和实参候选超限回归。离线自写流程测试替代子进程，不能冒充真实构建；另确实从 GitHub 地址完成 GDB 的真实 Docker/npm 构建与分析，见[完整请求表及证据](gdb-build-pilot.md)。
+170 项自动化测试通过；0.8.1 新增 8 项部署上下文回归，0.8.0 新增 13 项任务/映射/表格测试，并补 3 项真实全量分析暴露的数组长度和实参候选超限回归。离线自写流程测试替代子进程，不能冒充真实构建；另确实从 GitHub 地址完成 GDB 的真实 Docker/npm 构建与分析，见[完整请求表及证据](gdb-build-pilot.md)。
 
 首轮真实运行保留“构建成功、分析失败”记录；修复模型异常和 CRA 相对 sources 命名识别后，从仓库地址重新完整运行成功。同版产物经独立 AST 位置/URL/字段核对，并复核导出协议。分析完整性仍为 false，原因在表格和任务记录中保留。
