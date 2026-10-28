@@ -1,6 +1,6 @@
 {
   "name": "frontend-api-extractor",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "private": true,
   "type": "module",
   "bin": {
@@ -11,7 +11,9 @@
     "test": "node --test test/*.test.js",
     "scan": "node src/cli.js",
     "demo": "node src/cli.js examples/multi-framework --out reports/multi-framework.json",
-    "scan:repository": "node src/repository-cli.js"
+    "scan:repository": "node src/repository-cli.js",
+    "verify:baseline": "node src/baseline-cli.js",
+    "compare:requests": "node src/compare-cli.js"
   },
   "engines": {
     "node": ">=22"
