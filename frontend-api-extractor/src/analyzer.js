@@ -423,7 +423,18 @@ export async function analyze(root, options = {}) {
       diagnostic('DYNAMIC_PROPERTY_MUTATION','属性目标或键不确定，可能覆盖/删除的字段保持未知',node);return;
     }
     const name=String(key),previous=Object.hasOwn(target,name)?clean(target[name]):undefined;
-    if(operation==='delete')delete target[name];
+    if(Array.isArray(target)&&name==='length') {
+      if(operation!=='delete'&&Number.isInteger(value)&&value>=0&&value<=config.maxCandidates)target.length=value;
+      else {
+        diagnostic('ARRAY_WRITE_UNMODELED','数组 length 删除、动态值或长度超限，保留未知数组',node);
+        invalidateObject(target,'array length mutation',node,ctx);if(!target.length)target.push(unknown('array length mutation'));
+        return;
+      }
+    } else if(Array.isArray(target)&&/^(0|[1-9]\d*)$/.test(name)&&Number(name)>=config.maxCandidates&&Number(name)<4294967295) {
+      diagnostic('ARRAY_WRITE_UNMODELED','数组索引写入超出 maxCandidates，保留未知数组',node);
+      invalidateObject(target,'array index mutation',node,ctx);if(!target.length)target.push(unknown('array index mutation'));return;
+    }
+    else if(operation==='delete')delete target[name];
     else Object.defineProperty(target,name,{value,enumerable:true,writable:true,configurable:true});
     trackChange(target,{operation,key:name,previous,...(operation==='delete'?{}:{value:clean(value)}),expression:node.getText(),conditions:ctx.conditions??[],...locate(node)},node);
   }
@@ -553,6 +564,7 @@ export async function analyze(root, options = {}) {
       if (ts.isPropertyAccessExpression(node)) {
         const object = evaluate(node.expression,env,ctx,visiting);
         if (object != null && !isUnknown(object)) return liftRefs([object],value => {
+          if(Array.isArray(value)&&hasUnknown(value)&&node.name.text==='length')return unknown('array length mutation');
           if(config.modelRequestHooks){const interceptor=interceptorProperty(value,node.name.text);if(interceptor)return interceptor;if(value?.[TAG]==='intrinsic'&&value.method.startsWith('axios-'))return unknown(node.getText());}
           if(value?.[TAG]==='module')return moduleExport(value,node.name.text,env,ctx,node);
           if(value?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:value.namespace};
@@ -584,6 +596,7 @@ export async function analyze(root, options = {}) {
         if (node.name.text === 'fetch' && ts.isIdentifier(node.expression) && ['globalThis', 'window', 'self'].includes(node.expression.text) && !symbol(node.expression)?.valueDeclaration && !lexicalDeclaration(node,node.expression.text)) return { [TAG]: 'client', kind: 'fetch' };
         const object = evaluate(node.expression, env, ctx, visiting);
         return liftRefs([object],object => {
+          if(Array.isArray(object)&&hasUnknown(object)&&node.name.text==='length')return unknown('array length mutation');
           if(config.modelRequestHooks){const interceptor=interceptorProperty(object,node.name.text);if(interceptor)return interceptor;if(object?.[TAG]==='intrinsic'&&object.method.startsWith('axios-'))return unknown(node.getText());}
           if(object?.[TAG]==='module')return moduleExport(object,node.name.text,env,ctx,node);
           if(object?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:object.namespace};
@@ -598,6 +611,7 @@ export async function analyze(root, options = {}) {
     if (ts.isElementAccessExpression(node)) {
       const value = evaluate(node.expression, env, ctx, visiting), key = evaluate(node.argumentExpression, env, ctx, visiting);
       return liftRefs([value,key],(v,k) => {
+        if(Array.isArray(v)&&hasUnknown(v)&&k==='length')return unknown('array length mutation');
         if(config.modelRequestHooks) {
           const interceptor=interceptorProperty(v,k);if(interceptor)return interceptor;
           if(v?.[TAG]==='intrinsic'&&v.method.startsWith('axios-')){if(v.state&&isUnknown(k))v.state.gaps.push('dynamic interceptor property');return unknown(node.getText());}
@@ -676,6 +690,14 @@ export async function analyze(root, options = {}) {
     return unknown(node.getText());
   }
   function applyCall(target,args,ctx,node) {
+    if(!Array.isArray(args)) {
+      diagnostic('ARGUMENT_CANDIDATES_UNRESOLVED','实参候选超限或未知，调用不完整',node);
+      if(target?.[TAG]==='client') {
+        const result=requestCall(target,[unknown('arguments[0]'),unknown('arguments[1]'),unknown('arguments[2]')],mergeConfig);
+        if(!Object.hasOwn(result,'value'))record(node,target,result.method,result.url,{...result.data,[UNKNOWN]:'arguments unresolved'},ctx);
+      }
+      return unknown('arguments unresolved');
+    }
     if (target?.[TAG] === 'client') {
       const results=[];
       for(const option of expand(args,node)) {

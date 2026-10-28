@@ -1,5 +1,12 @@
 # 迭代记录
 
+## 0.8.0
+
+- 新增 repository CLI：固定 GitHub Commit、npm/Docker 构建、锁文件/镜像/日志记录和产物清单；GDB Console 有开箱可复现的配置。
+- source-map 关联应用源码和产物发送位置，按内容哈希/路径约束归属；保留 vendor、未映射/冲突和预算缺口。无 map 只做原生产物尝试，不切换源码成功。
+- 新增逐调用 CSV/Markdown 请求表与完整 JSON；构建失败没有成功表格。修复真实应用暴露的数组 length 和实参候选超限异常。
+- 162 项测试通过；真实 GDB 构建得到 4 个 JS、21 个应用 source、3 个发送位置/4 行候选，见[请求表](gdb-build-pilot.md)。部署 Host、vendor 完整性和 AI 仍有缺口。
+
 ## 0.7.0
 
 - 可选 modelRequestHooks，默认关闭；有限显式同步 Axios request hook 按逆注册顺序求值，支持已知 eject/clear 与实例隔离。
