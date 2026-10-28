@@ -214,7 +214,7 @@ export async function analyze(root, options = {}) {
   function symbol(node) {
     let s = ts.isIdentifier(node) && ts.isShorthandPropertyAssignment(node.parent)
       ? checker.getShorthandAssignmentValueSymbol(node.parent) : checker.getSymbolAtLocation(node);
-    if (s?.flags & ts.SymbolFlags.Alias) {
+    if (s?.flags & ts.SymbolFlags.Alias && !s.declarations?.some(d=>ts.isVariableDeclaration(d)||ts.isBindingElement(d))) {
       try { const resolved = checker.getAliasedSymbol(s); if (resolved?.declarations?.length) s = resolved; } catch {}
     }
     return s;
@@ -306,11 +306,12 @@ export async function analyze(root, options = {}) {
     }
     if(ctx.discovery==='asset-local')unresolved.push('业务入口未连接，值仅为资产级局部候选');
     if(hooks.length||info?.observed){unresolved.push(config.modelRequestHooks?'request hook 后结果另见 afterRequestHooks':'request hook 未建模，Host/URL/参数可能继续变化');if(!config.modelRequestHooks)diagnostic('REQUEST_HOOK_UNMODELED','检测到可能的请求拦截器；仅报告调用处构造值',node);}
+    if(client.compiledModel)unresolved.push('固定编译客户端facade契约候选；依赖实现与transport未证明');
     if (ctx.conditions?.length) unresolved.push('接口属于条件分支候选');
     const resolution = isUnknown(rawUrl) ? 'unresolved' : unresolved.length ? 'partial' : 'resolved';
     const key = JSON.stringify([verb, effective]);
-    const linkage={linkState:ctx.discovery==='asset-local'?'unlinked':'entry-trace',referencedBy:ctx.referencedBy??[],assetPath:referencePath(assets,ctx.entry,locate(node).file)};
-    const usage = { ...linkage, entry: ctx.entry, callChain: [...ctx.chain, { symbol: node.expression.getText(), ...locate(node) }], unresolved, conditions:ctx.conditions ?? [], resolution, ...fields, ...hookEvidence };
+    const linkage={linkState:ctx.discovery==='asset-local'?'unlinked':ctx.functionInventory?'function-inventory':'entry-trace',referencedBy:ctx.referencedBy??[],assetPath:referencePath(assets,ctx.entry,locate(node).file)};
+    const usage = { ...linkage, ...(client.compiledModel?{clientModel:client.compiledModel}:{}), entry: ctx.entry, callChain: [...ctx.chain, { symbol: node.expression.getText(), ...locate(node) }], unresolved, conditions:ctx.conditions ?? [], resolution, ...fields, ...hookEvidence };
     if (!collector.has(key)) collector.set(key, { method: verb, url: effective, resolution, ...fields, ...hookEvidence, usages: [] });
     const ep = collector.get(key);
     if(hooks.length){ep.postHookState='unknown';ep.hooks=[...new Map([...ep.hooks,...hooks].map(h=>[JSON.stringify(h),h])).values()];if(ep.address.host)ep.address={...ep.address,hostState:'partial'};}
@@ -357,14 +358,17 @@ export async function analyze(root, options = {}) {
     if (library) return library;
     const resolved = ts.resolveModuleName(name.text, node.getSourceFile().fileName, compilerOptions, host).resolvedModule?.resolvedFileName;
     if (!resolved || !sources.has(resolved)) { diagnostic('UNRESOLVED_MODULE', `未扫描的 require 模块 ${name.text}`, node); return unknown(node.getText()); }
+    const compiled=config.compiledClients.find(c=>c.file===path.relative(root,resolved).split(path.sep).join('/'));
+    if(compiled){if(assetInputs.get(resolved)?.sha256===compiled.sha256){diagnostic('COMPILED_CLIENT_MODEL','采用固定哈希的'+compiled.module+' facade契约（参考'+compiled.version+'）；安装版本/依赖及最终transport未证明',node);return {...knownLibrary(compiled.module,'default',ctx),compiledModel:compiled};}diagnostic('COMPILED_CLIENT_HASH_MISMATCH','编译客户端哈希不匹配，拒绝采用契约',node);}
     if (ctx.modules?.has(resolved)) { diagnostic('MODULE_CYCLE', '循环 require 已截断', node); return unknown('circular require'); }
     const next = { ...ctx, modules: new Set(ctx.modules).add(resolved) };
     const sf = program.getSourceFile(resolved), local = new Map();
     let result = {};
     // Deliberately inspect assignments without executing the target module.
     for (const statement of sf.statements) {
-      if (!ts.isExpressionStatement(statement) || !ts.isBinaryExpression(statement.expression) || statement.expression.operatorToken.kind !== ts.SyntaxKind.EqualsToken) continue;
-      const assignment = statement.expression, left = assignment.left.getText().replaceAll(/\s/g, '');
+      if(!ts.isExpressionStatement(statement))continue;let assignment=statement.expression;while(ts.isParenthesizedExpression(assignment))assignment=assignment.expression;
+      if(!ts.isBinaryExpression(assignment)||assignment.operatorToken.kind!==ts.SyntaxKind.EqualsToken)continue;
+      const left = assignment.left.getText().replaceAll(/\s/g, '');
       if (left === 'module.exports') result = evaluate(assignment.right, local, next, visiting);
       else if (/^(module\.exports|exports)\.[\w$]+$/.test(left)) {
         if (isUnknown(result)) continue;
@@ -386,8 +390,9 @@ export async function analyze(root, options = {}) {
     if(exported?.flags & ts.SymbolFlags.Alias){try{exported=checker.getAliasedSymbol(exported);}catch{}}
     const d=exported?.valueDeclaration ?? exported?.declarations?.[0];
     if(!d)for(const statement of sf.statements){
-      if(!ts.isExpressionStatement(statement)||!ts.isBinaryExpression(statement.expression)||statement.expression.operatorToken.kind!==ts.SyntaxKind.EqualsToken)continue;
-      const assignment=statement.expression,left=assignment.left.getText().replaceAll(/\s/g,'');
+      if(!ts.isExpressionStatement(statement))continue;let assignment=statement.expression;while(ts.isParenthesizedExpression(assignment))assignment=assignment.expression;
+      if(!ts.isBinaryExpression(assignment)||assignment.operatorToken.kind!==ts.SyntaxKind.EqualsToken)continue;
+      const left=assignment.left.getText().replaceAll(/\s/g,'');
       if(left==='exports.'+name||left==='module.exports.'+name)return evaluate(assignment.right,new Map(),ctx);
       if(left==='module.exports'){const value=evaluate(assignment.right,new Map(),ctx);return name==='default'?value:value&&typeof value==='object'&&Object.hasOwn(value,name)?value[name]:unknown('CommonJS export '+String(name));}
     }
@@ -470,6 +475,12 @@ export async function analyze(root, options = {}) {
     if(object&&typeof object==='object'&&!object[TAG]&&!hasUnknown(object)&&!['constructor','toString','valueOf','hasOwnProperty','isPrototypeOf','propertyIsEnumerable','toLocaleString','__proto__'].includes(String(key)))return undefined;
     return unknown(node.getText());
   }
+  function memberValue(object,key,node){
+    const member=ownValue(object,key,node),direct=ts.isCallExpression(node.parent)&&node.parent.expression===node;
+    if(direct&&member?.[TAG]==='function'&&!ts.isArrowFunction(member.node))return {[TAG]:'intrinsic',method:'bound-object',receiver:object,fn:member};
+    if(direct&&(isUnknown(member)||member==null))return {[TAG]:'intrinsic',method:'unknown-member',receiver:object};
+    return member;
+  }
   function evaluate(node, env, ctx, visiting = new Set()) {
     if (!node || !tick(node)) return unknown('missing');
     if(ts.isAwaitExpression(node))return lift([evaluate(node.expression,env,ctx,visiting)],value=>value?.[TAG]==='module-promise'?value.namespace:value,node);
@@ -485,7 +496,7 @@ export async function analyze(root, options = {}) {
     if (ts.isIdentifier(node) && node.text === 'undefined' && !symbol(node)?.valueDeclaration) return undefined;
     if(node.kind===ts.SyntaxKind.ThisKeyword)return ctx.thisValue??unknown('this');
     if(ts.isClassExpression(node)||ts.isClassDeclaration(node))return {[TAG]:'class',node,env};
-    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) return { [TAG]: 'function', node, env,...(ts.isArrowFunction(node)?{lexicalThis:ctx.thisValue}: {}) };
+    if (ts.isArrowFunction(node) || ts.isFunctionExpression(node) || ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) return { [TAG]: 'function', node, env,...(ts.isArrowFunction(node)?{lexicalThis:ctx.thisValue??unknown('lexical this')}: {}) };
     if((ts.isPrefixUnaryExpression(node) || ts.isPostfixUnaryExpression(node)) && [ts.SyntaxKind.PlusPlusToken,ts.SyntaxKind.MinusMinusToken].includes(node.operator)) {
       if(ts.isPropertyAccessExpression(node.operand) || ts.isElementAccessExpression(node.operand))writeProperty(propertyReference(node.operand,env,ctx,visiting),unknown(node.getText()),node,ctx);
       else if(ts.isIdentifier(node.operand))env.set(symbol(node.operand),unknown(node.getText()));
@@ -600,6 +611,7 @@ export async function analyze(root, options = {}) {
         const object = evaluate(node.expression,env,ctx,visiting);
         if(isUnknown(object)&&(node.expression.kind===ts.SyntaxKind.ThisKeyword||symbol(node)?.declarations?.some(ts.isPropertyDeclaration))){const declared=config.clients.find(c=>c.name===node.getText());return declared?{[TAG]:'client',kind:declared.kind??'axios'}:unknown(node.getText());}
         if (object != null && !isUnknown(object)) return liftRefs([object],value => {
+          if(Array.isArray(value)&&node.name.text!=='length'&&Object.hasOwn(value,node.name.text))return memberValue(value,node.name.text,node);
           if(Array.isArray(value)&&hasUnknown(value)&&node.name.text==='length')return unknown('array length mutation');
           if(config.modelRequestHooks){const interceptor=interceptorProperty(value,node.name.text);if(interceptor)return interceptor;if(value?.[TAG]==='intrinsic'&&value.method.startsWith('axios-'))return unknown(node.getText());}
           if(value?.[TAG]==='module')return moduleExport(value,node.name.text,env,ctx,node);
@@ -607,10 +619,11 @@ export async function analyze(root, options = {}) {
           if(value?.[TAG]==='function'&&['call','apply'].includes(node.name.text))return {[TAG]:'intrinsic',method:'function-'+node.name.text,receiver:value};
           if(value?.[TAG]==='instance'){const key=node.name.text;if(Object.hasOwn(value.properties,key))return value.properties[key];if(value.methods[key])return {[TAG]:'intrinsic',method:'bound-instance',receiver:value,fn:value.methods[key]};return unknown(node.getText());}
           if(typeof value==='string'&&['indexOf','includes','startsWith','endsWith','split','toLowerCase','toUpperCase','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'string-'+node.name.text,receiver:value};
+          if(Array.isArray(value)&&['push','pop','shift','unshift','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'array-'+node.name.text,receiver:value};
           if(value?.[TAG]==='form')return {[TAG]:'intrinsic',method:'form-'+node.name.text,receiver:value};
           if (value?.[TAG] === 'client') return {...value,member:node.name.text};
           if ((Array.isArray(value) && ['map','forEach','reduce','join','concat'].includes(node.name.text)) || typeof value==='string' && node.name.text==='concat') return {[TAG]:'intrinsic',method:node.name.text,receiver:value};
-          return ownValue(value,node.name.text,node);
+          return memberValue(value,node.name.text,node);
         },node);
       }
       const d = s?.valueDeclaration ?? s?.declarations?.[0];
@@ -638,6 +651,7 @@ export async function analyze(root, options = {}) {
         if (node.name.text === 'fetch' && ts.isIdentifier(node.expression) && ['globalThis', 'window', 'self'].includes(node.expression.text) && !symbol(node.expression)?.valueDeclaration && !lexicalDeclaration(node,node.expression.text)) return { [TAG]: 'client', kind: 'fetch' };
         const object = evaluate(node.expression, env, ctx, visiting);
         return liftRefs([object],object => {
+          if(Array.isArray(object)&&node.name.text!=='length'&&Object.hasOwn(object,node.name.text))return memberValue(object,node.name.text,node);
           if(Array.isArray(object)&&hasUnknown(object)&&node.name.text==='length')return unknown('array length mutation');
           if(config.modelRequestHooks){const interceptor=interceptorProperty(object,node.name.text);if(interceptor)return interceptor;if(object?.[TAG]==='intrinsic'&&object.method.startsWith('axios-'))return unknown(node.getText());}
           if(object?.[TAG]==='module')return moduleExport(object,node.name.text,env,ctx,node);
@@ -645,10 +659,11 @@ export async function analyze(root, options = {}) {
           if(object?.[TAG]==='function'&&['call','apply'].includes(node.name.text))return {[TAG]:'intrinsic',method:'function-'+node.name.text,receiver:object};
           if(object?.[TAG]==='instance'){const key=node.name.text;if(Object.hasOwn(object.properties,key))return object.properties[key];if(object.methods[key])return {[TAG]:'intrinsic',method:'bound-instance',receiver:object,fn:object.methods[key]};return unknown(node.getText());}
           if(typeof object==='string'&&['indexOf','includes','startsWith','endsWith','split','toLowerCase','toUpperCase','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'string-'+node.name.text,receiver:object};
+          if(Array.isArray(object)&&['push','pop','shift','unshift','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'array-'+node.name.text,receiver:object};
           if(object?.[TAG]==='form')return {[TAG]:'intrinsic',method:'form-'+node.name.text,receiver:object};
           if (object?.[TAG] === 'client') return {...object,member:node.name.text};
           if ((Array.isArray(object) && ['map','forEach','reduce','join','concat'].includes(node.name.text)) || typeof object==='string' && node.name.text==='concat') return {[TAG]:'intrinsic',method:node.name.text,receiver:object};
-          return ownValue(object,node.name.text,node);
+          return memberValue(object,node.name.text,node);
         },node);
       }
       return unknown(node.getText());
@@ -698,6 +713,15 @@ export async function analyze(root, options = {}) {
       const target = evaluate(node.expression, env, ctx, visiting);
       if(target?.[TAG]==='intrinsic' && target.method==='Object.assign') {
         const args=node.arguments.map(a=>evaluate(a,env,ctx,visiting));
+        if(ts.isObjectLiteralExpression(node.arguments[0]??{})&&args.some(isChoice)) {
+          return choice(references(args,node).map(option=>{
+            if(isUnknown(option.value))return option;
+            const [base,...values]=option.value;if(!base||typeof base!=='object'||base[TAG]||isUnknown(base))return {value:unknown('Object.assign target'),conditions:option.conditions};
+            const result={...base},conditions=mergeConditions(ctx.conditions??[],option.conditions);if(!conditions)return {value:unknown('contradictory assign'),conditions:option.conditions};
+            for(const value of values){if(hasUnknown(value)){invalidateObject(result,'unknown Object.assign source',node,{...ctx,conditions});diagnostic('UNMODELED_ASSIGN','Object.assign 来源含未知覆盖',node);}if(value!=null)for(const [key,item]of Object.entries(value))if(key!==UNKNOWN)writeProperty({target:result,key},item,node,{...ctx,conditions});}
+            return {value:result,conditions:option.conditions};
+          }),node);
+        }
         if(!args[0] || typeof args[0]!=='object' || isUnknown(args[0]) || args.some(isChoice)){invalidateObject(args[0],'dynamic Object.assign',node,ctx);diagnostic('UNMODELED_ASSIGN','动态 Object.assign 不能精确更新',node);return unknown(node.getText());}
         for(const source of args.slice(1)) {
           if(hasUnknown(source)){invalidateObject(args[0],'unknown Object.assign source',node,ctx);diagnostic('UNMODELED_ASSIGN','Object.assign 来源含未知覆盖',node);}
@@ -768,9 +792,10 @@ export async function analyze(root, options = {}) {
       }
       return choice(results,node);
     }
-    if (target?.[TAG] === 'function') return invoke(target,args,ctx,node);
+    if (target?.[TAG] === 'function') return invoke(target,args,{...ctx,thisValue:unknown('plain function this')},node);
     if (target?.[TAG] === 'intrinsic') {
-      if(target.method==='bound-instance'){
+      if(target.method==='unknown-member'){diagnostic('UNKNOWN_CALL_EFFECTS','未知方法可能改写接收对象，后续值保持未知',node);invalidateObject(target.receiver,'unknown member call effects',node,ctx);return applyCall(unknown('member call'),args,ctx,node);}
+      if(['bound-instance','bound-object'].includes(target.method)){
        const direct=ts.isPropertyAccessExpression(node.expression)||ts.isElementAccessExpression(node.expression);
        if(!direct)diagnostic('THIS_BINDING_UNMODELED','提取出的实例方法未保留this',node);
        return invoke(target.fn,args,{...ctx,thisValue:direct?target.receiver:unknown('unbound method this')},node);
@@ -788,34 +813,43 @@ export async function analyze(root, options = {}) {
         return result.value;
       }
       if(['function-call','function-apply'].includes(target.method)) {
-        let usesThis=false;const inspect=n=>{if(n.kind===ts.SyntaxKind.ThisKeyword)usesThis=true;ts.forEachChild(n,inspect);};inspect(target.receiver.node.body);
-        if(usesThis&&args[0]!=null){diagnostic('THIS_BINDING_UNMODELED','call/apply this binding is not modeled',node);return unknown(node.getText());}
         const forwarded=target.method==='function-call'?args.slice(1):args[1]==null?[]:args[1];
         if(!Array.isArray(forwarded)||hasUnknown(forwarded)){diagnostic('DYNAMIC_APPLY_ARGUMENTS','apply requires a finite known argument array',node);return unknown(node.getText());}
-        return invoke(target.receiver,forwarded,ctx,node);
+        return invoke(target.receiver,forwarded,{...ctx,thisValue:args[0]??unknown('call global this')},node);
+      }
+      if(target.method.startsWith('array-')) {
+        const method=target.method.slice(6),array=target.receiver;
+        if(hasUnknown(array)){diagnostic('ARRAY_OPERATION_UNMODELED','数组结构已未知，不能继续沿用元素',node);return unknown('array state');}
+        if(method==='slice') {
+          if(args.length>2||args.some(v=>v!==undefined&&!(typeof v==='number'&&Number.isFinite(v)))){diagnostic('ARRAY_OPERATION_UNMODELED','slice索引不是有限数字',node);return unknown('array slice');}
+          return array.slice(...args);
+        }
+        if(['push','unshift'].includes(method)&&array.length+args.length>config.maxCandidates){invalidateObject(array,'array mutation budget',node,ctx);array[UNKNOWN]='array mutation budget';diagnostic('ARRAY_OPERATION_UNMODELED','数组新增超限，后续索引和长度未知',node);return unknown('array mutation budget');}
+        effect(ctx,'mutated');const previous=clean(array),value=Array.prototype[method].apply(array,['push','unshift'].includes(method)?args:[]);
+        trackChange(array,{operation:method,key:null,previous,expression:node.getText(),conditions:ctx.conditions??[],...locate(node)},node);return value;
       }
       if(target.method==='reduce') {
         if(hasUnknown(target.receiver)||target.receiver.length>config.maxCandidates||args[0]?.[TAG]!=='function'||!target.receiver.length&&args.length<2){diagnostic('REDUCE_UNMODELED','reduce requires a finite array/callback and valid initial value',node);return unknown(node.getText());}
         let accumulator=args.length>1?args[1]:target.receiver[0];
-        for(let i=args.length>1?0:1;i<target.receiver.length;i++)accumulator=invoke(args[0],[accumulator,target.receiver[i],i,target.receiver],ctx,node);
+        for(let i=args.length>1?0:1;i<target.receiver.length;i++)accumulator=invoke(args[0],[accumulator,target.receiver[i],i,target.receiver],{...ctx,thisValue:unknown('reduce callback this')},node);
         return accumulator;
       }
       if(target.method.startsWith('axios-response-'))return unknown('response interceptor registration; not evaluated as request hook');
       if(target.method.startsWith('axios-request-'))return controlHook(target,args,ctx,node);
       if(target.method==='module-then'){if(args[0]?.[TAG]==='function')return invoke(args[0],[target.namespace],ctx,node);diagnostic('ASYNC_CALLBACK_UNRESOLVED','动态模块 then 回调不可解析',node);return unknown(node.getText());}
       if(builtinNames.has(target.method))return staticOperation(target.method,args,node.getText(),()=>diagnostic('STATIC_DECODE_UNRESOLVED','静态编码操作失败或超过限制',node));
-      if(target.method==='join')return target.receiver.map(text).join(args[0]===undefined ? ',' : text(args[0]));
+      if(target.method==='join')return Array.prototype.map.call(target.receiver,text).join(args[0]===undefined ? ',' : text(args[0]));
       if(target.method==='concat')return Array.isArray(target.receiver) ? target.receiver.concat(...args) : target.receiver+args.map(text).join('');
       const callback = args[0];
       if (callback?.[TAG] !== 'function') return unknown('array callback');
       const results = [];
       for (const [index,value] of target.receiver.entries()) {
         if (index >= config.maxCandidates) { diagnostic('CANDIDATE_LIMIT','静态数组回调超过候选上限',node); return unknown('array limit'); }
-        results.push(invoke(callback,[value,index,target.receiver],ctx,node));
+        results.push(invoke(callback,[value,index,target.receiver],{...ctx,thisValue:args[1]??unknown('array callback this')},node));
       }
       return target.method === 'map' ? results : undefined;
     }
-    for (const arg of args) if (arg?.[TAG] === 'function') invoke(arg,[],ctx,node);
+    for (const arg of args) if (arg?.[TAG] === 'function') invoke(arg,[],{...ctx,functionInventory:true,thisValue:unknown('unknown callback this')},node);
     if(config.modelRequestHooks)for(const arg of args)if(arg?.[CLIENT_STATE])arg[CLIENT_STATE].gaps.push('client passed to unknown setup call');
     const mutableArgs=args.filter(arg=>arg && typeof arg==='object'&&(!arg[TAG]||arg[TAG]==='instance')&&!isUnknown(arg));
     if(mutableArgs.length) {
@@ -941,6 +975,9 @@ export async function analyze(root, options = {}) {
   }
   const entryMatch = config.entries.length ? picomatch(config.entries) : () => true;
   const entryFiles=[...sources.keys()].filter(file=>entryMatch(path.relative(root,file).split(path.sep).join('/')));
+  const priorityMatch=config.entryPriority.length?picomatch(config.entryPriority):()=>false;
+  const priorityFiles=new Set(entryFiles.filter(file=>priorityMatch(path.relative(root,file).split(path.sep).join('/'))));
+  entryFiles.sort((a,b)=>Number(priorityFiles.has(b))-Number(priorityFiles.has(a)));
   const entryCount=entryFiles.length;
   const roots=entryFiles.map(file=>path.relative(root,file).split(path.sep).join('/'));
   const visited=new Set(roots);
@@ -950,7 +987,7 @@ export async function analyze(root, options = {}) {
     run(sf,new Map(),ctx);
     const visit=n=>{
       if(exhausted)return;
-      if(ts.isFunctionLike(n) && n.body && !analyzedFunctions.get(n)?.has(ctx.entry))invoke({node:n,env:new Map()},[],ctx,{expression:n.name??n,getSourceFile:()=>sf,getStart:()=>n.getStart()});
+      if(ts.isFunctionLike(n) && n.body && !analyzedFunctions.get(n)?.has(ctx.entry))invoke({node:n,env:new Map()},[],{...ctx,functionInventory:true},{expression:n.name??n,getSourceFile:()=>sf,getStart:()=>n.getStart()});
       ts.forEachChild(n,visit);
     };visit(sf);
   }
@@ -958,7 +995,8 @@ export async function analyze(root, options = {}) {
     const remaining=config.maxSteps-steps;
     const partition={
       file:ctx.entry,phase:ctx.discovery==='asset-local'?'asset-local':'entry',state:'finished',steps:0,
-      limit:Math.min(config.maxStepsPerFile??config.maxSteps,Math.max(1,Math.floor(remaining/remainingTasks)),remaining),
+      ...(ctx.priority?{priority:true}:{}),
+      limit:Math.min(config.maxStepsPerFile??config.maxSteps,Math.max(1,Math.floor(remaining/remainingTasks),ctx.priority?Math.floor(config.maxSteps*.5/priorityFiles.size):0),remaining),
     };
     partitions.push(partition);
     if(!remaining) {
@@ -978,7 +1016,7 @@ export async function analyze(root, options = {}) {
       currentPartition=null;
     }
   }
-  for(const [index,file] of entryFiles.entries())scanPartition(file,{entry:roots[index],chain:[],active:new Set()},entryCount-index+pendingAssets().length);
+  for(const [index,file] of entryFiles.entries())scanPartition(file,{entry:roots[index],priority:priorityFiles.has(file),chain:[],active:new Set()},entryCount-index+pendingAssets().length);
   if(config.includeUnlinked && config.entries.length) {
     while(true) {
       const pending=pendingAssets();

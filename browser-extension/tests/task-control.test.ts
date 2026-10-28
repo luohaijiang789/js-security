@@ -381,7 +381,13 @@ describe("background task identity and control ordering", () => {
         },
       });
       // This is the real registered one-second timer, not an explicit flush RPC.
-      await new Promise((resolve) => setTimeout(resolve, 1150));
+      // Wait for the observable timer result: shared CI CPU/IndexedDB scheduling
+      // can exceed a fixed 150ms margin. Transfer stays unresolved throughout;
+      // this never issues a flush RPC or releases the mocked transfer.
+      await vi.waitFor(async()=>{
+        expect((await rpc("state")).result.scan.stats.persisted).toBe(1);
+        expect(await store.all("active",scan.id)).toHaveLength(1);
+      },{timeout:3000,interval:25});
       const state = (await rpc("state")).result;
       expect(state.scan.id).toBe(scan.id);
       expect(state.scan.stats.persisted).toBe(1);

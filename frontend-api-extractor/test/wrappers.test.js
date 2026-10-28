@@ -68,12 +68,11 @@ test("reduce无初值、空数组初值与实际数值顺序", async (t) => {
   );
   assert.deepEqual(r.endpoints[0].body, { a: 6, b: 4 });
 });
-test("动态apply和依赖this的call有诊断，不制造具体请求", async (t) => {
+test("动态apply有诊断，明确call对象恢复this字段", async (t) => {
   const r = await scan(
     t,
     `function send(x){fetch(x)}send.apply(null,runtimeArgs);function other(){fetch(this.url)}other.call({url:'/unproven'});`,
   );
   assert.ok(r.diagnostics.some((d) => d.code === "DYNAMIC_APPLY_ARGUMENTS"));
-  assert.ok(r.diagnostics.some((d) => d.code === "THIS_BINDING_UNMODELED"));
-  assert.ok(!r.endpoints.some((e) => e.url === "/unproven"));
+  assert.ok(r.endpoints.some((e) => e.url === "/unproven"));
 });

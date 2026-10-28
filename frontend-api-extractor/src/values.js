@@ -22,7 +22,7 @@ export function clean(value, seen = new Set()) {
   if (seen.has(value)) return unknown('cyclic object');
   const next = new Set(seen).add(value);
   if (isChoice(value)) return {__candidates:value[CHOICES].map(o=>({value:clean(o.value,next),conditions:o.conditions}))};
-  return Array.isArray(value) ? value.map(v=>clean(v,next)) : Object.fromEntries(Object.entries(value).map(([k,v])=>[k,clean(v,next)]));
+  return Array.isArray(value) ? Array.prototype.map.call(value,v=>clean(v,next)) : Object.fromEntries(Object.entries(value).map(([k,v])=>[k,clean(v,next)]));
 }
 
 export function mergeConditions(...groups) {

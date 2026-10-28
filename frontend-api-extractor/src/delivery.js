@@ -232,6 +232,7 @@ export function toDelivery(input, metadata = {}) {
       assetId: assetIds.get(row.assetId) ?? null,
       sourceKind,
       discoveryBasis: row.discoveryBasis ?? "unknown",
+      linkState:row.linkState??null,
       apiGroupId: stableId("group", [row.method, row.host, pathname]),
       associationState: "candidate-only",
       method: row.method ?? null,

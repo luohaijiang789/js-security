@@ -34,3 +34,7 @@ node src/delivery-cli.js --input /path/to/unpacked-plugin-task --out ../work/obs
 ```
 
 插件导入支持实际 scan_manifest.json/manifest.json 的 0.1.0/0.3.0 及 JSONL；校验分片路径、哈希、计数、任务身份，64 MiB 上限。ZIP 请先解包；不将归并包当完整原始观察。参数未采集与静态未知不同，captureStates、protection、redirectHop/session/request ID 独立保留。
+
+## 0.9.1兼容补充
+
+records新增可选linkState：entry-trace / function-inventory / unlinked；发现依据也进入discoveryBasis。缺字段的历史结果保持未知，不推断已连通入口。Excel新增定位依据/阶段；使用标准DEFLATE，无新增依赖，JSON内容与证据不变。匹配编译库契约的原始行证据含clientModel，其参考版本不等于已证明安装版本，记录保留partial。详见[验收](release-0.9.1.md)。

@@ -1,6 +1,11 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import ts from "typescript";
+import { createHash } from "node:crypto";
+import {
+  compiledClientFingerprint,
+  compiledClientModels,
+} from "./compiled-clients.js";
 const printer = ts.createPrinter({ removeComments: true });
 const walk = (n, f) => {
   f(n);
@@ -16,7 +21,12 @@ const position = (sf, n) => {
 };
 const fingerprint = (sf, n) =>
   printer.printNode(ts.EmitHint.Unspecified, n, sf).replace(/\s+/g, " ");
-export async function unpackWebpack(checkout, assets, output) {
+export async function unpackWebpack(
+  checkout,
+  assets,
+  output,
+  clientContracts = compiledClientModels,
+) {
   const root = path.join(output, "webpack-modules");
   await fs.mkdir(root, { recursive: true });
   const definitions = new Map(),
@@ -64,10 +74,15 @@ export async function unpackWebpack(checkout, assets, output) {
       checker = program.getTypeChecker();
     const tables = new Set();
     walk(sf, (n) => {
+      // A library can embed its own webpack bootstrap inside an outer factory.
+      // Its numeric IDs belong to a different runtime and must not overwrite the outer table.
+      for (let parent = n.parent; parent; parent = parent.parent)
+        if (tables.has(parent)) return;
       if (
         ts.isCallExpression(n) &&
         ts.isPropertyAccessExpression(n.expression) &&
         n.expression.name.text === "push" &&
+        /webpackJsonp|webpackChunk/.test(n.expression.expression.getText(sf)) &&
         ts.isArrayLiteralExpression(n.arguments[0])
       ) {
         const [ids, table] = n.arguments[0].elements;
@@ -88,6 +103,7 @@ export async function unpackWebpack(checkout, assets, output) {
       }
       if (
         ts.isVariableDeclaration(n) &&
+        n.name.getText(sf) === "__webpack_modules__" &&
         ts.isObjectLiteralExpression(n.initializer ?? {})
       ) {
         const props = n.initializer.properties;
@@ -103,20 +119,44 @@ export async function unpackWebpack(checkout, assets, output) {
         )
           tables.add(n.initializer);
       }
-      // Webpack 4's bootstrap accepts the module array as its argument.
-      if (ts.isCallExpression(n))
-        for (const a of n.arguments)
-          if (
-            ts.isArrayLiteralExpression(a) &&
-            a.elements.length &&
-            a.elements.every(
-              (e) =>
-                e.kind === ts.SyntaxKind.OmittedExpression ||
-                ts.isFunctionExpression(e) ||
-                ts.isArrowFunction(e),
+      // Only a bootstrap which actually invokes its module-array parameter.
+      // Arbitrary callback arrays inside vendor modules must not become tables.
+      if (ts.isCallExpression(n)) {
+        let bootstrap = n.expression;
+        while (ts.isParenthesizedExpression(bootstrap))
+          bootstrap = bootstrap.expression;
+        if (ts.isFunctionExpression(bootstrap) || ts.isArrowFunction(bootstrap))
+          for (const [index, a] of n.arguments.entries()) {
+            if (
+              !ts.isArrayLiteralExpression(a) ||
+              !a.elements.length ||
+              !a.elements.every(
+                (e) =>
+                  e.kind === ts.SyntaxKind.OmittedExpression ||
+                  ts.isFunctionExpression(e) ||
+                  ts.isArrowFunction(e),
+              )
             )
-          )
-            tables.add(a);
+              continue;
+            const parameter = bootstrap.parameters[index];
+            if (!parameter || !ts.isIdentifier(parameter.name)) continue;
+            const symbol = checker.getSymbolAtLocation(parameter.name);
+            let invokes = false;
+            walk(bootstrap.body, (call) => {
+              if (
+                ts.isCallExpression(call) &&
+                ts.isPropertyAccessExpression(call.expression) &&
+                call.expression.name.text === "call" &&
+                ts.isElementAccessExpression(call.expression.expression) &&
+                checker.getSymbolAtLocation(
+                  call.expression.expression.expression,
+                ) === symbol
+              )
+                invokes = true;
+            });
+            if (invokes) tables.add(a);
+          }
+      }
     });
     for (const table of tables) {
       const items = ts.isArrayLiteralExpression(table)
@@ -149,10 +189,21 @@ export async function unpackWebpack(checkout, assets, output) {
   const moduleName = (id) =>
     "module-" + Buffer.from(id).toString("hex") + ".js";
   const locations = new Map(),
-    moduleAssets = [];
+    moduleAssets = [],
+    clientModels = [];
   for (const item of definitions.values()) {
     if (item.conflict) continue;
     const { factory, sf, checker, id, asset } = item;
+    if (
+      factory.parameters
+        .slice(0, 3)
+        .some(
+          (p) => !ts.isIdentifier(p.name) || p.dotDotDotToken || p.initializer,
+        )
+    ) {
+      gaps.push("Unsupported webpack factory parameters in " + id);
+      continue;
+    }
     const parameterSymbols = factory.parameters
       .slice(0, 3)
       .map((p) => checker.getSymbolAtLocation(p.name));
@@ -161,6 +212,26 @@ export async function unpackWebpack(checkout, assets, output) {
       Boolean(
         requireSymbol && checker.getSymbolAtLocation(n) === requireSymbol,
       );
+    const interopBindings = new Set(),
+      rebound = new Set();
+    walk(factory.body, (n) => {
+      if (
+        ts.isVariableDeclaration(n) &&
+        ts.isIdentifier(n.name) &&
+        ts.isCallExpression(n.initializer ?? {}) &&
+        ts.isPropertyAccessExpression(n.initializer.expression) &&
+        isRequire(n.initializer.expression.expression) &&
+        n.initializer.expression.name.text === "n"
+      )
+        interopBindings.add(checker.getSymbolAtLocation(n.name));
+      if (
+        ts.isBinaryExpression(n) &&
+        n.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
+        n.operatorToken.kind <= ts.SyntaxKind.LastAssignment &&
+        ts.isIdentifier(n.left)
+      )
+        rebound.add(checker.getSymbolAtLocation(n.left));
+    });
     const getter = (n) =>
       n && ts.isParenthesizedExpression(n)
         ? getter(n.expression)
@@ -174,20 +245,31 @@ export async function unpackWebpack(checkout, assets, output) {
       if (ts.isCallExpression(n)) {
         const key = fingerprint(sf, n);
         if (!originalCalls.has(key)) originalCalls.set(key, []);
-        originalCalls
-          .get(key)
-          .push({
-            file: asset,
-            ...position(sf, n),
-            sourceVersionMatch: null,
-            moduleId: id,
-          });
+        originalCalls.get(key).push({
+          file: asset,
+          ...position(sf, n),
+          sourceVersionMatch: null,
+          moduleId: id,
+        });
       }
     });
     const transform = ts.transform(factory.body, [
       (context) => {
         const f = context.factory;
         const visit = (node) => {
+          // Webpack4 defines getter.a with the same value returned by getter().
+          if (
+            ts.isPropertyAccessExpression(node) &&
+            node.name.text === "a" &&
+            ts.isIdentifier(node.expression) &&
+            interopBindings.has(checker.getSymbolAtLocation(node.expression)) &&
+            !rebound.has(checker.getSymbolAtLocation(node.expression))
+          )
+            return f.createCallExpression(
+              ts.visitNode(node.expression, visit),
+              undefined,
+              [],
+            );
           if (ts.isCallExpression(node)) {
             if (isRequire(node.expression)) {
               const target = literalId(node.arguments[0]);
@@ -243,9 +325,15 @@ export async function unpackWebpack(checkout, assets, output) {
               if (method === "n") {
                 const m = f.createIdentifier("m"),
                   param = f.createParameterDeclaration(undefined, undefined, m);
-                const value = f.createBinaryExpression(
+                const value = f.createConditionalExpression(
+                  f.createBinaryExpression(
+                    m,
+                    f.createToken(ts.SyntaxKind.AmpersandAmpersandToken),
+                    f.createPropertyAccessExpression(m, "__esModule"),
+                  ),
+                  f.createToken(ts.SyntaxKind.QuestionToken),
                   f.createPropertyAccessExpression(m, "default"),
-                  f.createToken(ts.SyntaxKind.QuestionQuestionToken),
+                  f.createToken(ts.SyntaxKind.ColonToken),
                   m,
                 );
                 return f.createCallExpression(
@@ -338,9 +426,8 @@ export async function unpackWebpack(checkout, assets, output) {
             }
           }
           if (ts.isIdentifier(node)) {
-            const index = parameterSymbols.indexOf(
-              checker.getSymbolAtLocation(node),
-            );
+            const binding = checker.getSymbolAtLocation(node);
+            const index = binding ? parameterSymbols.indexOf(binding) : -1;
             if (index >= 0)
               return f.createIdentifier(
                 ["module", "exports", "require"][index],
@@ -366,10 +453,27 @@ export async function unpackWebpack(checkout, assets, output) {
           )
         : [s],
     );
+    // Match the transformed call syntax back to the original call node, including interop rewrites.
+    originalCalls.clear();
+    walk(body, (n) => {
+      if (!ts.isCallExpression(n)) return;
+      const original = ts.getOriginalNode(n);
+      if (!ts.isCallExpression(original) || original.pos < 0) return;
+      const key = fingerprint(sf, n);
+      if (!originalCalls.has(key)) originalCalls.set(key, []);
+      originalCalls
+        .get(key)
+        .push({
+          file: asset,
+          ...position(sf, original),
+          sourceVersionMatch: null,
+          moduleId: id,
+        });
+    });
     const code =
       statements
         .map((s) => printer.printNode(ts.EmitHint.Unspecified, s, sf))
-        .join("\n") + "\n";
+        .join("\n") + "\nexport {};\n";
     transform.dispose();
     if (files.length >= 10000) {
       gaps.push("Webpack module count budget exceeded");
@@ -382,6 +486,37 @@ export async function unpackWebpack(checkout, assets, output) {
     }
     const name = moduleName(id);
     await fs.writeFile(path.join(root, name), code);
+    const signatureSha256 = clientContracts.some(
+        (c) =>
+          !c.screenTokens ||
+          c.screenTokens.every((token) => code.includes(token)),
+      )
+        ? compiledClientFingerprint(code)
+        : null,
+      contract = clientContracts.find(
+        (c) => c.signatureSha256 === signatureSha256,
+      );
+    if (contract) {
+      const model = {
+        ...contract,
+        file: name,
+        sha256: createHash("sha256").update(code).digest("hex"),
+        signatureSha256,
+        dependencyState: "unverified-implementations",
+      };
+      clientModels.push(model);
+      gaps.push(
+        "Compiled client facade contract (reference " +
+          contract.module +
+          "@" +
+          contract.version +
+          ") matched " +
+          asset +
+          "#" +
+          id +
+          "; installed package version/dependency implementations/transport behavior remain unverified",
+      );
+    }
     files.push(name);
     moduleAssets.push({
       file: name,
@@ -398,8 +533,35 @@ export async function unpackWebpack(checkout, assets, output) {
         ts.ScriptKind.JS,
       ),
       derivedCalls = new Map();
+    const imports = [];
+    let forwardsClient = false;
+    for (const statement of derived.statements) {
+      if (
+        ts.isExpressionStatement(statement) &&
+        ts.isBinaryExpression(statement.expression)
+      ) {
+        const a = statement.expression;
+        if (
+          a.operatorToken.kind === ts.SyntaxKind.EqualsToken &&
+          a.left.getText(derived) === "module.exports" &&
+          ts.isCallExpression(a.right) &&
+          a.right.expression.getText(derived) === "require" &&
+          ts.isStringLiteralLike(a.right.arguments[0] ?? {})
+        )
+          forwardsClient = true;
+      }
+    }
+    moduleAssets.at(-1).imports = imports;
+    moduleAssets.at(-1).forwardsClient = forwardsClient;
     walk(derived, (n) => {
       if (ts.isCallExpression(n)) {
+        if (
+          ts.isIdentifier(n.expression) &&
+          n.expression.text === "require" &&
+          ts.isStringLiteralLike(n.arguments[0] ?? {}) &&
+          n.arguments[0].text.startsWith("./")
+        )
+          imports.push(n.arguments[0].text.slice(2));
         const key = fingerprint(derived, n);
         if (!derivedCalls.has(key)) derivedCalls.set(key, []);
         derivedCalls.get(key).push(position(derived, n));
@@ -443,11 +605,29 @@ export async function unpackWebpack(checkout, assets, output) {
   gaps.push(
     "Webpack factories analyzed as module inventory; business entry/lifecycle and all runtime behaviors are not proven",
   );
+  const clientFiles = new Set(clientModels.map((m) => m.file));
+  for (let pass = 0; pass < 4; pass++)
+    for (const asset of moduleAssets)
+      if (
+        asset.forwardsClient &&
+        asset.imports?.length === 1 &&
+        clientFiles.has(asset.imports[0])
+      )
+        clientFiles.add(asset.file);
+  const entryPriority = moduleAssets
+    .filter(
+      (asset) =>
+        !clientModels.some((m) => m.file === asset.file) &&
+        asset.imports?.some((file) => clientFiles.has(file)),
+    )
+    .map((asset) => asset.file);
   return {
     root,
     files,
+    entryPriority,
     locations,
     moduleAssets,
+    clientModels,
     chunks,
     gaps: [...new Set(gaps)],
   };

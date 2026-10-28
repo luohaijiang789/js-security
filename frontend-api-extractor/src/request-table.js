@@ -16,7 +16,7 @@ export function requestRows(report,metadata={},locations=new Map()) {
       const gaps=[...usage.unresolved,...address.gaps];
       if(!address.host)gaps.push('Host 未解析');
       if(metadata.mode==='source-map-assisted'&&!position)gaps.push('发送位置未找到产物映射，保留源码候选');
-      const row={sourceKind:'repository-static',entry:usage.entry??null,discoveryBasis:kind==='unlinked'?'unlinked-asset':metadata.mode??'source-static',repository:metadata.repository??null,commit:metadata.commit??null,
+      const row={sourceKind:'repository-static',...(usage.clientModel?{clientModel:usage.clientModel}:{}),entry:usage.entry??null,linkState:usage.linkState??null,discoveryBasis:kind==='unlinked'?'unlinked-asset':usage.linkState==='function-inventory'?'function-inventory':metadata.mode??'source-static',repository:metadata.repository??null,commit:metadata.commit??null,
         generatedFile:sourcePath(position?.file),generatedLine:position?.line??null,generatedColumn:position?.column??null,
         sourceFile:sourcePath(sink.file),sourceLine:sink.line,sourceColumn:sink.column,sourceVersionMatch:position?.sourceVersionMatch??null,
         method:stage.method,host:address.host,hostBasis:address.hostBasis,hostState:address.hostState,url:stage.url,resolvedUrl:address.resolvedUrl,deploymentUrl:base,query:stage.query,body:stage.body,headers:stage.headers,stage:stage.stage,resolution:stage.resolution,
