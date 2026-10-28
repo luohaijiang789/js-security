@@ -1,5 +1,6 @@
-// Minimal OOXML writer: stored ZIP entries and inline strings, never formulas.
+// Minimal OOXML writer: standard DEFLATE ZIP entries and inline strings, never formulas.
 import { createHash } from "node:crypto";
+import { deflateRawSync } from "node:zlib";
 const xml = (v) =>
   String(v ?? "未知")
     .replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "")
@@ -32,21 +33,22 @@ function zip(files) {
   for (const [name, text] of Object.entries(files)) {
     const n = Buffer.from(name),
       d = Buffer.from(text),
-      crc = crc32(d);
+      crc = crc32(d),
+      compressed = deflateRawSync(d, { level: 6 });
     const a = Buffer.concat([
       u32(0x04034b50),
       u16(20),
       u16(0),
-      u16(0),
+      u16(8),
       u16(0),
       u16(0),
       u32(crc),
-      u32(d.length),
+      u32(compressed.length),
       u32(d.length),
       u16(n.length),
       u16(0),
       n,
-      d,
+      compressed,
     ]);
     local.push(a);
     central.push(
@@ -55,11 +57,11 @@ function zip(files) {
         u16(20),
         u16(20),
         u16(0),
-        u16(0),
+        u16(8),
         u16(0),
         u16(0),
         u32(crc),
-        u32(d.length),
+        u32(compressed.length),
         u32(d.length),
         u16(n.length),
         u16(0),
@@ -107,6 +109,8 @@ export function deliveryWorkbook(document, { maxRows = 1048576 } = {}) {
         "记录ID",
         "调用ID",
         "来源",
+        "定位依据",
+        "阶段",
         "方法",
         "Host",
         "URL（Query值省略）",
@@ -122,6 +126,16 @@ export function deliveryWorkbook(document, { maxRows = 1048576 } = {}) {
         r.id,
         r.callSiteId,
         r.sourceKind,
+        r.sourceKind === "plugin-observed"
+          ? "浏览器实测"
+          : r.linkState === "function-inventory"
+            ? "函数候选（未连通入口）"
+            : r.linkState === "unlinked"
+              ? "资产补漏（未连通入口）"
+              : r.linkState === "entry-trace"
+                ? "调用链已追踪（静态）"
+                : "静态候选（范围见证据）",
+        r.stage,
         r.method,
         r.host,
         protectUrl(r.resolvedUrl ?? r.url),

@@ -4,6 +4,7 @@ import {
   parseStaticDocument,
   analyzerOrigin,
   sourceLabel,
+  discoveryLabel,
   type StaticDocument,
   type StaticRecord,
 } from "./static-analysis";
@@ -283,6 +284,7 @@ onUnmounted(() => controller?.abort());
           <thead>
             <tr>
               <th>来源</th>
+              <th>定位依据</th>
               <th>JS位置</th>
               <th>方法</th>
               <th>Host</th>
@@ -300,6 +302,7 @@ onUnmounted(() => controller?.abort());
               @keydown.enter="detail = r"
             >
               <td>{{ sourceLabel(r.sourceKind) }}</td>
+              <td>{{ discoveryLabel(r) }}</td>
               <td>
                 {{ r.generatedFile || r.sourceFile || "未定位" }}:{{
                   r.generatedLine || r.sourceLine || "?"

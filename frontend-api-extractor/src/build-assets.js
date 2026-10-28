@@ -27,7 +27,7 @@ export async function analyzeBuild(checkout,artifactDirs,output,options={},origi
     const file=path.join(checkout,name);if(!(await fs.lstat(file)).isSymbolicLink())original.set(name,sha256(await fs.readFile(file)));
   }
   const byHash=new Map();for(const [name,hash] of original){if(!byHash.has(hash))byHash.set(hash,[]);byHash.get(hash).push(name);}
-  let sourceBytes=0,mapBytes=0,excludedSources=0;
+  let sourceBytes=0,mapBytes=0,jsBytes=0,excludedSources=0;
   for(const dir of artifactDirs) {
     const root=path.resolve(checkout,dir);
     if(!root.startsWith(path.resolve(checkout)+path.sep))throw new Error('产物目录必须位于 checkout 内部');
@@ -36,7 +36,8 @@ export async function analyzeBuild(checkout,artifactDirs,output,options={},origi
     const files=await glob(['**/*.{js,mjs,cjs}'],{cwd:root,absolute:true,followSymbolicLinks:false});
     for(const file of files.sort()) {
       if((await fs.lstat(file)).isSymbolicLink())throw new Error('JS 资产不能是软链接');
-      const data=await fs.readFile(file);if(data.length>32*1024*1024)throw new Error('单 JS 超过 32 MiB 限额');
+      const size=(await fs.stat(file)).size;jsBytes+=size;if(size>32*1024*1024||jsBytes>128*1024*1024)throw new Error('JS字节预算超限：单文件32 MiB/总计128 MiB');
+      const data=await fs.readFile(file);if(data.length>32*1024*1024||data.length!==size)throw new Error('JS文件读取期间大小变化或超过32 MiB');
       const asset={file:relative(checkout,file),bytes:data.length,sha256:sha256(data)};assets.push(asset);
       if(assets.length>1000)throw new Error('JS 文件数超过 1000');
       const mapFile=file+'.map';let raw;
@@ -74,7 +75,7 @@ export async function analyzeBuild(checkout,artifactDirs,output,options={},origi
   if(webpack?.files.length)mode='webpack-module-static';
   if(webpack)gaps.push(...webpack.gaps);
   const analysisRoot=mode==='source-map-assisted'?virtual:mode==='webpack-module-static'?webpack.root:checkout;
-  const config=mode==='source-map-assisted'?options:mode==='webpack-module-static'?{...options,entries:[],include:['**/*.js'],exclude:[]}:{...options,include:assets.map(a=>a.file),exclude:['**/node_modules/**','**/.git/**']};
+  const config=mode==='source-map-assisted'?options:mode==='webpack-module-static'?{...options,entryPriority:[...(options.entryPriority??[]),...webpack.entryPriority],compiledClients:[...(options.compiledClients??[]),...webpack.clientModels],entries:[],include:webpack.files,exclude:[]}:{...options,include:assets.map(a=>a.file),exclude:['**/node_modules/**','**/.git/**']};
   const report=await analyze(analysisRoot,config),locations=new Map(),wanted=new Map(),sendIds=new Set();
   for(const endpoint of [...report.endpoints,...report.assetCandidates])for(const usage of endpoint.usages) {
     const sink=usage.callChain.at(-1),id=sinkId(sink);if(wanted.has(id))continue;
@@ -109,5 +110,5 @@ export async function analyzeBuild(checkout,artifactDirs,output,options={},origi
   const unmapped=[...sendIds].filter(id=>!locations.has(id)).length;if(unmapped)gaps.push(`${unmapped} 个源码发送位置无产物映射，不能确认在产物中保留`);
   if(excludedSources)gaps.push(`未分析第三方/非 src/非脚本/缺内容 source 条目 ${excludedSources} 个；不能据此断言没有请求`);
   if(mode==='artifact-static')gaps.push('未取得可用应用 sourcesContent；打包 runtime 不保证支持');
-  return {mode,assets,report,locations,gaps,webpack:webpack?{modules:webpack.moduleAssets,chunks:webpack.chunks}:null,mappedSources:[...contents].filter(([name])=>!conflicts.has(name)).map(([file,s])=>({file,sha256:s.hash})),excludedSources};
+  return {mode,assets,report,locations,gaps,webpack:webpack?{modules:webpack.moduleAssets,chunks:webpack.chunks,clientModels:webpack.clientModels,entryPriority:webpack.entryPriority}:null,mappedSources:[...contents].filter(([name])=>!conflicts.has(name)).map(([file,s])=>({file,sha256:s.hash})),excludedSources};
 }

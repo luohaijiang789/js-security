@@ -1,8 +1,12 @@
 # Frontend API Extractor
 
-从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.9.0。
+从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.9.1。
 
 源码模式独立分析本地目录，不要求先构建。构建增强首版另提供 GitHub 地址→npm/Docker 构建→source-map 关联分析→CSV/Markdown 表格，见[流程与边界](docs/repository-pipeline.md)。已接入统一 analysis.json/Excel，并提供插件 JS探索入口与本地分析服务；见[0.9 使用与验证](docs/release-0.9.md)。
+
+## 本轮补强
+
+[0.9.1验证](docs/release-0.9.1.md)：真实GDB无map从0行恢复至3个发送位置/4条候选；Nacos真实封装恢复GET、URL和字段。修复Webpack嵌套表/作用域/CJS别名、this/数组/条件合并；函数库存与入口链分开，Excel压缩保留全部证据。
 
 ## 使用
 
@@ -57,7 +61,7 @@ node src/cli.js /path/to/frontend --include-unlinked --out reports/apis.json
 - [固定基准与差异工具](docs/baselines.md)：同版逐调用/字段差异与完整性检查。
 - [后续迭代与验证方案](../docs/前端API提取迭代路线与验证.md)：阶段顺序、逐项验收、样本与 AI 边界。
 - [真实构建请求表](docs/gdb-build-pilot.md)：引用阿里云 JS 的 GDB Console 固定版本，产物/源码位置、方法、Host 与参数。
-- [测试说明](docs/testing.md)：最新自动化测试数量见[0.9 验证](docs/release-0.9.md)；自写的轻量多框架样例包含 19 个预期接口。
+- [测试说明](docs/testing.md)：最新自动化测试数量见[0.9.1 验证](docs/release-0.9.1.md)；自写的轻量多框架样例包含 19 个预期接口。
 - [外部源码试跑记录](docs/alibaba-real-world.md)：只记录外部仓库链接、固定提交、范围和结果。
 - [阿里云站点与新样本分析](docs/aliyun-sites-analysis.md)：站点可达性、Nacos 压缩对照及 OSS SDK/hook 缺口。
 - [迭代记录](docs/changelog.md)。

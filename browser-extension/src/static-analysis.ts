@@ -14,6 +14,8 @@ export type StaticRecord = {
   evidenceId: string;
   gapIds: string[];
   stage: string;
+  linkState?: string | null;
+  discoveryBasis?: string;
   observation?: { requestId?: string } | null;
 };
 export type StaticDocument = {
@@ -26,6 +28,8 @@ export type StaticDocument = {
     carrier: string;
     path: string[];
     stage: string;
+    linkState?: string | null;
+    discoveryBasis?: string;
     state: string;
   }[];
   gaps: { id: string; recordId: string | null; reason: string }[];
@@ -98,3 +102,12 @@ export const sourceLabel = (kind: StaticRecord["sourceKind"]) =>
     "website-js-static": "网站JS静态",
     "plugin-observed": "插件实测",
   })[kind];
+
+export function discoveryLabel(record: StaticRecord) {
+  if (record.sourceKind === "plugin-observed") return "浏览器实测";
+  if (record.linkState === "function-inventory")
+    return "函数候选（未连通入口）";
+  if (record.linkState === "unlinked") return "资产补漏（未连通入口）";
+  if (record.linkState === "entry-trace") return "调用链已追踪（静态）";
+  return "静态候选（范围见证据）";
+}

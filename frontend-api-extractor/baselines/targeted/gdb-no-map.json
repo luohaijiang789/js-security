@@ -1,0 +1,79 @@
+{
+  "schemaVersion": 1,
+  "kind": "targeted-webpack-artifact",
+  "datasetRole": "development-regression",
+  "repository": "https://github.com/aliyun/alibabacloud-gdb-console",
+  "commit": "49336dbcc958236e233a921f60353802cbd43130",
+  "files": [
+    {
+      "path": "build/static/js/main.a581a592.chunk.js",
+      "sha256": "9f228266db9be87868704e9ab73fd19122a8b9cdca7cd9a7479e32adda4eeef7"
+    },
+    {
+      "path": "build/static/js/runtime-main.b9d3bf81.js",
+      "sha256": "1e783a981715144d20cde896231f385f1231177114bb39e05f4927cc8062ec04"
+    },
+    {
+      "path": "build/static/js/2.c9c104d7.chunk.js",
+      "sha256": "e1c7782dd45226888daa399396b2978073762fb7a6e97fef00704716ad3323cc"
+    },
+    {
+      "path": "build/static/js/3.37e21d79.chunk.js",
+      "sha256": "268cc62d0e00344ef58d209f419bb18fd89e881aea4b0013a7b0762ac96bde2f"
+    }
+  ],
+  "artifactDirs": [
+    "build"
+  ],
+  "config": {
+    "maxSteps": 400000,
+    "maxCandidates": 4
+  },
+  "expected": [
+    {
+      "generatedFile": "build/static/js/main.a581a592.chunk.js",
+      "generatedLine": 1,
+      "generatedColumn": 114300,
+      "method": "POST",
+      "url": "/api/v2/query",
+      "host": null,
+      "fields": {
+        "body": [
+          "type",
+          "dsl"
+        ]
+      },
+      "gapContains": "facade"
+    },
+    {
+      "generatedFile": "build/static/js/main.a581a592.chunk.js",
+      "generatedLine": 1,
+      "generatedColumn": 114759,
+      "method": "POST",
+      "url": "/api/v2/query",
+      "host": null,
+      "fields": {
+        "body": [
+          "type",
+          "dsl"
+        ]
+      },
+      "gapContains": "facade"
+    },
+    {
+      "generatedFile": "build/static/js/main.a581a592.chunk.js",
+      "generatedLine": 1,
+      "generatedColumn": 115059,
+      "method": "POST",
+      "url": "/api/v1/connect",
+      "host": null,
+      "fields": {
+        "body": [
+          "conn"
+        ]
+      },
+      "gapContains": "facade"
+    }
+  ],
+  "scope": "Only four frozen JS build assets copied; source maps/source/target dependencies not loaded; same development GDB build, not independent validation"
+}

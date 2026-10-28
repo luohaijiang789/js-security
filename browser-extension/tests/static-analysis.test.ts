@@ -1,5 +1,5 @@
 import { it, expect } from "vitest";
-import { parseStaticDocument, analyzerOrigin } from "../src/static-analysis";
+import { parseStaticDocument, analyzerOrigin, discoveryLabel } from "../src/static-analysis";
 const report = () => ({
   schemaVersion: "2.0.0",
   scope: { complete: false },
@@ -54,3 +54,5 @@ it("服务只接受HTTPS或本地HTTP根地址，不夹带凭据或路径", () =
   expect(() => analyzerOrigin("https://secret@service.test/")).toThrow();
   expect(() => analyzerOrigin("https://service.test/path")).toThrow();
 });
+
+it('定位依据区分函数库存/入口链/旧结果，静态候选不升级为实测',()=>{const r=parseStaticDocument(report()).records[0];expect(discoveryLabel({...r,linkState:'function-inventory'})).toBe('函数候选（未连通入口）');expect(discoveryLabel({...r,linkState:'entry-trace'})).toBe('调用链已追踪（静态）');expect(discoveryLabel(r)).toBe('静态候选（范围见证据）');});
