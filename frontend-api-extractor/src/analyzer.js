@@ -272,7 +272,10 @@ export async function analyze(root, options = {}) {
     const base = clean(data.baseURL ?? client.baseURL);
     if (base && !/^([a-z]+:)?\/\//i.test(effective)) effective = `${text(base).replace(/\/$/, '')}/${effective.replace(/^\//, '')}`;
     const verb = isUnknown(method) ? text(method) : String(method ?? 'GET').toUpperCase();
-    const constructed = { query: data.params ?? null, body: data.data !== undefined ? data.data : data.body ?? null, headers: data.headers ?? null };
+    // An unknown config spread may contain carriers we have not seen. Absence in
+    // the abstract object is not proof that the request has no such fields.
+    const missingCarrier=name=>hasUnknown(data)?unknown(`config.${name}`):null;
+    const constructed = { query: data.params !== undefined ? data.params : missingCarrier('params'), body: data.data !== undefined ? data.data : data.body !== undefined ? data.body : missingCarrier('body'), headers: data.headers !== undefined ? data.headers : missingCarrier('headers') };
     const info=config.modelRequestHooks?hookInfo(client,node):null;
     const hooks=info?info.hooks:[...new Map((client.bindingIds??[]).flatMap(id=>hookRegistrations.get(id)??[]).map(h=>[JSON.stringify(h),h])).values()];
     const address=addressEvidence(rawUrl,base,effective,hooks);
@@ -280,7 +283,7 @@ export async function analyze(root, options = {}) {
     const objectChanges=collectChanges(data,constructed);
     if(objectChanges.some(c=>c.operation==='history-truncated'))diagnostic('OBJECT_CHANGE_LIMIT','对象改写证据有截断，不代表完整历史',node);
     const hookEvidence={address,parameterFields:extractedFields,objectChanges,parameterStage:"call-site",postHookState:hooks.length ? "unknown" : "not-observed",hooks};
-    const fields = clean({ query: data.params ?? null, body: data.data !== undefined ? data.data : data.body ?? null, headers: data.headers ?? null });
+    const fields = clean(constructed);
     const unresolved = [];
     for (const [key, value] of Object.entries({ url: rawUrl, method, baseURL: base, ...fields, spread: data[UNKNOWN] })) {
       if (dynamic(value) || key === 'spread' && value) unresolved.push(key === 'spread' ? `未知配置展开: ${value}` : `${key} 含动态值`);

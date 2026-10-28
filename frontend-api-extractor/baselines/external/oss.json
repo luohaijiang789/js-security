@@ -1,0 +1,38 @@
+{
+  "schemaVersion": 1,
+  "kind": "external-source-slice",
+  "name": "oss-manual-v1",
+  "repository": "https://github.com/aliyun/oss-browser",
+  "commit": "922153a57efae80185be7fd645760b791ea7ff90",
+  "expectedFile": "oss.expected.json",
+  "expectedSha256": "715bbf16c0fe7165c2118d114b96e0a9ba087d6d3edab401c1802c70ebf98336",
+  "config": {
+    "entries": [
+      "app/components/services/base-http.js",
+      "app/components/services/sts.js",
+      "app/components/services/ram.js"
+    ],
+    "maxSteps": 200000,
+    "maxCandidates": 4,
+    "clients": [
+      {
+        "name": "$http",
+        "kind": "axios"
+      }
+    ]
+  },
+  "files": [
+    {
+      "path": "app/components/services/base-http.js",
+      "sha256": "1e60d348c9fbc12bcb4209e02adea87b7b91b106292a44645e5bbbbdb6451e17"
+    },
+    {
+      "path": "app/components/services/sts.js",
+      "sha256": "d031c48fa4de1c2e8f77164ab53fa0062d3696a6db12d0bd9a075beaf806fd3d"
+    },
+    {
+      "path": "app/components/services/ram.js",
+      "sha256": "36487b9ebeb2e5791b35a1ac1aa1eed9fb273d940ee55f955222cc8b7cc8c4c0"
+    }
+  ]
+}

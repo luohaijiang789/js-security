@@ -1,0 +1,499 @@
+{
+  "schemaVersion": 1,
+  "expectedComplete": false,
+  "annotationBasis": "人工逐行阅读固定版本源码；这是已看过的回归切片，不是盲测集。未知参数不从变量名/TS 类型补造。",
+  "calls": [
+    {
+      "id": "nacos-users",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 54,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L54: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "v3/auth/user/list",
+        "query": {
+          "$unknown": true
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-create-user",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 63,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L63: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "v3/auth/user",
+        "query": null,
+        "body": {
+          "username": {
+            "$unknown": true
+          },
+          "password": {
+            "$unknown": true
+          }
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "username"
+          ]
+        },
+        {
+          "carrier": "body",
+          "path": [
+            "password"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-search-user",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 70,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L70: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "v3/auth/user/search",
+        "query": {
+          "username": {
+            "$unknown": true
+          }
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "query",
+          "path": [
+            "username"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-delete-user",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 77,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L77: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "DELETE",
+        "host": null,
+        "url": "v3/auth/user",
+        "query": {
+          "username": {
+            "$unknown": true
+          }
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "query",
+          "path": [
+            "username"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-password",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 84,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L84: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "PUT",
+        "host": null,
+        "url": "v3/auth/user",
+        "query": null,
+        "body": {
+          "username": {
+            "$unknown": true
+          },
+          "newPassword": {
+            "$unknown": true
+          }
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "username"
+          ]
+        },
+        {
+          "carrier": "body",
+          "path": [
+            "newPassword"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-roles",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 92,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L92: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "v3/auth/role/list",
+        "query": {
+          "$unknown": true
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-search-role",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 101,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L101: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "v3/auth/role/search",
+        "query": {
+          "role": {
+            "$unknown": true
+          }
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "query",
+          "path": [
+            "role"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-create-role",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 108,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L108: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "v3/auth/role",
+        "query": null,
+        "body": {
+          "role": {
+            "$unknown": true
+          },
+          "username": {
+            "$unknown": true
+          }
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "role"
+          ]
+        },
+        {
+          "carrier": "body",
+          "path": [
+            "username"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-delete-role",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 115,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L115: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "DELETE",
+        "host": null,
+        "url": "v3/auth/role",
+        "query": {
+          "$unknown": true
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-permissions",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 122,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L122: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "v3/auth/permission/list",
+        "query": {
+          "$unknown": true
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-check-permission",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 132,
+      "column": 10,
+      "evidence": "console-ui/src/reducers/authority.js#L132: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "v3/auth/permission",
+        "query": {
+          "role": {
+            "$unknown": true
+          },
+          "resource": {
+            "$unknown": true
+          },
+          "action": {
+            "$unknown": true
+          }
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "query",
+          "path": [
+            "role"
+          ]
+        },
+        {
+          "carrier": "query",
+          "path": [
+            "resource"
+          ]
+        },
+        {
+          "carrier": "query",
+          "path": [
+            "action"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-create-permission",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 140,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L140: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "POST",
+        "host": null,
+        "url": "v3/auth/permission",
+        "query": null,
+        "body": {
+          "role": {
+            "$unknown": true
+          },
+          "resource": {
+            "$unknown": true
+          },
+          "action": {
+            "$unknown": true
+          }
+        },
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [
+        {
+          "carrier": "body",
+          "path": [
+            "role"
+          ]
+        },
+        {
+          "carrier": "body",
+          "path": [
+            "resource"
+          ]
+        },
+        {
+          "carrier": "body",
+          "path": [
+            "action"
+          ]
+        }
+      ],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-delete-permission",
+      "file": "console-ui/src/reducers/authority.js",
+      "line": 147,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/authority.js#L147: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "DELETE",
+        "host": null,
+        "url": "v3/auth/permission",
+        "query": {
+          "$unknown": true
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    },
+    {
+      "id": "nacos-namespaces",
+      "file": "console-ui/src/reducers/namespace.js",
+      "line": 25,
+      "column": 3,
+      "evidence": "console-ui/src/reducers/namespace.js#L25: 原始调用及对象字面量/实参；字段值未绑定时未知。",
+      "pattern": {
+        "method": "GET",
+        "host": null,
+        "url": "v3/console/core/namespace/list",
+        "query": {
+          "$unknown": true
+        },
+        "body": null,
+        "headers": null,
+        "resolution": "partial"
+      },
+      "conditions": [],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析",
+        "request hook 未建模"
+      ],
+      "postHookState": "unknown"
+    }
+  ],
+  "manualFindings": [
+    {
+      "file": "console-ui/src/utils/request.js",
+      "line": 37,
+      "finding": "请求hook按条件追加query.username、headers.accessToken并用qs改写body；不作为调用处字段或已经还原的线上载荷。"
+    }
+  ]
+}

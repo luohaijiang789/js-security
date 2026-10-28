@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "kind": "external-source-slice",
+  "name": "gdb-manual-v1",
+  "repository": "https://github.com/aliyun/alibabacloud-gdb-console",
+  "commit": "49336dbcc958236e233a921f60353802cbd43130",
+  "expectedFile": "gdb.expected.json",
+  "expectedSha256": "a885337bb53b7b6ea8adecc42290ce8a169296fb073526c816d8be21ee47e574",
+  "config": {
+    "entries": [
+      "src/utils/WebRequest.js"
+    ],
+    "maxSteps": 200000,
+    "maxCandidates": 4,
+    "clients": []
+  },
+  "files": [
+    {
+      "path": "src/utils/WebRequest.js",
+      "sha256": "8395aeca3956f7a416ac10197abc1376691a763a67e679087bccea23e3cfda13"
+    }
+  ]
+}

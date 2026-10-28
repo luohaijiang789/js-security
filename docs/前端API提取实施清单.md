@@ -1,6 +1,6 @@
 # 前端 API 提取实施清单
 
-更新：2026-10-28（Asia/Shanghai）；当前版本 0.8.2。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
+更新：2026-10-28（Asia/Shanghai）；当前版本 0.8.3。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
 
 目标：输入前端 GitHub 仓库地址 → 固定版本 → 自动安装/正式构建 → 清点 JS/引用 → 有界深入分析 → 导出逐调用请求表。表格包含 JS 与源码位置、Host、URL、方法、Query/Body/Header 字段、条件、依据和未解析项。AI 释义独立附加。
 
@@ -21,9 +21,9 @@
 - [x] B06 逐调用/条件/阶段的 CSV、Markdown、JSON 请求表；真实 GDB 得到 3 个发送位置、4 行候选（0.8）。[请求表](../frontend-api-extractor/docs/gdb-build-pilot.md)
 - [x] B07 可选部署页面基址补全静态相对地址；代码 Host 与上下文候选分开（0.8.1）。[验证](../frontend-api-extractor/docs/deployment-context.md)
 
-## 已实现能力台账（累计至 0.8.2）
+## 已实现能力台账（累计至 0.8.3）
 
-下面补齐 0.1～0.8.2 的累计能力，按实际实现的子集勾选。B01～B07 保留为流程索引，详细能力以下表/条目为准；后续 P0～P5 中未完成的扩展继续保持未勾选。版本取首次交付或主要补强版本，不把历史测试数累计相加。
+下面补齐 0.1～0.8.3 的累计能力，按实际实现的子集勾选。B01～B07 保留为流程索引，详细能力以下表/条目为准；后续 P0～P5 中未完成的扩展继续保持未勾选。版本取首次交付或主要补强版本，不把历史测试数累计相加。
 
 ### S：源码、配置和 JS 引用
 
@@ -60,6 +60,7 @@
 - [x] R10 检测直接及已关联别名的 Axios request hook，保留注册位置和调用处未知后效，不污染其他实例或误用 response hook（0.3）。[关联与降级测试](../frontend-api-extractor/test/whitebox-hardening.test.js)
 - [x] R11 modelRequestHooks 默认关闭；启用后支持有限显式 synchronous:true 回调、逆注册执行、确定 eject/clear、实例/入口隔离；afterRequestHooks 独立输出（0.7）。异步、runWhen、条件注册、捕获堆和未知 defaults 等仍未知，范围止于 transport 前。[实施与对照](../frontend-api-extractor/docs/request-hooks.md)
 - [x] R12 可选 deploymentUrl/--deployment-url；按页面基址解析静态相对 URL，保留原始/解析 URL、Host 来源和候选状态，不修改原始分析证据（0.8.1）。[部署上下文验证](../frontend-api-extractor/docs/deployment-context.md)
+- [x] R13 整体配置/未知展开可能包含未见的 Query/Body/Header 时，载体根路径明确未知；显式覆盖与已知无字段分别保留（0.8.3）。[问题与验证](../frontend-api-extractor/docs/external-baselines.md)
 
 ### Q：预算、误报控制与可解释性
 
@@ -88,6 +89,8 @@
 - [x] V06 引用阿里云 UI JS 库的 GDB 固定 Commit 真实 Docker/npm 构建：4 个 JS、21 个应用 source、3 个发送位置/4 行候选；独立产物 AST 核查，完整性仍 false（0.8）。[真实构建记录](../frontend-api-extractor/docs/gdb-build-pilot.md)
 - [x] V07 GDB 同版产物部署上下文对照、哈希复核与逐行历史回归；4 行原始 URL、方法、参数和位置不变，原有不完整状态保留（0.8.1～0.8.2）。[上下文对照](../frontend-api-extractor/docs/deployment-context.md)、[差异对照](../frontend-api-extractor/docs/baselines.md)
 
+- [x] V08 GDB/Nacos/OSS 固定源码切片与人工预期验证；上游 11 文件哈希复核、逐调用/条件/字段与未知项检查，validationPassed 与 extractionComplete 分开（0.8.3）。[结果与限制](../frontend-api-extractor/docs/external-baselines.md)
+
 ### 独立黑盒一的已有实现（不计作黑盒二已接入）
 
 - [x] K01 独立 MV3 插件工程与请求工作台：浏览器范围任务、动态接入页面、暂停/恢复/停止、单框 Filter、列表与详情侧栏；已有工程实现与自动化测试。[插件入口](../browser-extension/README.md)、[任务/范围测试](../browser-extension/tests/browser-scope.test.ts)
@@ -101,12 +104,12 @@
 
 ## P0 基准与差异报告：进行中
 
-0.8.2 已完成 P0-01～03；P0-04 为下一优先项。P0 整阶段尚未完成。
+0.8.2 已完成 P0-01～03；0.8.3 完成 P0-04 的限定外部切片；P0-05 为下一优先项。P0 整阶段尚未完成。
 
 - [x] P0-01 定义同版调用对照锚点：源码发送位置＋条件＋阶段＋调用链＋仓库/版本/上下文；不依赖随内容变化的表格 id，不作为永久资产 ID（0.8.2）。[规则与测试](../frontend-api-extractor/docs/baselines.md)
 - [x] P0-02 自写跨文件微型基准：人工预期、脚本/预期哈希、配置、完整性断言，一条命令复跑（0.8.2）。[基准](../frontend-api-extractor/examples/request-baseline/README.md)
 - [x] P0-03 新增/丢失/字段变化/变未知/歧义及分析状态差异报告；GDB 同版历史结果对照，不能只比数量（0.8.2）。[验证](../frontend-api-extractor/docs/baselines.md)
-- [ ] P0-04 固定 GDB/Nacos/OSS 的有限外部切片 manifest 和人工逐调用/字段预期；保存独立标注依据。当前只有历史回归和局部人工核查，不能算全仓标注。
+- [x] P0-04 固定 GDB/Nacos/OSS 有限外部切片 manifest、11 个源文件/人工预期哈希与逐调用/字段/条件核查；18 个发送位置/22 条候选预期匹配（0.8.3）。包含必须未知的缺口验收，不算全仓准确率或独立盲测。[基准与结果](../frontend-api-extractor/docs/external-baselines.md)
 - [ ] P0-05 冻结未参与调规则的验证切片；登记开发集/回归集/验证集流转，建立有限分母。
 - [ ] P0-06 明确统一记录/字段/缺口 ID、Schema 兼容与迁移规则；当前对照锚点只用于限定同版比较。
 - [ ] P0-07 冻结冷/热性能基线：耗时、峰值 RSS、求值步数和超限行为。当前差异工具只记录步数。
@@ -176,6 +179,7 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 | 0.7.0 | 有限显式同步 Axios hook、顺序/eject/clear/隔离及独立阶段 | 146 项自动化测试；真实 Axios 本地 adapter 对照 | [hook 验证](../frontend-api-extractor/docs/request-hooks.md) |
 | 0.8.0 | GitHub/npm/Docker 构建、source map 关联、逐调用请求表 | 162 项自动化测试；真实 GDB 构建与产物核查 | [GDB 实测](../frontend-api-extractor/docs/gdb-build-pilot.md) |
 | 0.8.1 | 部署上下文、原始/解析 URL 与 Host 依据/候选状态 | 170 项自动化测试；同版 GDB 4 行对照 | [上下文验证](../frontend-api-extractor/docs/deployment-context.md) |
-| 0.8.2 | P0-01、P0-02、P0-03 | 手工基准 3 个调用；GDB 4 行逐项对照；180 项自动化测试 | P0-04～07、P1 扩展、P2～P5 与 AI 仍按上文推进 |
+| 0.8.2 | P0-01、P0-02、P0-03 | 手工基准 3 个调用；GDB 4 行逐项对照；180 项自动化测试 | [基准与差异](../frontend-api-extractor/docs/baselines.md) |
+| 0.8.3 | P0-04；未知配置的三个载体明确未知 | 外部 11 文件上游哈希、22 条预期；193 项自动化测试；既有构建产物回归 | P0-05～07、P1 扩展、P2～P5 与 AI 继续推进 |
 
 2026-10-28 文档补全：按实现、测试、历次验证补录 S/E/R/Q/D/V 和独立黑盒一台账，补齐 0.1.0～0.8.2 历史；本轮不新增运行能力、不重新宣称现场验收，180 项为最近一次代码版本验证记录。

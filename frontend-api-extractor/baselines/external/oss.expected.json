@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "expectedComplete": false,
+  "annotationBasis": "人工逐行阅读固定版本源码；这是已看过的回归切片，不是盲测集。未知参数不从变量名/TS 类型补造。",
+  "calls": [
+    {
+      "id": "oss-base-http-header-True-address-True",
+      "file": "app/components/services/base-http.js",
+      "line": 24,
+      "column": 29,
+      "evidence": "app/components/services/base-http.js#L24: 原始调用及对象字面量/实参；字段值未绑定时未知。 $http 是显式声明的客户端；opt来自未绑定的AngularJS工厂返回函数。不能推导Global.endpoint或补造X-Requested-With为确定输出。 两个独立if在未知opt下有四种组合，逐条件保留同一发送点候选。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": {
+          "$unknown": true
+        },
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "unresolved"
+      },
+      "conditions": [
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 16,
+          "column": 15,
+          "expression": "!opt.headers['X-Requested-With']",
+          "outcome": true
+        },
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 20,
+          "column": 15,
+          "expression": "opt.url.indexOf('http') != 0",
+          "outcome": true
+        }
+      ],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析"
+      ]
+    },
+    {
+      "id": "oss-base-http-header-True-address-False",
+      "file": "app/components/services/base-http.js",
+      "line": 24,
+      "column": 29,
+      "evidence": "app/components/services/base-http.js#L24: 原始调用及对象字面量/实参；字段值未绑定时未知。 $http 是显式声明的客户端；opt来自未绑定的AngularJS工厂返回函数。不能推导Global.endpoint或补造X-Requested-With为确定输出。 两个独立if在未知opt下有四种组合，逐条件保留同一发送点候选。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": {
+          "$unknown": true
+        },
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "unresolved"
+      },
+      "conditions": [
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 16,
+          "column": 15,
+          "expression": "!opt.headers['X-Requested-With']",
+          "outcome": true
+        },
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 20,
+          "column": 15,
+          "expression": "opt.url.indexOf('http') != 0",
+          "outcome": false
+        }
+      ],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析"
+      ]
+    },
+    {
+      "id": "oss-base-http-header-False-address-True",
+      "file": "app/components/services/base-http.js",
+      "line": 24,
+      "column": 29,
+      "evidence": "app/components/services/base-http.js#L24: 原始调用及对象字面量/实参；字段值未绑定时未知。 $http 是显式声明的客户端；opt来自未绑定的AngularJS工厂返回函数。不能推导Global.endpoint或补造X-Requested-With为确定输出。 两个独立if在未知opt下有四种组合，逐条件保留同一发送点候选。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": {
+          "$unknown": true
+        },
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "unresolved"
+      },
+      "conditions": [
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 16,
+          "column": 15,
+          "expression": "!opt.headers['X-Requested-With']",
+          "outcome": false
+        },
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 20,
+          "column": 15,
+          "expression": "opt.url.indexOf('http') != 0",
+          "outcome": true
+        }
+      ],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析"
+      ]
+    },
+    {
+      "id": "oss-base-http-header-False-address-False",
+      "file": "app/components/services/base-http.js",
+      "line": 24,
+      "column": 29,
+      "evidence": "app/components/services/base-http.js#L24: 原始调用及对象字面量/实参；字段值未绑定时未知。 $http 是显式声明的客户端；opt来自未绑定的AngularJS工厂返回函数。不能推导Global.endpoint或补造X-Requested-With为确定输出。 两个独立if在未知opt下有四种组合，逐条件保留同一发送点候选。",
+      "pattern": {
+        "method": {
+          "$unknown": true
+        },
+        "host": null,
+        "url": {
+          "$unknown": true
+        },
+        "query": {
+          "$unknown": true
+        },
+        "body": {
+          "$unknown": true
+        },
+        "headers": {
+          "$unknown": true
+        },
+        "resolution": "unresolved"
+      },
+      "conditions": [
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 16,
+          "column": 15,
+          "expression": "!opt.headers['X-Requested-With']",
+          "outcome": false
+        },
+        {
+          "file": "app/components/services/base-http.js",
+          "line": 20,
+          "column": 15,
+          "expression": "opt.url.indexOf('http') != 0",
+          "outcome": false
+        }
+      ],
+      "knownFields": [],
+      "requiredGaps": [
+        "Host 未解析"
+      ]
+    }
+  ],
+  "manualFindings": [
+    {
+      "file": "app/components/services/sts.js",
+      "line": 73,
+      "finding": "人工确认STS endpoint=https://sts.aliyuncs.com，assumeRole输入Action/RoleArn/Policy/DurationSeconds/RoleSessionName；SDK HTTP模型缺失，不作为HTTP输出预期。"
+    },
+    {
+      "file": "app/components/services/ram.js",
+      "finding": "人工确认RAM endpoint=https://ram.aliyuncs.com；SDK操作不直接当HTTP发送点。"
+    }
+  ]
+}
