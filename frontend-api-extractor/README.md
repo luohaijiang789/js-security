@@ -52,7 +52,7 @@ node src/cli.js /path/to/frontend --include-unlinked --out reports/apis.json
 
 ## 文档与测试
 
-- [实施清单](../docs/前端API提取实施清单.md)：逐项勾选完成状态与证据。
+- [实施清单](../docs/前端API提取实施清单.md)：累计已实现能力、历史版本及后续逐项勾选，附范围与证据。
 - [固定基准与差异工具](docs/baselines.md)：同版逐调用/字段差异与完整性检查。
 - [后续迭代与验证方案](../docs/前端API提取迭代路线与验证.md)：阶段顺序、逐项验收、样本与 AI 边界。
 - [真实构建请求表](docs/gdb-build-pilot.md)：引用阿里云 JS 的 GDB Console 固定版本，产物/源码位置、方法、Host 与参数。
