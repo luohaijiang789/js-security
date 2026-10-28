@@ -1,6 +1,6 @@
 # 前端 API 提取实施清单
 
-更新：2026-10-28（UTC）；当前提取器版本 0.9.1 / 插件 0.7.1。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
+更新：2026-10-28（UTC）；当前提取器版本 0.9.2 / 插件 0.7.1。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
 
 目标：输入前端 GitHub 仓库地址 → 固定版本 → 自动安装/正式构建 → 清点 JS/引用 → 有界深入分析 → 导出逐调用请求表。表格包含 JS 与源码位置、Host、URL、方法、Query/Body/Header 字段、条件、依据和未解析项。AI 释义独立附加。
 
@@ -21,7 +21,7 @@
 - [x] B06 逐调用/条件/阶段的 CSV、Markdown、JSON 请求表；真实 GDB 得到 3 个发送位置、4 行候选（0.8）。[请求表](../frontend-api-extractor/docs/gdb-build-pilot.md)
 - [x] B07 可选部署页面基址补全静态相对地址；代码 Host 与上下文候选分开（0.8.1）。[验证](../frontend-api-extractor/docs/deployment-context.md)
 
-## 已实现能力台账（累计至 0.9.1）
+## 已实现能力台账（累计至 0.9.2）
 
 下面保留 0.1～0.8.3 并补充 0.9 的累计能力，按实际实现的子集勾选。B01～B07 保留为流程索引，详细能力以下表/条目为准；后续 P0～P5 中未完成的扩展继续保持未勾选。版本取首次交付或主要补强版本，不把历史测试数累计相加。
 
@@ -137,14 +137,14 @@ P0-01～07 已完成各自限定范围；性能仅为自写 direct-fetch 分布�
 - [x] P2-03 普通类自身字段/方法/工厂与AngularJS显式DI分别支持，继承/隐式DI不冒充已恢复（0.9）。[测试](../frontend-api-extractor/test/instances.test.js)
 - [ ] P2-04 Nacos真实wrapper+自写入口已恢复URL/方法/字段；GDB无map为函数库存候选，真实页面生命周期全链仍未连通。[0.9.1实测](../frontend-api-extractor/docs/release-0.9.1.md)
 
-## P3 构建产物与 JS 引用：有限适配完成，公开无 map 未通过
+## P3 构建产物与 JS 引用：有限适配与独立无 map 样本通过
 
 B05 只完成 source-map 辅助关联，不代表以下项完成。
 
 - [x] P3-01 自写真实Webpack5生产压缩分块，固定版本/源码/产物哈希与人工预期（0.9）。[基准](../frontend-api-extractor/examples/webpack-chunks/README.md)
 - [x] P3-02 有限Webpack5模块表/ID/导出/引用适配，原始fetch行列可核对，不执行runtime（0.9）。[测试](../frontend-api-extractor/test/webpack.test.js)
 - [x] P3-03 有限publicPath/chunk静态表达式与引用图，缺失/未知/冲突明确缺口（0.9）。[资产测试](../frontend-api-extractor/test/script-assets.test.js)
-- [ ] P3-04 自写无map及GDB开发回归通过：3发送点/4条件候选。GDB已参与调规则，不能替代另一个独立公开无map项目验收。[0.9.1实测](../frontend-api-extractor/docs/release-0.9.1.md)
+- [x] P3-04 独立公开 Vite/weather 固定正式无map产物：首测前冻结预期、未调提取规则，2业务发送位置/4种URL和参数形态全部通过；另1资源位置Host未知，方法不纳入准确率评价。仅此限定范围，不代表任意混淆/运行时覆盖（0.9.2）。[验证](../frontend-api-extractor/docs/release-0.9.2.md)
 - [x] P3-05 有限Webpack4正式分块；已有静态字符串/编码/间接调用子集保持独立，未实现通用解密（0.9）。[测试](../frontend-api-extractor/test/webpack.test.js)
 - [x] P3-06 HTML内联/外链与显式资产收集，build最多1层、website最多3层，多父链/哈希/重定向/截断保留；构建流程不自动抓外网（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
 
@@ -167,6 +167,12 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 - [x] P5-03 统一analysis.json+三Sheet Excel，三路独立证据，实际插件包导入及长内容/公式保护（0.9）。[协议](../frontend-api-extractor/docs/delivery-protocol.md)
 - [x] P5-04 真实Vue/Vite子目录GitHub→npm构建→表格；精确pnpm9.15.4/Yarn1.22.22独立固定样例均跑通，预算不完整照实保留（0.9）。 [验证](../frontend-api-extractor/docs/release-0.9.md)
 - [ ] P5-05 受控多层站点、缺失/截断/多版本已通过；阿里云国际/帮助站再次CONNECT403，真实站点及完整MV3现场仍受阻。[证据](../frontend-api-extractor/docs/release-0.9.md)
+
+## 0.9.2 构建可复现性补强
+
+- [x] K05 构建前检查：固定 Commit、输入路径/大小约束、脚本/锁文件/工具冲突校验，`--inspect-only` 输出构建计划且不启动 Docker（0.9.2）。[验证](../frontend-api-extractor/docs/release-0.9.2.md)
+- [x] K06 原锁缺平台包时显式固定 esbuild Linux 编译器补充；父包声明/SHA512/严格解包/只读工具/独立来源回执，原锁不变（0.9.2）。[测试](../frontend-api-extractor/test/native-dependency.test.js)
+- [x] K07 独立无map冻结预期与通用构建验证器；严格URL路径/Query字段集合/已知字段依据，意外发送位置失败（0.9.2）。[基准](../frontend-api-extractor/baselines/validation/weather-no-map.json)
 
 ## 每次迭代的完成检查
 
@@ -192,5 +198,6 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 | 0.8.3 | P0-04；未知配置的三个载体明确未知 | 外部 11 文件上游哈希、22 条预期；193 项自动化测试；既有构建产物回归 | P0-05～07、P1 扩展、P2～P5 与 AI 继续推进 |
 | 0.9.0 / 插件0.7.0 | P0余项、P1子集、封装/类/表单、有限Webpack、固定SDK、OpenAI兼容接口、黑盒二与统一Excel | 验证数量与性能见本轮报告；真实Vue/pnpm/Yarn构建、SDK61操作 | [验证与未通过项](../frontend-api-extractor/docs/release-0.9.md)、[基准](../frontend-api-extractor/docs/validation-0.9.md) |
 | 0.9.1 / 插件0.7.1 | J01～J06，真实压缩请求恢复、封装链、模块作用域/库契约及依据交付 | 提取器279、插件155项；旧外部22/22、Ant16/16、新定向4位置/8候选；原始XML不变 | [验证与剩余项](../frontend-api-extractor/docs/release-0.9.1.md) |
+| 0.9.2 / 插件0.7.1 | K05～K07、P3-04限定验收；构建前检查、固定原生编译器补装 | 提取器286项全通过；独立Vite无map首测4/4业务形态；GDB 3位置/4候选、Nacos 1位置/4候选回归通过；真实重复构建/Excel与仅检查入口通过 | [验证与范围](../frontend-api-extractor/docs/release-0.9.2.md) |
 
-2026-10-28 文档补全：按实现、测试、历次验证补录 S/E/R/Q/D/V 和独立黑盒一台账，补齐 0.1.0～0.8.2 历史；本轮不新增运行能力、不重新宣称现场验收，180 项为最近一次代码版本验证记录。
+历史说明（0.8.2 文档补全时）：按实现、测试、历次验证补录 S/E/R/Q/D/V 和独立黑盒一台账，补齐 0.1.0～0.8.2 历史；该次仅补文档，180 项为当时最近一次代码验证记录。后续迭代以表中各版本记录为准。

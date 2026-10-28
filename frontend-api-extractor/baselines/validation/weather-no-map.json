@@ -1,0 +1,90 @@
+{
+  "schemaVersion": 1,
+  "datasetRole": "validation-first-evaluation",
+  "repository": "https://github.com/pekkiriscim/weather",
+  "commit": "a562276f077ff8c02f8931495d99888af3182fac",
+  "config": {
+    "maxSteps": 400000,
+    "maxCandidates": 16
+  },
+  "expected": [
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 5074,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/weather",
+      "queryFields": [
+        "lat",
+        "lon",
+        "appid",
+        "units"
+      ],
+      "role": "business-url-query-shape"
+    },
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 5074,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/weather",
+      "queryFields": [
+        "q",
+        "appid",
+        "units"
+      ],
+      "role": "business-url-query-shape"
+    },
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 7758,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/forecast",
+      "queryFields": [
+        "lat",
+        "lon",
+        "appid",
+        "units"
+      ],
+      "role": "business-url-query-shape"
+    },
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 52,
+      "generatedColumn": 7758,
+      "method": "GET",
+      "host": "api.openweathermap.org",
+      "urlPath": "/data/2.5/forecast",
+      "queryFields": [
+        "q",
+        "appid",
+        "units"
+      ],
+      "role": "business-url-query-shape"
+    },
+    {
+      "generatedFile": "dist/assets/index-197ba97d.js",
+      "generatedLine": 1,
+      "generatedColumn": 690,
+      "host": null,
+      "note": "Vite-injected modulepreload fetch. URL depends on DOM link.href. Only location/unknown Host in scope; HTTP method excluded from this denominator.",
+      "role": "asset-position-host-only"
+    }
+  ],
+  "kind": "targeted-build-artifact",
+  "artifactDirs": [
+    "dist"
+  ],
+  "files": [
+    {
+      "path": "dist/assets/index-197ba97d.js",
+      "sha256": "994ef905136f81ae8ab6352d9d470da40ee6771b52316aa66336535f034a93fc"
+    }
+  ],
+  "freezeSha256": "eb25586fc9bf6d6251ded9471201214430187224c4f3cda05caf544e693c2618",
+  "scope": "2 business sending positions / 4 URL-query shapes; 1 injected asset position, method excluded"
+}

@@ -138,3 +138,37 @@ test('子目录与包管理器配置必须固定安全版本，不能混用锁�
  assert.equal(taskProfile({projectDir:'apps/client',buildArgs:['--sourcemap']}).projectDir,'apps/client');assert.equal(taskProfile({packageManager:'pnpm',packageManagerVersion:'9.15.4'}).packageManager,'pnpm');
  for(const p of [{projectDir:'../other'},{projectDir:'x,y'},{packageManager:'pnpm'},{packageManager:'yarn',packageManagerVersion:'4.0.0'},{packageManager:'pnpm',packageManagerVersion:'9.15.4',legacyPeerDeps:true}])assert.throws(()=>taskProfile(p));
 });
+
+test('inspect-only fixed checkout produces build plan without Docker/install/analysis',async t=>{
+ const workDir=await fixture(t,{}),base=fakeCommands(),calls=[];
+ const execute=async(command,args,opts)=>{calls.push(command);if(command==='docker')throw Error('must not start Docker');return base(command,args,opts);};
+ const result=await runRepository('https://github.com/example/fixture',{profile:{ref:commit},inspectOnly:true,workDir,execute});
+ assert.equal(result.manifest.state,'inspected');assert.equal(result.rows,null);assert.equal(result.manifest.buildPlan.buildScript,'build');assert.ok(!calls.includes('docker'));
+ assert.deepEqual(result.manifest.outputs,['task.json','build-plan.json']);await assert.rejects(fs.access(path.join(result.taskDir,'analysis.json')));
+});
+test('preflight rejects package/lock escaping symlinks before any Docker action',async t=>{
+ for(const name of ['package.json','package-lock.json']){
+  const workDir=await fixture(t,{}),outside=await fixture(t,{[name]:'{}'}),base=fakeCommands();let docker=false;
+  const execute=async(command,args,opts)=>{if(command==='docker')docker=true;const r=await base(command,args,opts);if(command==='git'&&args[0]==='clone'){const file=path.join(args.at(-1),name);await fs.unlink(file);await fs.symlink(path.join(outside,name),file);}return r;};
+  await assert.rejects(runRepository('https://github.com/example/fixture',{profile:{ref:commit},inspectOnly:true,workDir,execute}),/越过项目/);assert.equal(docker,false);
+ }
+});
+test('native supplement preflight, read-only helper mount, receipt and original lock provenance',async t=>{
+ const pin={name:'@esbuild/linux-x64',version:'0.16.17',integrity:'sha512-'+'A'.repeat(86)+'=='},workDir=await fixture(t,{}),base=fakeCommands();let native=false;
+ const execute=async(command,args,opts)=>{
+  const r=await base(command,args,opts);
+  if(command==='git'&&args[0]==='clone')await fs.writeFile(path.join(args.at(-1),'package-lock.json'),JSON.stringify({lockfileVersion:3,packages:{'node_modules/esbuild':{version:pin.version,integrity:'sha512-parent',optionalDependencies:{[pin.name]:pin.version}}}}));
+  if(command==='docker'&&args.includes('/run/frontend-native.mjs')){native=true;assert.ok(args.some(v=>v.endsWith('dst=/run/frontend-native.mjs,readonly')));return {code:0,output:JSON.stringify({...pin,parentVersion:pin.version,binarySha256:'fixture',source:'profile-pinned-supplement'})};}
+  return r;
+ };
+ const result=await runRepository('https://github.com/example/fixture',{profile:{ref:commit,nativeDependencies:[pin]},workDir,execute});
+ assert.equal(native,true);assert.equal(result.manifest.lock.originalSha256,result.manifest.lock.appliedSha256);assert.equal(result.manifest.nativeDependencies[0].parentLockIntegrity,'sha512-parent');
+ const order=result.manifest.stages.map(s=>s.name);assert.ok(order.indexOf('native-0')>order.indexOf('install'));assert.ok(order.indexOf('native-0')<order.indexOf('build'));
+ await assert.rejects(runRepository('https://github.com/example/fixture',{profile:{ref:commit,nativeDependencies:[{...pin,version:'0.16.18'}]},inspectOnly:true,workDir,execute}),/锁定esbuild/);
+});
+test('inspect-only registry rewrites remain a plan and never modify the original lock',async t=>{
+ const workDir=await fixture(t,{}),base=fakeCommands();let original;
+ const execute=async(command,args,opts)=>{const r=await base(command,args,opts);if(command==='git'&&args[0]==='clone'){original=JSON.stringify({lockfileVersion:3,packages:{'node_modules/example':{version:'1.2.3',integrity:'sha512-fixture',resolved:'https://old.test/example.tgz'}}});await fs.writeFile(path.join(args.at(-1),'package-lock.json'),original);}if(command==='docker')throw Error('must not run');return r;};
+ const result=await runRepository('https://github.com/example/fixture',{profile:{ref:commit,registryRewrites:{'old.test':'registry.npmjs.org'}},inspectOnly:true,workDir,execute});
+ assert.equal(result.manifest.buildPlan.plannedRegistryRewrites,1);assert.equal(result.manifest.lock.rewrittenUrls,0);assert.equal(result.manifest.lock.originalSha256,result.manifest.lock.appliedSha256);assert.equal(await fs.readFile(path.join(result.taskDir,'checkout/package-lock.json'),'utf8'),original);
+});
