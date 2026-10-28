@@ -1,6 +1,6 @@
 # Frontend API Extractor
 
-从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.8.0。
+从前端 JS/TS 源码静态提取 HTTP 接口、参数和调用证据，支持自定义入口、语义层与追踪深度。版本 0.8.1。
 
 源码模式独立分析本地目录，不要求先构建。构建增强首版另提供 GitHub 地址→npm/Docker 构建→source-map 关联分析→CSV/Markdown 表格，见[流程与边界](docs/repository-pipeline.md)。统一任务前端和交付模型适配仍待接入。
 
@@ -15,6 +15,8 @@ node src/cli.js /path/to/frontend --out reports/apis.json
 node src/cli.js /path/to/frontend --format markdown --out reports/apis.md
 npm run demo
 npm run scan:repository -- https://github.com/aliyun/alibabacloud-gdb-console --work-dir ../work/repository-runs
+# 可选：提供实际页面基址，以解析相对 URL；示例域名不是该项目的真实部署
+npm run scan:repository -- https://github.com/aliyun/alibabacloud-gdb-console --deployment-url https://gdb.example.test/console/ --work-dir ../work/repository-runs
 ```
 
 默认读取目标根目录的 `api-extractor.config.json`；可用 `--config` 指定其他配置，路径相对于当前工作目录。配置示例见 [api-extractor.config.example.json](api-extractor.config.example.json)。
@@ -51,7 +53,7 @@ node src/cli.js /path/to/frontend --include-unlinked --out reports/apis.json
 
 - [后续迭代与验证方案](../docs/前端API提取迭代路线与验证.md)：阶段顺序、逐项验收、样本与 AI 边界。
 - [真实构建请求表](docs/gdb-build-pilot.md)：引用阿里云 JS 的 GDB Console 固定版本，产物/源码位置、方法、Host 与参数。
-- [测试说明](docs/testing.md)：162 项自动化测试；自写的轻量多框架样例包含 19 个预期接口。
+- [测试说明](docs/testing.md)：170 项自动化测试；自写的轻量多框架样例包含 19 个预期接口。
 - [外部源码试跑记录](docs/alibaba-real-world.md)：只记录外部仓库链接、固定提交、范围和结果。
 - [阿里云站点与新样本分析](docs/aliyun-sites-analysis.md)：站点可达性、Nacos 压缩对照及 OSS SDK/hook 缺口。
 - [迭代记录](docs/changelog.md)。

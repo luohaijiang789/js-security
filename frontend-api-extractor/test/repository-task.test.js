@@ -119,10 +119,11 @@ function fakeCommands({failBuild=false}={}) {
 
 test('离线自写流程验证任务顺序、产物分析和最终 CSV/Markdown',async t=>{
   const root=await fixture(t,{});
-  const result=await runRepository('https://github.com/example/fixture',{profile:{ref:commit},workDir:root,execute:fakeCommands()});
+  const result=await runRepository('https://github.com/example/fixture',{profile:{ref:commit,deploymentUrl:'https://console.example.test/app/#/graph'},workDir:root,execute:fakeCommands()});
   assert.equal(result.manifest.state,'completed');assert.equal(result.rows.length,1);
   assert.equal(result.rows[0].sourceVersionMatch,true);assert.match(await fs.readFile(path.join(result.taskDir,'requests.csv'),'utf8'),/api\.example\.test/);
   const analysis=JSON.parse(await fs.readFile(path.join(result.taskDir,'analysis.json'),'utf8'));assert.equal(analysis.mode,'source-map-assisted');assert.equal(analysis.sourceAssets.length,1);
+  assert.equal(result.manifest.profile.deploymentUrl,'https://console.example.test/app/');assert.equal(analysis.deploymentUrl,result.manifest.profile.deploymentUrl);assert.equal(result.rows[0].hostBasis,'static-code');
   assert.ok(result.manifest.stages.every(s=>s.state==='succeeded'));
 });
 

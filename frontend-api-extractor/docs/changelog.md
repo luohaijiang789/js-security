@@ -1,5 +1,11 @@
 # 迭代记录
 
+## 0.8.1
+
+- 仓库 CLI/profile 支持可选部署页面 URL，按浏览器 URL 规则解析静态相对地址。请求表保留原始 URL、解析 URL、部署基址、Host 依据和状态。
+- 代码 Host 与上下文候选独立标记；动态地址、冲突、不支持协议保留缺口，不把部署假设提升为实际请求。解析 URL 不合并 Query 配置或证明最终序列化。
+- 170 项测试通过；复用固定 Commit 的真实 GDB 构建产物重新分析，4 行/3 个发送位置保持一致，示例上下文下 4 行 Host 均为明确标记的候选，见[验证](deployment-context.md)。未重新构建或访问业务 API。
+
 ## 0.8.0
 
 - 新增 repository CLI：固定 GitHub Commit、npm/Docker 构建、锁文件/镜像/日志记录和产物清单；GDB Console 有开箱可复现的配置。
