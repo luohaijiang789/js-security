@@ -170,3 +170,26 @@ test('未建模的属性自增仍要使原值失效',async t=>{
   const r=await analyze(root);assert.ok(r.endpoints[0].body.id.__unknown);
   assert.ok(r.diagnostics.some(d=>d.code==='UNRESOLVED_ASSIGNMENT'));
 });
+
+test('真实构建样本暴露的数组 length 清空保持别名且不异常',async t=>{
+  const root=await fixture(t,{'entry.js':`const body=[1,2];const alias=body;alias.length=0;fetch('/array',{method:'POST',body})`});
+  const r=await analyze(root);assert.deepEqual(r.endpoints[0].body,[]);
+  assert.ok(r.endpoints[0].objectChanges.some(c=>c.path[0]==='length'&&c.previous===2&&c.value===0));
+});
+
+test('数组 length 删除和巨大稀疏索引不能崩溃或无界分配',async t=>{
+  for(const write of ['delete body.length','body.length=1000000000','body[1000000000]=7']) {
+    const root=await fixture(t,{'entry.js':`const body=[];${write};fetch('/bounded-array',{method:'POST',body})`});
+    const r=await analyze(root);assert.ok(r.endpoints[0].body.length<=16);assert.equal(r.endpoints[0].resolution,'partial');
+    assert.ok(r.diagnostics.some(d=>d.code==='ARRAY_WRITE_UNMODELED'));
+  }
+});
+
+test('真实全量分析遇到实参笛卡尔积超限仍继续，并保留已知发送位置',async t=>{
+  for(const call of [`external(flag?1:2,other?3:4)`,`fetch(flag?'/a':'/b',other?{method:'GET'}:{method:'POST'})`]) {
+    const root=await fixture(t,{'entry.js':`${call};fetch('/after-limit')`});
+    const r=await analyze(root,{maxCandidates:2});assert.ok(r.endpoints.some(e=>e.url==='/after-limit'));
+    assert.ok(r.diagnostics.some(d=>d.code==='ARGUMENT_CANDIDATES_UNRESOLVED'));
+    if(call.startsWith('fetch'))assert.ok(r.endpoints.some(e=>e.resolution==='unresolved'));
+  }
+});

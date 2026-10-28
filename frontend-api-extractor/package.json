@@ -1,20 +1,23 @@
 {
   "name": "frontend-api-extractor",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "type": "module",
   "bin": {
-    "frontend-api-extractor": "src/cli.js"
+    "frontend-api-extractor": "src/cli.js",
+    "frontend-api-repository": "src/repository-cli.js"
   },
   "scripts": {
     "test": "node --test test/*.test.js",
     "scan": "node src/cli.js",
-    "demo": "node src/cli.js examples/multi-framework --out reports/multi-framework.json"
+    "demo": "node src/cli.js examples/multi-framework --out reports/multi-framework.json",
+    "scan:repository": "node src/repository-cli.js"
   },
   "engines": {
     "node": ">=22"
   },
   "dependencies": {
+    "@jridgewell/trace-mapping": "^0.3.31",
     "@vue/compiler-sfc": "^3.5.0",
     "fast-glob": "^3.3.3",
     "picomatch": "^4.0.0",

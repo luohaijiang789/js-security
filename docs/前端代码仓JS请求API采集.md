@@ -1,6 +1,6 @@
 # 前端代码仓JS请求API采集
 
-**扫描固定版本的前端代码仓，提取 API、参数与代码证据；需要部署环境和产物关联时，再显式选择构建增强模式。** 源码模式已有 [frontend-api-extractor CLI](../frontend-api-extractor/README.md)，构建增强和统一交付仍待集成。
+**扫描固定版本的前端代码仓，提取 API、参数与代码证据；需要部署环境和产物关联时，再显式选择构建增强模式。** 源码模式已有 [frontend-api-extractor CLI](../frontend-api-extractor/README.md)，另有 npm/Docker 构建关联首版；完整产物/SDK 分析和统一交付仍待扩展。
 
 ## 0. 已加入的源码 API 提取能力
 
@@ -127,3 +127,7 @@ flowchart LR
 首轮优先验证两条成熟路径：用 jshound 分析本地构建目录及 chunk，用 Vespasian 对本地预览或导入流量执行捕获与 JS 静态补漏；再用 CodeQL/Joern 对源码位置、封装和跨文件字段做差异补充。AI 可辅助解释未知封装，但需代码位置和正反例验证。
 
 第一层 SDK 内部依赖、运行时远程配置、复杂副作用和不透明 SDK 仍是遗留点。与网站 JS 分析共享哪些能力，按[验证计划](验证计划.md)对照决定；成熟项目和候选组件见[工具评估](../references/README.md)。
+
+## 0.8 构建关联首版进展
+
+新 repository CLI 可从公开 GitHub HTTPS 地址固定版本、按 npm 锁文件安装、在 Docker 执行构建，并关联 source map 应用源码与产物请求位置，输出 CSV/Markdown 和任务底稿。已实际跑通引用阿里云 JS 组件的 GDB Console，见[完整表格](../frontend-api-extractor/docs/gdb-build-pilot.md)。其余构建模式目标规格仍不等于已全部实现：远程 JS 获取、通用打包 runtime、SDK HTTP、AI 与统一 Excel 继续留缺口。

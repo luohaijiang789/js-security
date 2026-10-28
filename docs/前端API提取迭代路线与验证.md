@@ -131,6 +131,8 @@ AI 输入只使用已经允许处理的最小代码片段、字段路径、上�
 
 ## 8. 下一轮具体任务
 
+2026-10-28 进展：0.8.0 优先补齐一个真实仓库的自动构建到请求表纵向流程，见[GDB 实测](../frontend-api-extractor/docs/gdb-build-pilot.md)。这是 npm/Docker＋source-map 关联首版，未因此完成 P3 通用模块还原或 P5 统一交付。
+
 2026-10-28 进展：0.7.0 增加显式启用的有限同步 Axios request hook，见[实施与验证](../frontend-api-extractor/docs/request-hooks.md)。异步、条件、runWhen、未知模块初始化等仍有缺口，不代表 P1b 全部完成。
 
 2026-10-28 进展：0.6.0 已交付 P1a 的有限对象引用/改写模型与一个带哈希、人工预期的微型基准，见[实施与验证](../frontend-api-extractor/docs/object-effects.md)。P0 全部基准/统一协议、函数条件副作用精确合并和 P1b hook 求值仍待完成。
