@@ -1,4 +1,4 @@
-import { TAG, UNKNOWN, unknown, isUnknown, hasUnknown, text } from './values.js';
+import { TAG, CLIENT_STATE, UNKNOWN, unknown, isUnknown, hasUnknown, text } from './values.js';
 
 export const methods = new Set(['get','post','put','patch','delete','head','options']);
 
@@ -14,6 +14,7 @@ export function requestCall(target, args, mergeConfig) {
   if (['create','extend'].includes(member) && ['axios','ofetch','ky'].includes(kind)) {
     const data = mergeConfig(target,args[0] ?? {});
     delete data.member;
+    if(kind==='axios') {delete data.bindingIds;data[CLIENT_STATE]={hooks:[],seen:new Set(),gaps:[],nextId:0};}
     return {value:{...data,[TAG]:'client',kind}};
   }
   let data = {}, method, url;

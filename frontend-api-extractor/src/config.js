@@ -3,7 +3,7 @@ import fs from 'node:fs';
 export const defaults = {
   include: ['**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte}'],
   exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**', '**/.next/**', '**/*.d.{ts,mts,cts}'],
-  entries: [], layers: [], clients: [], maxDepth: 8, maxSteps: 100000, maxStepsPerFile:null, maxCandidates: 16, includeUnlinked:false,
+  entries: [], layers: [], clients: [], maxDepth: 8, maxSteps: 100000, maxStepsPerFile:null, maxCandidates: 16, includeUnlinked:false, modelRequestHooks:false,
 };
 
 const strings = v => Array.isArray(v) && v.every(s => typeof s === 'string' && s.length > 0);
@@ -12,6 +12,7 @@ export function validateConfig(root, options) {
   for (const key of Object.keys(options)) if (!Object.hasOwn(defaults,key) && key !== 'aliases') throw new Error(`未知配置字段: ${key}`);
   const config = { ...defaults, ...options };
   if(typeof config.includeUnlinked!=='boolean')throw new Error('includeUnlinked 必须是布尔值');
+  if(typeof config.modelRequestHooks!=='boolean')throw new Error('modelRequestHooks 必须是布尔值');
   for (const key of ['include', 'exclude', 'entries']) if (!strings(config[key])) throw new Error(`${key} 必须是 glob 字符串数组`);
   for (const key of ['maxDepth', 'maxSteps', 'maxCandidates']) if (!Number.isSafeInteger(config[key]) || config[key] < 1) throw new Error(`${key} 必须是安全正整数`);
   if(config.maxStepsPerFile!==null && (!Number.isSafeInteger(config.maxStepsPerFile) || config.maxStepsPerFile<1))throw new Error('maxStepsPerFile 必须是 null 或安全正整数');

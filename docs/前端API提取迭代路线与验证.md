@@ -131,6 +131,8 @@ AI 输入只使用已经允许处理的最小代码片段、字段路径、上�
 
 ## 8. 下一轮具体任务
 
+2026-10-28 进展：0.7.0 增加显式启用的有限同步 Axios request hook，见[实施与验证](../frontend-api-extractor/docs/request-hooks.md)。异步、条件、runWhen、未知模块初始化等仍有缺口，不代表 P1b 全部完成。
+
 2026-10-28 进展：0.6.0 已交付 P1a 的有限对象引用/改写模型与一个带哈希、人工预期的微型基准，见[实施与验证](../frontend-api-extractor/docs/object-effects.md)。P0 全部基准/统一协议、函数条件副作用精确合并和 P1b hook 求值仍待完成。
 
 - [ ] P0：整理现有固定样本 manifest、逐调用/字段预期和差异报告格式；冻结首批独立验证切片。

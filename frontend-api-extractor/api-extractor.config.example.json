@@ -4,6 +4,7 @@
   "maxSteps": 100000,
   "maxStepsPerFile": null,
   "maxCandidates": 16,
+  "modelRequestHooks": false,
   "aliases": { "@/*": ["src/*"] },
   "layers": [
     { "name": "page", "match": ["src/pages/**", "src/views/**", "src/routes/**"] },

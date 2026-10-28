@@ -1,6 +1,7 @@
 const CHOICES = Symbol('candidate values');
 export const TAG = Symbol('abstract value type');
 export const CHANGES = Symbol('object changes');
+export const CLIENT_STATE = Symbol('client interceptor state');
 export const UNKNOWN = '__unknown';
 export const unknown = expression => ({ [UNKNOWN]: expression || 'unknown' });
 export const hasUnknown = v => v && typeof v === 'object' && Object.hasOwn(v, UNKNOWN);
@@ -32,10 +33,11 @@ export function mergeConditions(...groups) {
 export function cloneEnv(env) {
   const seen = new Map();
   const clone = value => {
-    if (!value || typeof value !== 'object' || value[TAG] === 'function' || isChoice(value)) return value;
+    if (!value || typeof value !== 'object' || value[TAG] === 'function' || value[TAG]==='intrinsic'&&value.method?.startsWith('axios-') || isChoice(value)) return value;
     if (seen.has(value)) return seen.get(value);
     const result = Array.isArray(value) ? [] : {};
     if (value[TAG]) result[TAG] = value[TAG];
+    if (value[CLIENT_STATE]) result[CLIENT_STATE] = value[CLIENT_STATE];
     if (value[CHANGES]) result[CHANGES] = [...value[CHANGES]];
     seen.set(value, result);
     for (const [key, item] of Object.entries(value)) Object.defineProperty(result, key, {value:clone(item), enumerable:true, writable:true, configurable:true});

@@ -76,3 +76,5 @@ V1 实现补充：基础静态 CommonJS require/exports/module.exports 已提前
 P1：函数摘要缓存、增量索引、复杂 CommonJS 导出与别名变更、Angular DI、更多请求库、模板调用边、复杂闭包精度、跨条件约束求解与路径归并。
 
 P2：monorepo 包解析、GraphQL 操作语义、OpenAPI 草稿、交互式调用链和 CI 差异报告。
+
+0.7 提供默认关闭的 modelRequestHooks。usage.afterRequestHooks 独立于调用处，有限显式同步回调、顺序/eject 与未知边界见[说明](request-hooks.md)；不覆盖 transformRequest/transport。
