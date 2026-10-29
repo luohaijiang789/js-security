@@ -38,7 +38,7 @@ flowchart TD
 
 ## 3. 技术选择
 
-第一版采用 **Python 控制层 + jshound 的 Python/Node 分析链**：
+技术方案以 **Python 控制层 + jshound 的 Python/Node 分析链** 为待实测基线，先在[黑盒二](../../website-js-extractor/README.md)验证，再由白盒接入：
 
 - jshound 已实现页面/目录输入、Webpack/Vite 等 chunk 发现、跨文件模块索引、wrapper 收集及请求结构输出。
 - Python 负责仓库任务、构建、资产队列、缓存和结果编排，减少重复跨语言封装。
