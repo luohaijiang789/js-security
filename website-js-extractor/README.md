@@ -31,7 +31,9 @@ flowchart LR
 
 **S0 设计/样本冻结 → S1 真实采集原型 → S2 jshound 基线 → S3 最小插件链路 → S4 复杂请求恢复 → S5 稳定发布与白盒接入。** 每阶段的产物、可演示效果和通过条件见[实施计划](docs/plan.md)。
 
-未来实现分别放在本工程的 `extension/`、`service/`，协议在 `contracts/`；依赖不放到根目录或黑盒一工程。本轮不建立空代码框架。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
+工程基线为 **TypeScript/Vue 3 独立插件 + Python 3.12 本机服务 + Node.js 22.12+ / Babel / jshound fork 分析核心**；元数据采用 IndexedDB/SQLite，正文按哈希保存。首发目标为 Windows 11 x64 桌面 Chrome，实际支持版本需现场验收。
+
+未来实现分别放在本工程的 `extension/`、`service/`，协议在 `contracts/`；核心增强位于锁定的 jshound fork。依赖不放到根目录或黑盒一工程；不预建空实现。目录、进程、技术决策见[工程架构](docs/architecture.md)，各模块输入输出和完成条件见[模块规格](docs/modules.md)。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
 
 ## 文档
 
@@ -39,6 +41,8 @@ flowchart LR
 | --- | --- |
 | [需求与操作](docs/requirements.md) | 用户怎样使用、必须交付什么、边界 |
 | [整体设计](docs/design.md) | 每步输入输出、采集与服务分工、协议、状态和恢复 |
+| [工程架构](docs/architecture.md) | 产品交付、语言/技术栈、工程目录、进程、依赖与部署 |
+| [模块规格](docs/modules.md) | 模块工作包、输入输出、分析算法、接口与完成条件 |
 | [共享提取范围](../docs/js-analysis-scope.md) | 请求场景、JS 分层、发现起点与路由位置 |
 | [测试与验收](docs/testing.md) | 冻结输入、验证矩阵、效果与性能门槛 |
 | [实施计划](docs/plan.md) | 唯一实现进度清单与阶段交付物 |
