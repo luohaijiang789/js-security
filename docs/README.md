@@ -5,6 +5,7 @@
 | 文档 | 职责 |
 | --- | --- |
 | [总览](overview.md) | 白盒、浏览器实测、网站 JS 静态分析三路关系与边界 |
+| [API 发现与统计讨论结论](api-discovery-decisions.md) | 白盒业务/依赖分层、黑盒 JS 定位、共用边界与统计口径 |
 | [网站 JS 分析](site-analysis.md) | 黑盒二的脚本收集、引用深度、上下文和静态候选 |
 | [统一交付](delivery.md) | 三类证据、记录粒度、字段状态和 Excel/JSON 语义 |
 | [联合验证](validation.md) | 三路对照、现场验证和统一交付验收 |
