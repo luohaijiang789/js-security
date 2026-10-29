@@ -12,7 +12,7 @@
 
 工程文档：
 
-- [网站 JS 提取器](../website-js-extractor/README.md)：当前优先，网站脚本收集、嵌套分析及请求还原。
+- [网站 JS 提取器](../website-js-extractor/README.md)：当前优先，独立插件收集脚本、本地服务分析及请求还原。
 - [前端代码仓提取器](../frontend-api-extractor/README.md)：仓库构建、嵌套 JS、URL/参数/Host/JS 文件。
 - [浏览器请求采集插件](../browser-extension/README.md)：实际请求采集、安装、规格、UI 和现场验收。
 - [工具与项目评估](../references/README.md)：外部方案、固定版本和采用依据。

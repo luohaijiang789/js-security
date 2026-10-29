@@ -18,7 +18,7 @@
 |---|---|---|
 | [前端代码仓 API 提取（白盒）](frontend-api-extractor/README.md) | 固定仓库并构建 JS，分析嵌套引用，提取 URL、参数、Host、JS 文件 | 旧实现已删除，当前先完成新架构、测试基线和实施计划 |
 | [JS 请求采集浏览器插件（黑盒一）](browser-extension/docs/requirements.md) | 自研 MV3 插件，当前浏览器所有窗口中的 HTTP/HTTPS 网页自动接入，Filter 控制留存，CDP 记录真实请求及可取得调用栈 | 只覆盖实际触发且可观测场景；采集缺失明确记录 |
-| [网站 JS 收集与静态分析（黑盒二）](website-js-extractor/README.md) | 获取部署脚本，分析请求与字段候选 | 优先设计与验证；脚本获取最多三层，函数封装追踪独立计限 |
+| [网站 JS 收集与静态分析（黑盒二）](website-js-extractor/README.md) | 独立 MV3 插件收集 JS 与上下文，本地服务静态分析 | 当前只有设计；先验证采集和 jshound，再完成主表与复杂请求恢复 |
 
 当前先推进黑盒二的网站 JS 分析核心，再由白盒接入仓库构建资产。白盒与黑盒二目前均无可运行实现；黑盒一已有独立 MV3 插件。各工程当前状态以其 README 和开发计划为准。
 

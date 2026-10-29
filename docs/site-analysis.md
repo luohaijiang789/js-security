@@ -2,6 +2,8 @@
 
 黑盒二现独立放在 [website-js-extractor](../website-js-extractor/README.md)，优先于白盒开展设计和分析核心验证。
 
+- [需求与操作](../website-js-extractor/docs/requirements.md)：独立插件与本地服务的用户流程。
+- [测试与验收](../website-js-extractor/docs/testing.md)：冻结样本、效果指标与目标 Chrome 现场门槛。
 - [设计](../website-js-extractor/docs/design.md)：脚本收集、三层获取边界、页面上下文和静态分析。
 - [实施计划](../website-js-extractor/docs/plan.md)：设计冻结、基线验证、实现及验收。
 

@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 白盒：前端代码仓 | 固定 Commit、锁文件、构建配置和构建 JS | URL、参数、Host、对应 JS 文件及静态证据 | [Frontend API Extractor](../frontend-api-extractor/README.md) |
 | 黑盒一：浏览器实测 | 测试人员操作页面时的可观测网络活动 | 实际请求、载荷、页面上下文和可取得调用栈 | [浏览器插件](../browser-extension/README.md) |
-| 黑盒二：网站 JS | 网站入口、访问范围、会话和部署脚本 | 部署代码中的请求候选、脚本引用链和上下文 | [网站 JS 提取器](../website-js-extractor/README.md) |
+| 黑盒二：网站 JS | 独立插件取得的网站上下文与部署脚本 | 本地服务分析出的请求候选、脚本引用链和缺口 | [网站 JS 提取器](../website-js-extractor/README.md) |
 
 三路独立运行，有多路输入时再关联：
 
