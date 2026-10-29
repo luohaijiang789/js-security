@@ -8,7 +8,7 @@ export const hasUnknown = v => v && typeof v === 'object' && Object.hasOwn(v, UN
 export const isUnknown = v => hasUnknown(v) && Object.keys(v).length === 1;
 export const isChoice = v => Boolean(v?.[CHOICES]);
 export const text = v => isUnknown(v) ? `{${v[UNKNOWN]}}` : ['string','number','boolean'].includes(typeof v) ? String(v) : '{expression}';
-export const dynamic = v => hasUnknown(v) || isChoice(v) || typeof v === 'string' && /\{[^}]+\}/.test(v) || v && typeof v === 'object' && Object.values(v).some(dynamic);
+export const dynamic = v => v?.[TAG]==='serialized' ? hasUnknown(v.value)||dynamic(v.input) : hasUnknown(v) || isChoice(v) || typeof v === 'string' && /\{[^}]+\}/.test(v) || v && typeof v === 'object' && Object.values(v).some(dynamic);
 export function clean(value, seen = new Set()) {
   if(value?.[TAG]==='instance')return clean(value.properties,seen);
   if(value?.[TAG]==='serialized')return clean(value.value,seen);
@@ -39,6 +39,10 @@ export function mergeConditions(...groups) {
 export function cloneEnv(env) {
   const seen = new Map();
   const clone = value => {
+    if(value?.[TAG]==='function'&&(Object.hasOwn(value,'boundThis')||value.functionMembers||value.functionMembersUnknown)){
+      if(seen.has(value))return seen.get(value);
+      const result={...value};seen.set(value,result);if(Object.hasOwn(value,'boundThis')){result.boundThis=clone(value.boundThis);result.boundArgs=clone(value.boundArgs);}if(value.functionMembers)result.functionMembers=clone(value.functionMembers);if(Object.hasOwn(value,'lexicalThis'))result.lexicalThis=clone(value.lexicalThis);return result;
+    }
     if (!value || typeof value !== 'object' || value[TAG] === 'function' || value[TAG]==='intrinsic'&&value.method?.startsWith('axios-') || isChoice(value)) return value;
     if (seen.has(value)) return seen.get(value);
     const result = Array.isArray(value) ? [] : {};
