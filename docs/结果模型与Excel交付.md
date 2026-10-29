@@ -1,6 +1,6 @@
 # 结果模型与 Excel 交付
 
-本文件集中定义三路结果的证据、记录粒度及交付语义。0.9 已实现限定交付适配，机器协议为 Schema 2.0.0，兼容与 ID 规则见[协议说明](../frontend-api-extractor/docs/delivery-protocol.md)。本文件保留目标列与语义；实际输出字段以协议/实现为准，未实现的高级筛选、消息细分与跨来源核对不视为已完成。
+本文件集中定义三路结果的证据、记录粒度及交付语义。0.9 已实现限定交付适配，机器协议为 Schema 2.0.0，兼容与 ID 规则见[协议说明](../frontend-api-extractor/docs/reference/delivery-protocol.md)。本文件保留目标列与语义；实际输出字段以协议/实现为准，未实现的高级筛选、消息细分与跨来源核对不视为已完成。
 
 ## 1. 三类证据与记录粒度
 
@@ -74,4 +74,4 @@ Excel 不放敏感原值或超长源码，外部字符串按文本写入。长�
 
 API总表已补候选API组、业务调用点、条件、仓库/Commit、发送机制、原始请求URL及Query/Body/Header已知字段名称摘要。源码列继续指实际发送位置，业务位置取调用链中发送文件之外最近一层，不据此证明页面生命周期全链。未知占位不编码成Path。
 
-call-site-v2将条件/阶段/entry枚举移出调用身份，记录身份仍保留上下文差异；相同调用点和原因的缺口使用recordIds关联多条记录。旧底稿保持旧身份规则，需重新生成后按新ID归组，详见[协议](../frontend-api-extractor/docs/delivery-protocol.md)。条件变体继续逐行保留，未实现全部膨胀治理、分片合并或所有目标列。扫描是否结束请读取scope.coverage，模型是否存在缺口继续读取complete与缺口表。
+call-site-v2将条件/阶段/entry枚举移出调用身份，记录身份仍保留上下文差异；相同调用点和原因的缺口使用recordIds关联多条记录。旧底稿保持旧身份规则，需重新生成后按新ID归组，详见[协议](../frontend-api-extractor/docs/reference/delivery-protocol.md)。条件变体继续逐行保留，未实现全部膨胀治理、分片合并或所有目标列。扫描是否结束请读取scope.coverage，模型是否存在缺口继续读取complete与缺口表。

@@ -34,19 +34,19 @@ flowchart TD
 
 三个具体方案分别见：
 
-- [前端代码仓JS请求API采集](前端代码仓JS请求API采集.md)（白盒）。
+- [前端代码仓 API 提取](../frontend-api-extractor/README.md)（白盒）。
 - [JS 请求采集浏览器插件](JS%20请求采集浏览器插件.md)（黑盒一）。
 - [网站 JS 收集与静态分析](网站%20JS%20收集与静态分析.md)（黑盒二）。
 
 ## 2. 前端代码仓 API 提取能力
 
-0.8 已增加 GitHub 地址→固定版本→npm/Docker 构建→source-map 关联分析→CSV/Markdown 的首版流程，见[范围](../frontend-api-extractor/docs/repository-pipeline.md)与[GDB 请求表](../frontend-api-extractor/docs/gdb-build-pilot.md)。这不表示任意仓库、Webpack 原生解包或远程 SDK 已完整支持。
+0.8 已增加 GitHub 地址→固定版本→npm/Docker 构建→source-map 关联分析→CSV/Markdown 的首版流程，见[范围](../frontend-api-extractor/docs/reference/repository-pipeline.md)与[GDB 请求表](../frontend-api-extractor/docs/archive/validation/gdb-build-pilot.md)。这不表示任意仓库、Webpack 原生解包或远程 SDK 已完整支持。
 
 白盒提供两种显式模式：源码模式直接分析固定版本本地代码，构建增强模式再利用目标环境产物恢复常量、生成代码和 source map。源码模式不以构建为前提；构建增强失败时保留该模式失败，不改称源码成功。
 
-现有实现位于 [frontend-api-extractor](../frontend-api-extractor/README.md)，可配置文件入口、语义层、路径别名、调用深度和执行/候选预算；支持多框架脚本及常见 HTTP 客户端。输出方法、URL、Query/Body/Headers、源码位置、调用链、条件和诊断。真实源码试跑与限制见[记录](../frontend-api-extractor/docs/alibaba-real-world.md)，外部仓库仅留链接。
+现有实现位于 [frontend-api-extractor](../frontend-api-extractor/README.md)，可配置文件入口、语义层、路径别名、调用深度和执行/候选预算；支持多框架脚本及常见 HTTP 客户端。输出方法、URL、Query/Body/Headers、源码位置、调用链、条件和诊断。真实源码试跑与限制见[记录](../frontend-api-extractor/docs/archive/validation/alibaba-real-world.md)，外部仓库仅留链接。
 
-后续统一前端应将“前端代码仓扫描”列为任务入口：记录仓库地址/Commit 和本地 checkout，提供扫描范围与预算配置，查看接口/参数/代码证据/诊断并导出结果。当前 GitHub CLI 已实现固定版本获取/校验、锁文件构建和统一交付，插件 JS探索已接本地分析服务；仓库构建的统一任务界面与生产级调度尚未实现。详见[0.9 使用与验收](../frontend-api-extractor/docs/release-0.9.md)。
+后续统一前端应将“前端代码仓扫描”列为任务入口：记录仓库地址/Commit 和本地 checkout，提供扫描范围与预算配置，查看接口/参数/代码证据/诊断并导出结果。当前 GitHub CLI 已实现固定版本获取/校验、锁文件构建和统一交付，插件 JS探索已接本地分析服务；仓库构建的统一任务界面与生产级调度尚未实现。详见[0.9 使用与验收](../frontend-api-extractor/docs/archive/releases/release-0.9.md)。
 
 ## 3. 两路静态分析：阶段相同，复用待验证
 
@@ -85,8 +85,8 @@ flowchart TD
 
 ## 6. 下一步
 
-后续阶段与逐项验收统一见[前端 API 提取迭代路线与验证](前端API提取迭代路线与验证.md)。先固定基准和逐调用证据，补字段改写/hook，再推进封装、打包模块与 SDK，随后接入插件黑盒二与统一交付；AI 字段释义单独验收。
+前端提取器的需求、架构和当前进度统一见其 [README](../frontend-api-extractor/README.md) 与[开发计划](../frontend-api-extractor/docs/roadmap.md)。主目标收敛为仓库构建后 URL、参数、Host、JS 文件四项提取；以 jshound 增强核心替换旧分析的设计已确认，尚未完成。嵌套引用、六项已复现缺陷和性能是当前重点，AI 辅助还原与字段释义分别验收。
 
-现有插件、Burp/Yakit 及 jshound/Vespasian 等工具继续作为独立采集/对照来源，保留固定版本、现场和性能缺口。统一任务前端与第一份可回查 Excel 随证据协议接入，不作为分析核心验证的前提。
+现有插件、Burp/Yakit 及其他工具继续作采集/对照来源，保留版本、现场与性能缺口。JSON/Excel 已接入；统一任务界面不作为分析核心验收前提。
 
-详细执行项见[验证计划](验证计划.md)。源码 CLI 已有自动化测试和指定真实源码范围试跑，插件已有局部验证，分别保留对应模型和范围；尚不代表整体任务前端、统一交付、全仓覆盖或 MV3 现场验收通过。
+跨三路验证见[验证计划](验证计划.md)，提取器验收见[验证规则](../frontend-api-extractor/docs/testing.md)。已有测试和样本仅证明限定模型范围，不代表全仓覆盖或 MV3 现场验收通过。

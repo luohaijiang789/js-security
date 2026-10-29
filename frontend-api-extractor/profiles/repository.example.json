@@ -1,0 +1,10 @@
+{
+  "dockerImage": "node:22-bookworm-slim",
+  "projectDir": ".",
+  "packageManager": "npm",
+  "buildScript": "build",
+  "artifactDirs": ["dist"],
+  "analysis": {
+    "maxSteps": 100000
+  }
+}
