@@ -1,6 +1,6 @@
 # 插件界面与交互改进
 
-本轮按用户实际试用反馈重做管理界面、采集范围与查看流程，并将插件工程完整移入 `browser-extension/`。构建、升级与安装步骤见[插件开发与安装](插件开发与安装.md)，工程入口见[插件 README](../browser-extension/README.md)。
+本轮按用户实际试用反馈重做管理界面、采集范围与查看流程，并将插件工程完整移入 `browser-extension/`。构建、升级与安装步骤见[使用与验证](usage.md)，工程入口见[插件 README](../README.md)。
 
 ## 已复现的问题
 
@@ -56,7 +56,7 @@
 
 `38 / 37` 分别是两个请求的同步段帧数，并非整个异步链的总数。这个样例确认同步捕获深度与异步父链配置各自影响不同部分；不能仅靠启用 Debugger 就认为同步帧已补齐，也不能仅靠 Runtime 深度就认为异步链已取得。它解释了受控场景为何可能从 1 帧增加为多帧，不能据此认定用户所有站点的漏帧原因或保证固定数量。
 
-固定测试见[调用栈原生 CDP 对照](../browser-extension/tests/call-stack-cdp.test.ts)。从仓库根目录运行：
+固定测试见[调用栈原生 CDP 对照](../tests/call-stack-cdp.test.ts)。从仓库根目录运行：
 
 ```bash
 cd browser-extension

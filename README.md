@@ -9,8 +9,8 @@
 | 方案 | 做法 | 本轮边界 |
 |---|---|---|
 | [前端代码仓 API 提取（白盒）](frontend-api-extractor/README.md) | 固定仓库并构建 JS，分析嵌套引用，提取 URL、参数、Host、JS 文件 | 已有构建和 Excel；jshound 增强核心重构中，仍有漏扫与性能缺口 |
-| [JS 请求采集浏览器插件（黑盒一）](docs/JS%20请求采集浏览器插件.md) | 自研 MV3 插件，当前浏览器所有窗口中的 HTTP/HTTPS 网页自动接入，Filter 控制留存，CDP 记录真实请求及可取得调用栈 | 只覆盖实际触发且可观测场景；采集缺失明确记录 |
-| [网站 JS 收集与静态分析（黑盒二）](docs/网站%20JS%20收集与静态分析.md) | 获取部署脚本，分析请求与字段候选 | 脚本引用最多三层；需适配打包代码与页面上下文 |
+| [JS 请求采集浏览器插件（黑盒一）](browser-extension/docs/requirements.md) | 自研 MV3 插件，当前浏览器所有窗口中的 HTTP/HTTPS 网页自动接入，Filter 控制留存，CDP 记录真实请求及可取得调用栈 | 只覆盖实际触发且可观测场景；采集缺失明确记录 |
+| [网站 JS 收集与静态分析（黑盒二）](docs/site-analysis.md) | 获取部署脚本，分析请求与字段候选 | 脚本引用最多三层；需适配打包代码与页面上下文 |
 
 白盒以仓库构建后四项提取为主路径，源码扫描保留为辅助诊断；黑盒一已有独立 MV3 插件，黑盒二已有资产收集和本地分析入口，真实现场验收仍有限。各工程当前状态以其 README 和开发计划为准。
 
@@ -30,7 +30,7 @@ node src/repository-cli.js https://github.com/aliyun/alibabacloud-gdb-console --
 
 ## 文档与目录
 
-从[文档导航](docs/README.md)开始；[总方案](docs/API资产收集总方案.md)说明整体关系，[交付约定](docs/结果模型与Excel交付.md)说明统一模型，[验证计划](docs/验证计划.md)列出下一步。[工具与项目评估](references/README.md)记录三个方案的候选组件、许可证和推荐验证组合。
+从[文档导航](docs/README.md)开始；[总方案](docs/overview.md)说明整体关系，[交付约定](docs/delivery.md)说明统一模型，[验证计划](docs/validation.md)列出下一步。[工具与项目评估](references/README.md)记录三个方案的候选组件、许可证和推荐验证组合。
 
 用户确认的参考范围见[六个参考项目](references/已确认参考项目.md)：EASYapi、maksimu/openapi-devtools、mitmproxy2swagger、Akto、BurpAPIFinder（有 bug，需要维护）和 jshound。
 
@@ -63,6 +63,6 @@ npm ci
 npm run build
 ```
 
-Chrome 开发者模式加载 **`browser-extension/dist/`**。点击浏览器工具栏插件图标直接打开管理标签页；点击请求行即可在右侧查看参数、请求头、正文、调用栈和原始数据。此前从根目录 `dist/` 安装的用户，请先阅读[旧任务保留与升级说明](docs/插件界面与交互改进.md)，加载路径改变不会自动迁移扩展本地数据。
+Chrome 开发者模式加载 **`browser-extension/dist/`**。点击浏览器工具栏插件图标直接打开管理标签页；点击请求行即可在右侧查看参数、请求头、正文、调用栈和原始数据。此前从根目录 `dist/` 安装的用户，请先阅读[旧任务保留与升级说明](browser-extension/docs/ui.md)，加载路径改变不会自动迁移扩展本地数据。
 
 在 `browser-extension/` 内执行 `npm test` 验证核心、转存、真实 Chromium CDP 和界面；受控样例不当作用户真实资产结果。当前云环境企业策略禁止安装扩展，因此 MV3 现场加载、子目标覆盖和正式压力验收仍待目标 Chrome 执行；其余两路继续验证成熟工具。

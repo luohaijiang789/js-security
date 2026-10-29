@@ -17,4 +17,4 @@
 
 本目录保留早期研究思路。当前提取器目标和计划统一见[需求](../frontend-api-extractor/docs/requirements.md)与[开发计划](../frontend-api-extractor/docs/roadmap.md)：仓库构建后提取 URL、参数、Host、JS 文件；嵌套引用与引擎重构按阶段验证。旧方案的获取深度是既有实现限制，不代表新架构已实现；不复制完整第三方测试仓库，执行以[项目原则](../AGENTS.md)为准。
 
-最终目标与 Excel 列见[总方案](../docs/API资产收集总方案.md)。新增[网站 JS 收集入口](../docs/网站%20JS%20收集与静态分析.md)与待开发的浏览器插件互补；研究必须说明能补哪些 API/参数，不能仅罗列工具名字。
+最终目标与 Excel 列见[总方案](../docs/overview.md)。新增[网站 JS 收集入口](../docs/site-analysis.md)与待开发的浏览器插件互补；研究必须说明能补哪些 API/参数，不能仅罗列工具名字。

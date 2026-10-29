@@ -21,8 +21,8 @@
 | 方案 | 评估文档 | 当前最值得验证的组合 |
 |---|---|---|
 | [前端代码仓 API 提取](../frontend-api-extractor/README.md) | [前端代码仓分析工具评估](前端代码仓分析工具评估.md) | 正式构建 + jshound 增强方向；实际复用范围和语言分工以同输入验证决定 |
-| [JS 请求采集浏览器插件](<../docs/JS 请求采集浏览器插件.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | Burp Proxy/History 采集基线，Yakit 平台对照；插件任务边界/调用栈的确切差距再验证 |
-| [网站 JS 收集与静态分析](<../docs/网站 JS 收集与静态分析.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | Burp + JS Miner/BurpAPIFinder 被动提取；URLFinder 批量收集对照；jshound 等补字段 |
+| [JS 请求采集浏览器插件](<../browser-extension/docs/requirements.md>) | [浏览器请求采集工具评估](浏览器请求采集工具评估.md) | Burp Proxy/History 采集基线，Yakit 平台对照；插件任务边界/调用栈的确切差距再验证 |
+| [网站 JS 收集与静态分析](<../docs/site-analysis.md>) | [网站 JS 收集工具评估](网站JS收集工具评估.md) | Burp + JS Miner/BurpAPIFinder 被动提取；URLFinder 批量收集对照；jshound 等补字段 |
 
 ## 2. 总体判断
 
