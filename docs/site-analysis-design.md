@@ -38,6 +38,8 @@ flowchart LR
 
 原生引擎内部会归并记录，常用请求导出会丢部分字段、将路由候选转成 GET。因此不能只包装 CLI 输出就宣称有逐调用证据。基线阶段检查归并前记录，必要时在可访问增强 fork 暴露位置与来源；保留原始类型、`query_schema`、嵌套 `body_schema`、Header 和未知表达式。历史导出差距见[评估](../references/网站浏览器挂载与动静态联合采集评估.md)。
 
+最新[开源能力试验](../references/blackbox2-experiment/README.md)已运行 6 项工具并验证受控递归/压缩样例：jshound 为当前最合适基线，jsluice 作独立对照。内部 4 个 Query 字段未进入常用 JSONL，故结果适配优先读内部记录；公开真实 bundle 的动态结果与耗时另列，不用受控 13/13 代替真实站点验收。
+
 ## 3. 输入与资产快照
 
 | 输入 | 处理要求 |

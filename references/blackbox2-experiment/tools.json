@@ -1,0 +1,66 @@
+[
+  {
+    "name": "jshound",
+    "repo": "AmbitSecurity/jshound",
+    "commit": "f34f9c5dcfa0f30816a66881ea9a8d8573c24f05",
+    "source": "references/repos/jshound",
+    "license": "MIT",
+    "tested": true
+  },
+  {
+    "name": "jsluice",
+    "repo": "BishopFox/jsluice",
+    "commit": "0ddfab153e060a9eeaded4d8669233f7c071e7e4",
+    "commit_date": "2024-01-10T14:51:40Z",
+    "license": "MIT",
+    "tested": true
+  },
+  {
+    "name": "LinkFinder",
+    "repo": "GerbenJavado/LinkFinder",
+    "commit": "1debac5dace4724fd6187c06f133578dae51c86f",
+    "commit_date": "2024-04-13T11:53:27+02:00",
+    "license": "MIT",
+    "tested": true
+  },
+  {
+    "name": "xnLinkFinder",
+    "repo": "xnl-h4ck3r/xnLinkFinder",
+    "commit": "841ac8dddbc7edd728939df5db51274a63ab5863",
+    "commit_date": "2026-03-08T20:08:28Z",
+    "license": "MIT",
+    "tested": true
+  },
+  {
+    "name": "JSFinder",
+    "repo": "Threezh1/JSFinder",
+    "commit": "d70ab9bc5221e016c08cffaf0d9ac79646c90645",
+    "commit_date": "2020-12-11T02:25:03+08:00",
+    "license": "not found",
+    "tested": true
+  },
+  {
+    "name": "URLFinder",
+    "repo": "pingc0y/URLFinder",
+    "commit": "da01795e3ff826ec9d8660d842ac6314a7a38e59",
+    "commit_date": "2026-06-17T12:14:51+08:00",
+    "license": "MIT",
+    "tested": true
+  },
+  {
+    "name": "vespasian",
+    "repo": "praetorian-inc/vespasian",
+    "commit": "daa3dafc68f0f83e3802026c38c483688d2401c6",
+    "commit_date": "2026-10-03T18:49:27-05:00",
+    "license": "Apache-2.0",
+    "tested": false
+  },
+  {
+    "name": "jshunter",
+    "repo": "cc1a2b/jshunter",
+    "commit": "9e130cfd3ed8602e90703fccb4d843cc6a1b00e1",
+    "commit_date": "2026-09-20T20:19:43+03:00",
+    "license": "MIT",
+    "tested": false
+  }
+]
