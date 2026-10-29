@@ -1,0 +1,7 @@
+{
+  "scanFiles": ["src/api/**"],
+  "aliases": {"@/*": ["src/*"]},
+  "functionInventory": true,
+  "maxSteps": 1000000,
+  "partitionStrategy": "fair"
+}

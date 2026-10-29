@@ -162,7 +162,7 @@ export function toDelivery(input, metadata = {}) {
     assets = [],
     seenAssets = new Set(),
     assetIds = new Map(),
-    recordOccurrences = new Map();
+    recordOccurrences = new Map(), sharedRequestGaps=new Map();
   for (const a of input.assets ?? []) {
     const id = stableId("asset", [
       a.sha256 ?? null,
@@ -189,6 +189,7 @@ export function toDelivery(input, metadata = {}) {
     if (!sourceKinds.has(sourceKind)) throw new Error("不支持的证据来源");
     if (sourceKind === "plugin-observed" && !row.observation?.requestId)
       throw new Error("实测行必须带原始请求身份");
+    const businessCallSite=row.businessCallSite??row.callChain?.slice(0,-1).findLast(p=>p.file!==row.sourceFile)??{file:row.sourceFile??null,line:row.sourceLine??null,column:row.sourceColumn??null};
     const anchor = [
       sourceKind,
       row.repository ?? input.repository ?? null,
@@ -196,19 +197,16 @@ export function toDelivery(input, metadata = {}) {
       row.sourceFile,
       row.sourceLine,
       row.sourceColumn,
-      row.stage,
-      row.conditions ?? [],
-      row.callChain ?? [],
+      [businessCallSite.file,businessCallSite.line,businessCallSite.column],
       row.deploymentUrl ?? null,
       row.observation ?? null,
       row.assetId ?? null,
       row.scriptSha256 ?? null,
       row.executionContext ?? null,
-      row.entry ?? null,
     ];
     const callSiteId = stableId("call", anchor),
       snapshot = [
-        anchor,
+        anchor, row.stage, row.conditions??[], row.callChain??[], row.entry??null,
         row.method,
         row.url,
         row.query,
@@ -223,21 +221,24 @@ export function toDelivery(input, metadata = {}) {
     evidence.push({ id: evidenceId, sourceKind, raw: row });
     let pathname = null;
     try {
-      pathname = new URL(row.resolvedUrl ?? row.url, "https://context.invalid/")
-        .pathname;
+      const address=row.requestPath??row.resolvedUrl??row.url;
+      if(typeof address==='string'&&address&&!/[{}]/.test(address))pathname=new URL(address,"https://context.invalid/").pathname;
     } catch {}
     const record = {
       id,
       callSiteId,
+      businessCallSite,
+      sendMechanism:row.sendMechanism??null,
       assetId: assetIds.get(row.assetId) ?? null,
       sourceKind,
       discoveryBasis: row.discoveryBasis ?? "unknown",
       linkState:row.linkState??null,
-      apiGroupId: stableId("group", [row.method, row.host, pathname]),
+      apiGroupId: stableId("group", [row.method, row.host, pathname??row.requestUrl??row.url]),
       associationState: "candidate-only",
       method: row.method ?? null,
       host: row.host ?? null,
       url: row.url ?? null,
+      requestUrl:row.requestUrl??row.url??null,
       resolvedUrl: row.resolvedUrl ?? null,
       path: pathname,
       hostBasis:
@@ -319,17 +320,11 @@ export function toDelivery(input, metadata = {}) {
       });
     }
     for (const reason of row.gaps ?? []) {
-      const gapId = stableId("gap", [id, reason]);
-      gaps.push({
-        id: gapId,
-        recordId: id,
-        assetId: null,
-        code: "REQUEST_UNRESOLVED",
-        reason,
-        impact: "此调用存在未解析项",
-        location: [row.sourceFile, row.sourceLine, row.sourceColumn],
-      });
-      record.gapIds.push(gapId);
+      const gapId = stableId("gap", [callSiteId, reason]);
+      let gap=sharedRequestGaps.get(gapId);
+      if(!gap){gap={id:gapId,recordId:id,recordIds:[id],assetId:null,code:"REQUEST_UNRESOLVED",reason,impact:"此调用存在未解析项",location:[row.sourceFile,row.sourceLine,row.sourceColumn]};sharedRequestGaps.set(gapId,gap);gaps.push(gap);}
+      else {if(!record.gapIds.includes(gapId))gap.recordIds.push(id);gap.recordId=gap.recordIds.length===1?id:null;}
+      if(!record.gapIds.includes(gapId))record.gapIds.push(gapId);
     }
     records.push(record);
   }
@@ -362,12 +357,15 @@ export function toDelivery(input, metadata = {}) {
     migration: {
       from: input.schemaVersion ?? "rows-v1",
       policy: "additive-adapter; no inferred source/version",
+      identityVersion:"call-site-v2",
     },
     scope: {
       repository: input.repository ?? metadata.repository ?? null,
       commit: input.commit ?? metadata.commit ?? null,
       mode: input.mode ?? metadata.mode ?? null,
       complete: input.stats?.complete === true && !gaps.length,
+      coverage:input.stats?.coverage??null,
+      outcome:input.stats?.outcome??null,
     },
     records,
     parameters,

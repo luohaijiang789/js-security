@@ -36,12 +36,12 @@ export function mergeConditions(...groups) {
 }
 
 // Copy abstract heap objects together so aliases remain aliases inside each path.
-export function cloneEnv(env) {
+export function cloneEnv(env, {onClone=()=>{}} = {}) {
   const seen = new Map();
   const clone = value => {
     if(value?.[TAG]==='function'&&(Object.hasOwn(value,'boundThis')||value.functionMembers||value.functionMembersUnknown)){
       if(seen.has(value))return seen.get(value);
-      const result={...value};seen.set(value,result);if(Object.hasOwn(value,'boundThis')){result.boundThis=clone(value.boundThis);result.boundArgs=clone(value.boundArgs);}if(value.functionMembers)result.functionMembers=clone(value.functionMembers);if(Object.hasOwn(value,'lexicalThis'))result.lexicalThis=clone(value.lexicalThis);return result;
+      const result={...value};seen.set(value,result);onClone(value,result);if(Object.hasOwn(value,'boundThis')){result.boundThis=clone(value.boundThis);result.boundArgs=clone(value.boundArgs);}if(value.functionMembers)result.functionMembers=clone(value.functionMembers);if(Object.hasOwn(value,'lexicalThis'))result.lexicalThis=clone(value.lexicalThis);return result;
     }
     if (!value || typeof value !== 'object' || value[TAG] === 'function' || value[TAG]==='intrinsic'&&value.method?.startsWith('axios-') || isChoice(value)) return value;
     if (seen.has(value)) return seen.get(value);
@@ -49,7 +49,7 @@ export function cloneEnv(env) {
     if (value[TAG]) result[TAG] = value[TAG];
     if (value[CLIENT_STATE]) result[CLIENT_STATE] = value[CLIENT_STATE];
     if (value[CHANGES]) result[CHANGES] = [...value[CHANGES]];
-    seen.set(value, result);
+    seen.set(value, result);onClone(value,result);
     for (const [key, item] of Object.entries(value)) Object.defineProperty(result, key, {value:clone(item), enumerable:true, writable:true, configurable:true});
     return result;
   };

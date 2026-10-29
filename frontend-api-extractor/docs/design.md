@@ -19,7 +19,7 @@
 - 统一分析：TypeScript compiler API 解析 JS 和 TS、绑定符号，跨 import/export、重导出及路径别名查找声明。无需完整依赖安装或通过类型检查。
 - 值模型：常量、对象、数组、函数、HTTP 客户端、附带条件的有限候选、带原因的未知值。函数参数按符号绑定，避免同名变量串值。模板字符串里的未知值保留占位符；内部抽象类型使用 Symbol，避免与业务字段冲突。
 - 请求适配：fetch、axios（含别名和 create）、ofetch、Nuxt $fetch、ky、node-fetch/cross-fetch 和配置声明的客户端。通用自定义封装通过分析函数体追踪；Angular HttpClient 等带类型/实例语义的客户端通过显式规则声明。
-- 调用分析：入口文件的所有调用作为候选，按实际参数向下传播；全仓模式还分析函数定义中的请求。回调函数体作为潜在可执行分支遍历。递归、深度上限、无法解析的外部依赖均产生诊断。
+- 调用分析：入口文件的所有调用作为候选，按实际参数向下传播；默认 functionInventory=true，清单和 entries 模式都会补扫入口文件未追踪的函数定义；设为 false 可关闭通用函数补扫。scanFiles 可限定分区并保留依赖解析。回调函数体作为潜在可执行分支遍历。递归、深度上限、无法解析的外部依赖均产生诊断。
 - 归并：method + 有效 URL 合并，保留每条独立调用链和源码证据。首版不自动合并不同参数名，以避免错误合并不同业务路径。
 
 ## 框架策略
@@ -78,3 +78,5 @@ P1：函数摘要缓存、增量索引、复杂 CommonJS 导出与别名变更�
 P2：monorepo 包解析、GraphQL 操作语义、OpenAPI 草稿、交互式调用链和 CI 差异报告。
 
 0.7 提供默认关闭的 modelRequestHooks。usage.afterRequestHooks 独立于调用处，有限显式同步回调、顺序/eject 与未知边界见[说明](request-hooks.md)；不覆盖 transformRequest/transport。
+
+0.9.4 的分区策略、CLI退出码、模块限定客户端与调用ID迁移见[使用指南](usage.md)，真实业务反馈逐项状态见[修复台账](release-0.9.4.md)。maxStepsPerFile仍是上限；sequential可避免均分限制，仍受全局硬限。

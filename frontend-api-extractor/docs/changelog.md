@@ -1,5 +1,12 @@
 # 迭代记录
 
+## 0.9.4 / 插件0.7.1
+
+- 依据真实业务反馈修复条件函数整体失效实参：按对象原始身份跟踪受影响字段，保留未改写URL/方法/Body；有限cloneDeep与模块导出客户端/type支持。
+- CLI lazy help、缺依赖提示、开始/结束摘要、空/不完整退出码；--out默认一并Excel。scanFiles、functionInventory和sequential预算策略明确范围。
+- 业务调用位置、原始请求URL/Path、稳定call-site-v2调用ID、共享缺口、Excel补列；不宣称记录膨胀/分片已解决。
+- 313项测试；公开RuoYi15检查点通过，整仓仍50个预算中断分区。B8/B9/B10、B13、B17/B21继续待办。[逐项台账](release-0.9.4.md)、[使用指南](usage.md)。
+
 ## 0.9.3 / 插件0.7.1
 
 - 静态bind保留this/预填参数/重复绑定/箭头词法this；分支克隆保持绑定对象别名，函数自有call/apply/bind覆盖不再误当原生。

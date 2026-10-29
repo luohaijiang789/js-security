@@ -102,6 +102,12 @@ const protectUrl = (value) =>
 export function deliveryWorkbook(document, { maxRows = 1048576 } = {}) {
   if (!Number.isSafeInteger(maxRows) || maxRows < 2 || maxRows > 1048576)
     throw new Error("工作表行数上限无效");
+  const knownFields=new Map();
+  for(const field of document.parameters)if(field.state==='known-field'&&field.path?.length){
+    if(!knownFields.has(field.recordId))knownFields.set(field.recordId,new Map());const carriers=knownFields.get(field.recordId);
+    if(!carriers.has(field.carrier))carriers.set(field.carrier,new Set());carriers.get(field.carrier).add(field.path.join('.'));
+  }
+  const fieldNames=(record,carrier)=>[...(knownFields.get(record.id)?.get(carrier)??[])];
   const sections = [
     [
       "API总表",
@@ -121,6 +127,7 @@ export function deliveryWorkbook(document, { maxRows = 1048576 } = {}) {
         "产物JS",
         "证据ID",
         "缺口ID",
+        "候选API组", "业务调用点", "条件", "仓库", "Commit", "发送机制", "原始请求URL（Query值省略）", "Query字段", "Body字段", "Header字段",
       ],
       document.records.map((r) => [
         r.id,
@@ -146,6 +153,7 @@ export function deliveryWorkbook(document, { maxRows = 1048576 } = {}) {
         [r.generatedFile, r.generatedLine, r.generatedColumn].join(":"),
         r.evidenceId,
         r.gapIds,
+        r.apiGroupId,[r.businessCallSite?.file,r.businessCallSite?.line,r.businessCallSite?.column].join(":"),r.conditions,r.repository,r.commit,r.sendMechanism,protectUrl(r.requestUrl),fieldNames(r,'query'),fieldNames(r,'body'),fieldNames(r,'headers'),
       ]),
     ],
     [
@@ -176,7 +184,7 @@ export function deliveryWorkbook(document, { maxRows = 1048576 } = {}) {
       ["缺口ID", "记录ID", "资产ID", "类型", "原因", "影响", "位置"],
       document.gaps.map((g) => [
         g.id,
-        g.recordId,
+        g.recordIds??g.recordId,
         g.assetId,
         g.code,
         g.reason,

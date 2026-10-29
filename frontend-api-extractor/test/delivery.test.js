@@ -113,6 +113,8 @@ test("XLSX三个Sheet、inlineStr无公式，Query值省略，原始值仍在JSO
   assert.equal(w.bytes.readUInt32LE(0), 0x04034b50);
   const text = await workbookXml(t,w.bytes);
   assert.ok(text.includes("inlineStr"));
+  for(const header of ["业务调用点","条件","候选API组","Query字段","Body字段","Header字段"])assert.ok(text.includes(header));
+  assert.match(text, /r="X2"[^>]*>[\s\S]*?id[\s\S]*?<\/c>/);
   assert.ok(!text.includes("<f>"));
   assert.ok(!text.includes("token=secret"));
   assert.ok(JSON.stringify(d.evidence).includes("secret"));

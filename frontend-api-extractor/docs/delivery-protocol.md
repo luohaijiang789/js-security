@@ -16,11 +16,11 @@
 
 ## ID 与兼容
 
-ID 使用规范化对象键顺序后的 SHA-256 前 24 位，分别以 record/field/gap/evidence/asset/call/group 为前缀。数组顺序保留。callSiteId 锚定来源、仓库/版本、位置、阶段、条件、调用链、部署/执行上下文、脚本哈希和入口；recordId 另包括方法、URL、三个载体的快照。同样快照重复出现用 occurrence 区分，不吞掉重复记录。fieldId 包含所属 record、载体、path、阶段、状态和重复项索引；值或条件变化可能改变 ID。**不承诺跨引擎升级、跨版本、跨重排的永久身份**，同版语义变化继续使用独立 diff 工具。
+ID 使用规范化对象键顺序后的 SHA-256 前 24 位，分别以 record/field/gap/evidence/asset/call/group 为前缀。数组顺序保留。0.9.4 起 migration.identityVersion=call-site-v2：callSiteId 锚定来源、仓库/版本、发送位置、业务调用位置、部署/执行上下文和脚本哈希；不含阶段、条件、参数值和 entry 枚举。recordId 另包括阶段、条件、调用链、entry、方法、URL、三个载体的快照。缺 identityVersion 的旧底稿按旧身份规则解释，不与新 ID 直接合并；应从旧原始报告重生成或重新扫描。同样快照重复出现用 occurrence 区分，不吞掉重复记录。fieldId 包含所属 record、载体、path、阶段、状态和重复项索引；值或条件变化可能改变 ID。**不承诺跨引擎升级、跨版本、跨重排的永久身份**，同版语义变化继续使用独立 diff 工具。
 
-apiGroupId 只按 Method/Host/Path 形成关联候选，associationState 固定 candidate-only；同 URL 不提升任何其他记录的完整性或版本关系。
+apiGroupId 按 Method/Host/可知Path形成关联候选；Path未知时使用原始请求URL模板区分候选，associationState 固定 candidate-only；同 URL 不提升任何其他记录的完整性或版本关系。
 
-当前读入精确 `2.0.0`；旧 `1`/`"1"` 或无版本 rows/endpoints/observations 通过显式适配，migration 记录旧版本和策略。未知版本拒绝，不猜来源、Commit 或字段。未来新增可选字段保留并需测试；语义或 ID 算法变化须升级主版本、提供显式迁移。当前没有宣称支持所有 `2.x`。
+当前读入精确 `2.0.0`；旧 `1`/`"1"` 或无版本 rows/endpoints/observations 通过显式适配，migration 记录旧版本和策略。未知版本拒绝，不猜来源、Commit 或字段。未来新增可选字段保留并需测试；不兼容的结构或无法判别的语义变化须升级主版本并提供迁移。身份算法单独用 migration.identityVersion 标识；本轮显式修正历史调用ID混入条件的行为，Schema仍精确2.0.0，禁止跨身份版本直接比对或归组。当前没有宣称支持所有 `2.x`。
 
 已实现引用/来源/字段类型检查；它不是完整 JSON Schema 通用验证器。资产级诊断不强行猜测到某条请求。精确字节哈希用于追溯，不作为代码可信证明。
 
@@ -38,3 +38,7 @@ node src/delivery-cli.js --input /path/to/unpacked-plugin-task --out ../work/obs
 ## 0.9.1兼容补充
 
 records新增可选linkState：entry-trace / function-inventory / unlinked；发现依据也进入discoveryBasis。缺字段的历史结果保持未知，不推断已连通入口。Excel新增定位依据/阶段；使用标准DEFLATE，无新增依赖，JSON内容与证据不变。匹配编译库契约的原始行证据含clientModel，其参考版本不等于已证明安装版本，记录保留partial。详见[验收](release-0.9.1.md)。
+
+## 0.9.4 附加字段
+
+scope.coverage/outcome与旧complete独立，区分分区扫描状态和模型缺口。records增加businessCallSite、sendMechanism、requestUrl；未知不补造。共享请求缺口有recordIds，单条关联仍填recordId，多条时recordId=null并保留完整recordIds，记录的gapIds反向引用不变。Excel源码仍表示发送点，业务调用点另列；主表Query/Body/Header字段仅汇总已知名称，需结合载体状态及参数明细阅读。
