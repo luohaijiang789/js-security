@@ -2,7 +2,7 @@ import fs from 'node:fs';
 
 export const defaults = {
   include: ['**/*.{js,jsx,ts,tsx,mjs,cjs,mts,cts,vue,svelte}'],
-  exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**', '**/.next/**', '**/*.d.{ts,mts,cts}'],
+  exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.git/**', '**/.next/**', '**/*.engines/**', '**/*.d.{ts,mts,cts}'],
   entries: [], scanFiles: [], functionInventory:true, partitionStrategy:'fair', entryPriority: [], layers: [], clients: [], angularServices: [], compiledClients: [], maxDepth: 8, maxSteps: 100000, maxStepsPerFile:null, maxCandidates: 16, includeUnlinked:false, modelRequestHooks:false,
 };
 

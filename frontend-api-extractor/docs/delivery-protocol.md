@@ -42,3 +42,7 @@ records新增可选linkState：entry-trace / function-inventory / unlinked；发
 ## 0.9.4 附加字段
 
 scope.coverage/outcome与旧complete独立，区分分区扫描状态和模型缺口。records增加businessCallSite、sendMechanism、requestUrl；未知不补造。共享请求缺口有recordIds，单条关联仍填recordId，多条时recordId=null并保留完整recordIds，记录的gapIds反向引用不变。Excel源码仍表示发送点，业务调用点另列；主表Query/Body/Header字段仅汇总已知名称，需结合载体状态及参数明细阅读。
+
+## 0.10 外部索引候选
+
+仍使用repository-static来源；discoveryBasis=jshound-indexed、stage=external-inventory，linkState=null。外部字段保持部分/未知，未提供行列时为null，Excel定位依据明确“jshound启发式候选（未核验）”。hybrid的语义行保留原始linkState，未核验/补充字段行独立保存；不是浏览器实测。externalEngine记录固定引擎/适配器哈希、原始输出哈希和本地任务路径，原始rows关联不冒充Schema2交付recordId。

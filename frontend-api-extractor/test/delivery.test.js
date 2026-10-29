@@ -169,4 +169,4 @@ test("重复记录/字段保留不同ID，URL地址与Method状态独立", () =>
   assert.equal(d.records[0].methodState, "UNKNOWN");
 });
 
-test('工作簿保留阶段和未连通入口依据，不把函数库存伪装成实测',async t=>{const d=toDelivery({rows:[{...row,linkState:'function-inventory',stage:'call-site'}]});assert.equal(d.records[0].linkState,'function-inventory');const text=await workbookXml(t,deliveryWorkbook(d).bytes);assert.ok(text.includes('定位依据'));assert.ok(text.includes('函数候选（未连通入口）'));assert.ok(text.includes('call-site'));});
+test('工作簿保留阶段和未连通入口依据，不把函数库存伪装成实测',async t=>{const d=toDelivery({rows:[{...row,linkState:'function-inventory',stage:'call-site'},{...row,discoveryBasis:'jshound-indexed',stage:'external-inventory'}]});assert.equal(d.records[0].linkState,'function-inventory');const text=await workbookXml(t,deliveryWorkbook(d).bytes);assert.ok(text.includes('定位依据'));assert.ok(text.includes('函数候选（未连通入口）'));assert.ok(text.includes('call-site'));assert.ok(text.includes('jshound启发式候选（未核验）'));});
