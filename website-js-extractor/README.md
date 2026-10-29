@@ -36,6 +36,7 @@ flowchart TD
 
 ## 文档
 
+- [共享提取范围](../docs/js-analysis-scope.md)：请求场景、JS 层次、发现起点与路由位置。
 - [设计](docs/design.md)：输入、获取边界、分析与输出。
 - [实施计划](docs/plan.md)：下一步验证和验收门槛。
 - [整体边界](../docs/overview.md)与[统一交付](../docs/delivery.md)。
