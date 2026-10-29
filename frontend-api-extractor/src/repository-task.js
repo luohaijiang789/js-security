@@ -91,7 +91,7 @@ export async function runRepository(input,{profile={},workDir=path.resolve('work
   const taskDir=path.join(path.resolve(workDir),'task-'+Date.now()+'-'+randomUUID().slice(0,8));
   await fs.mkdir(taskDir,{recursive:true});await fs.mkdir(path.join(taskDir,'logs'));
   const checkout=path.join(taskDir,'checkout');let project=checkout;
-  const manifest={schemaVersion:1,state:'running',repository,commit:null,startedAt:new Date().toISOString(),engineVersion:'0.9.4',stages:[],gaps:[],profile:{...config,buildEnv:Object.keys(config.buildEnv)}};
+  const manifest={schemaVersion:1,state:'running',repository,commit:null,startedAt:new Date().toISOString(),engineVersion:'0.10.0',stages:[],gaps:[],profile:{...config,buildEnv:Object.keys(config.buildEnv)}};
   const persist=()=>fs.writeFile(path.join(taskDir,'task.json'),JSON.stringify(manifest,null,2)+'\n');
   const stage=async(name,command,args,options={})=>{
     const entry={name,state:'running',startedAt:new Date().toISOString(),log:'logs/'+name+'.log'};manifest.stages.push(entry);await persist();

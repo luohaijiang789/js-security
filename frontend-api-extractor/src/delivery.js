@@ -245,6 +245,7 @@ export function toDelivery(input, metadata = {}) {
         row.hostBasis ??
         (sourceKind === "plugin-observed" ? "observed" : "unknown"),
       addressState:
+        row.discoveryBasis==='jshound-indexed'?(row.host?'PARTIAL':'UNKNOWN'):
         row.host && !/[{}]/.test(row.url ?? "")
           ? row.hostState === "context-candidate"
             ? "PARTIAL"

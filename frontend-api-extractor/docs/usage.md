@@ -1,4 +1,4 @@
-# 使用指南（0.9.4）
+# 使用指南（0.10）
 
 所有命令从 frontend-api-extractor 目录执行，需要 Node 22+。源码扫描不执行目标仓库代码或安装其依赖。先安装工具自身依赖：
 
@@ -6,6 +6,24 @@
 npm ci
 node src/cli.js --help
 ```
+
+## 大仓优先：共享索引发现，再定向精查
+
+先在主仓库根目录初始化已有的固定 jshound 子模块：
+
+```bash
+git submodule update --init --depth 1 references/repos/jshound
+```
+
+回到 frontend-api-extractor 目录运行：
+
+```bash
+node src/cli.js /path/to/frontend --engine hybrid --config /path/to/source-config.json --out ../work/hybrid/report.json
+```
+
+--engine默认semantic，保留原有逐入口语义模式；hybrid先索引全输入，再自动选中请求候选/显式请求配置所在文件精查；jshound只输出外部库存。无需手工猜API目录，也无需执行目标JS或API。依赖缺失/版本哈希不匹配会失败，不悄悄回退。我们的clients协议与maxSteps/maxDepth用于语义阶段，外部引擎另有输入、内存和时限约束。
+
+外部未核验结果保持partial，缺行列时保留null；原始记录与快照保存在 *.engines/，随报告保留以便回查。coverage finished只说明索引/选中任务结束，complete仍反映模型缺口。详情与同输入实测见[0.10报告](release-0.10.md)，开源代码依据见[核对记录](open-source-analysis.md)。现阶段此选项属于源码CLI，构建CLI和插件UI未新增引擎切换入口。
 
 ## 从源码一键生成请求表
 

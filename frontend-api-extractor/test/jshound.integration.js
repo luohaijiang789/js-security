@@ -1,0 +1,31 @@
+import{test}from'node:test';import assert from'node:assert/strict';import fs from'node:fs/promises';import path from'node:path';import{analyzeJshound,analyzeHybrid,verifyJshound}from'../src/jshound.js';import{analyze}from'../src/analyzer.js';import{fixture}from'./helpers.js';
+await verifyJshound();
+test('fixed actual jshound worker discovers API roots across a whole repository; semantic stage keeps locations',async t=>{
+ const files={'transport.js':`import axios from'axios';export default axios.create({baseURL:'https://api.test'})`,'api/items.js':`import http from'../transport.js';export const list=()=>http.get('/items');export const create=data=>http.post('/items',data);`,'format.js':`export function format(v){${Array.from({length:60},(_,i)=>`const a${i}=${i};`).join('')}return v}`};
+ for(let i=0;i<40;i++)files[`views/view-${i}.js`]=`import{format}from'../format.js';export const render=()=>format(${i});`;
+ const root=await fixture(t,files),out=await fixture(t,{}),before=await analyze(root,{maxSteps:100000}),r=await analyzeHybrid(root,{maxSteps:100000},{workDir:out});assert.equal(r.externalEngine.files,43);assert.equal(r.externalEngine.indexedCoverage.state,'finished');assert.equal(r.stats.coverage.state,'finished');assert.ok(!r.semanticAnalysis.selectedFiles.some(f=>f.startsWith('views/')));assert.ok(r.stats.steps<before.stats.steps/5);for(const method of ['GET','POST'])assert.ok(r.rows.some(row=>row.method===method&&row.url==='https://api.test/items'&&row.sourceFile==='api/items.js'&&row.sourceLine===1));
+});
+test('indexing and semantic inspection never execute target code; unknown client remains an unverified candidate',async t=>{
+ const root=await fixture(t,{'api.js':`require('node:fs').writeFileSync('MUST_NOT_EXECUTE','bad');const fake={post(){return 1}};fake.post('/looks-like-an-api',{id:7});`}),out=await fixture(t,{});const r=await analyzeHybrid(root,{maxSteps:10000},{workDir:out});await assert.rejects(fs.access(path.join(root,'MUST_NOT_EXECUTE')));assert.ok(r.rows.some(row=>row.discoveryBasis==='jshound-indexed'&&row.resolution==='partial'));assert.ok(r.externalEngine.unverifiedCandidates>0);
+});
+test('Vue and TypeScript scripts participate in the indexed discovery phase',async t=>{
+ const root=await fixture(t,{'Page.vue':`<template><div/></template>\n<script setup lang="ts">\nfunction load(id:string){fetch('/vue-items?id='+id,{method:'POST',body:JSON.stringify({id})})}\n</script>`}),out=await fixture(t,{});const r=await analyzeJshound(root,{}, {workDir:out});assert.ok(r.rows.some(row=>row.sourceFile==='Page.vue'&&row.method==='POST'));assert.equal(r.stats.coverage.state,'finished');
+});
+test('upstream silent parse failure is surfaced by independent adapter parse validation',async t=>{
+ const root=await fixture(t,{'good.js':`fetch('/good')`,'broken.js':`const = ;`}),out=await fixture(t,{});const r=await analyzeJshound(root,{}, {workDir:out});assert.ok(r.rows.some(row=>row.url==='/good'));assert.equal(r.stats.coverage.state,'incomplete');assert.ok(r.diagnostics.some(d=>d.code==='INDEX_WORKER_DIAGNOSTIC'));
+});
+test('explicit typed request configs seed semantic verification even when upstream has no matching request',async t=>{
+ const root=await fixture(t,{'api.js':`import {fetchData as send}from'@company/http';export function create(){const config={url:'/typed',type:'POST',data:{id:7}};return send(config)}`}),out=await fixture(t,{});const r=await analyzeHybrid(root,{clients:[{module:'@company/http',export:'fetchData',kind:'axios',methodField:'type'}]},{workDir:out});assert.ok(r.externalEngine.configurationSeeds.includes('api.js'));assert.ok(r.rows.some(row=>row.url==='/typed'&&row.method==='POST'&&row.sourceLine===1&&row.discoveryBasis!=='jshound-indexed'&&row.body.id===7));
+});
+test('file selection also constrains configuration seeds; repeated scans exclude generated engine inputs',async t=>{
+ const root=await fixture(t,{'a.js':`send({url:'/a',type:'POST'})`,'b.js':`send({url:'/b',type:'POST'})`}),out=path.join(root,'reports/report.json.engines');
+ for(let i=0;i<2;i++){const r=await analyzeHybrid(root,{scanFiles:['a.js'],clients:[{module:'@company/http',export:'send',kind:'axios',methodField:'type'},{name:'send',kind:'axios'}]},{workDir:out});assert.equal(r.externalEngine.files,2);assert.deepEqual(r.semanticAnalysis.selectedFiles,['a.js']);assert.ok(!r.rows.some(row=>row.sourceFile==='b.js'));}
+});
+test('reproducible comparison CLI checks fixed source hashes and both engines against explicit expected calls',async t=>{
+ const {createHash}=await import('node:crypto'),{execFile}=await import('node:child_process'),{promisify}=await import('node:util'),{fileURLToPath}=await import('node:url');
+ const code=`fetch('/expected')`,root=await fixture(t,{'api.js':code,'config.json':'{"maxSteps":10000}'}),out=await fixture(t,{}),manifest=path.join(root,'manifest.json');await fs.writeFile(manifest,JSON.stringify({schemaVersion:1,files:[{path:'api.js',sha256:createHash('sha256').update(code).digest('hex')}],expected:[{sourceFile:'api.js',sourceLine:1,sourceColumn:1,method:'GET',requestUrl:'/expected'}]}));
+ await promisify(execFile)(process.execPath,[fileURLToPath(new URL('../tools/compare-indexed.mjs',import.meta.url)),'--source-root',root,'--config',path.join(root,'config.json'),'--manifest',manifest,'--out',out],{timeout:30000});const r=JSON.parse(await fs.readFile(path.join(out,'comparison.json')));assert.equal(r.validationPassed,true);assert.deepEqual(r.results.map(s=>s.engine),['semantic','hybrid']);assert.ok(r.results.every(s=>s.inputAssetsHash===r.inputAssetsHash&&s.checks[0].passed));
+});
+test('SDK import seeds keep the existing protocol model even when no HTTP call is indexed',async t=>{
+ const root=await fixture(t,{'api.js':`const ALY=require('aliyun-sdk');const sts=new ALY.STS({endpoint:'https://sts.aliyuncs.com'});sts.assumeRole({RoleArn:arn,RoleSessionName:'demo'});`,'package.json':'{"dependencies":{"aliyun-sdk":"1.12.3"}}'}),out=await fixture(t,{});const r=await analyzeHybrid(root,{}, {workDir:out});assert.ok(r.externalEngine.moduleSeeds.includes('api.js'));assert.ok(r.rows.some(row=>row.stage==='sdk-protocol-build'&&row.method==='POST'&&row.host==='sts.aliyuncs.com'));assert.ok(r.sdkCandidates.length);
+});

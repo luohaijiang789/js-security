@@ -266,7 +266,7 @@ export async function analyze(root, options = {}) {
   const attachBinding=(value,node)=>isChoice(value) ? lift([value],v=>attachBinding(v,node),node) : value?.[TAG]==='client' ? {...value,bindingIds:[...new Set([...(value.bindingIds??[]),bindingId(node)].filter(Boolean))]} : value;
   const endpoints = new Map(),assetCandidateMap=new Map(),observedSinks=new Set();
   const sinkKey=node=>`${node.getSourceFile().fileName}:${node.getStart()}`;
-  const analyzedFunctions = new Map();
+  const analyzedFunctions = new Map(), functionMetrics=new Map();
   let steps = 0, exhausted = false, currentPartition=null;
   // Unwind nested evaluators immediately instead of propagating fabricated return values.
   const partitions=[],budgetStop=Symbol('budget stop');
@@ -899,7 +899,12 @@ export async function analyze(root, options = {}) {
     if (!name.startsWith('console.')&&!['require','console'].includes(name)) diagnostic('UNRESOLVED_CALL',`无法追踪调用 ${name}`,node);
     return unknown(node.getText());
   }
-  function invoke(fn, args, ctx, call) {
+  function invoke(fn,args,ctx,call){
+    let metric=functionMetrics.get(fn.node);if(!metric){metric={...locate(fn.node),symbol:fn.node.name?.getText()??'<anonymous>',calls:0,inclusiveSteps:0,entries:new Set(),maxDepth:0};functionMetrics.set(fn.node,metric);}
+    metric.calls++;metric.entries.add(ctx.entry);metric.maxDepth=Math.max(metric.maxDepth,ctx.chain.length);const before=steps;
+    try{return invokeFunction(fn,args,ctx,call);}finally{metric.inclusiveSteps+=steps-before;}
+  }
+  function invokeFunction(fn, args, ctx, call) {
     if(Object.hasOwn(fn,'boundThis')){args=[...fn.boundArgs,...args];ctx={...ctx,thisValue:fn.boundThis};}
 
     if (ctx.chain.length >= config.maxDepth) { diagnostic('MAX_DEPTH', '达到调用深度上限', call); return unknown('maxDepth'); }
@@ -1081,7 +1086,7 @@ export async function analyze(root, options = {}) {
   const sdk=candidatesSdk();
   if(sdk.length)diagnostic('SDK_HTTP_UNMODELED','SDK配置/操作仅为独立候选，HTTP协议尚未恢复');
   function candidatesSdk(){return sdkCandidates(program,[...sources.keys()],file=>path.relative(root,file).split(path.sep).join('/'),sdkVersion);}
-  return { schemaVersion: 1,sdkCandidates:sdk, assets, assetCandidates:[...assetCandidateMap.values()].sort((a,b)=>`${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), mode: config.entries.length ? 'entries' : 'inventory', stats: { coverage:{state:partitions.some(p=>p.state!=='finished')?'incomplete':entryCount?'finished':'no-entries',finished:partitions.filter(p=>p.state==='finished').length,total:partitions.length}, outcome:endpoints.size?'requests-found':!entryCount||partitions.some(p=>p.state!=='finished')?'inconclusive':'no-requests-found', partitions, unlinkedScan:!config.includeUnlinked?'disabled':!entryCount?'no-entries':!config.entries.length?'inventory-mode':partitions.some(p=>p.state!=='finished')?'incomplete':'completed', files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
+  return { schemaVersion: 1,sdkCandidates:sdk, assets, assetCandidates:[...assetCandidateMap.values()].sort((a,b)=>`${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), mode: config.entries.length ? 'entries' : 'inventory', stats: { functionProfile:[...functionMetrics.values()].sort((a,b)=>b.inclusiveSteps-a.inclusiveSteps).slice(0,30).map(m=>({...m,entries:m.entries.size})), coverage:{state:partitions.some(p=>p.state!=='finished')?'incomplete':entryCount?'finished':'no-entries',finished:partitions.filter(p=>p.state==='finished').length,total:partitions.length}, outcome:endpoints.size?'requests-found':!entryCount||partitions.some(p=>p.state!=='finished')?'inconclusive':'no-requests-found', partitions, unlinkedScan:!config.includeUnlinked?'disabled':!entryCount?'no-entries':!config.entries.length?'inventory-mode':partitions.some(p=>p.state!=='finished')?'incomplete':'completed', files: sources.size, entries: entryCount, steps, complete: diagnostics.length === 0 },
     endpoints: [...endpoints.values()].sort((a, b) => `${a.url} ${a.method}`.localeCompare(`${b.url} ${b.method}`)), diagnostics };
 }
 

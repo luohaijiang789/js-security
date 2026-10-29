@@ -1,6 +1,6 @@
 {
   "name": "frontend-api-extractor",
-  "version": "0.9.4",
+  "version": "0.10.0",
   "private": true,
   "type": "module",
   "bin": {
@@ -24,7 +24,8 @@
     "annotate:fields": "node src/ai-cli.js",
     "serve": "node src/server-cli.js",
     "benchmark": "node src/benchmark-cli.js",
-    "verify:targeted": "node tools/verify-targeted.mjs"
+    "verify:targeted": "node tools/verify-targeted.mjs",
+    "test:jshound": "node --test test/jshound.integration.js"
   },
   "engines": {
     "node": ">=22"

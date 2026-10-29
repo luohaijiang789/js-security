@@ -133,7 +133,9 @@ export function deliveryWorkbook(document, { maxRows = 1048576 } = {}) {
         r.id,
         r.callSiteId,
         r.sourceKind,
-        r.sourceKind === "plugin-observed"
+        r.discoveryBasis === "jshound-indexed"
+          ? "jshound启发式候选（未核验）"
+          : r.sourceKind === "plugin-observed"
           ? "浏览器实测"
           : r.linkState === "function-inventory"
             ? "函数候选（未连通入口）"
