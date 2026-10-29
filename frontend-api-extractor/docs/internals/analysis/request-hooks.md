@@ -35,12 +35,12 @@ postHookState 可新增 modeled，接口组汇总保留最差状态；逐调用�
 
 ## 验证
 
-[自写同步 hook 样例](../../examples/sync-hooks/README.md)用 manifest 固定输入 SHA-256、独立预期和配置。三个注册中移除一个；其余按逆序执行，将调用处 https://before.test/original 改为 https://after.test/items，X-Order 最终为 first，Body 为 {"id":7,"tag":"added"} 的 JSON 字符串。
+[自写同步 hook 样例](../../../examples/sync-hooks/README.md)用 manifest 固定输入 SHA-256、独立预期和配置。三个注册中移除一个；其余按逆序执行，将调用处 https://before.test/original 改为 https://after.test/items，X-Order 最终为 first，Body 为 {"id":7,"tag":"added"} 的 JSON 字符串。
 
 另用真实 Axios 1.7.9 执行该自写样例：本地 adapter 捕获配置，禁用 transformRequest，核对方法、Axios.getUri 地址、指定 Header 及 Body，均符合人工预期。Axios 自动默认 Header 不作为本模型已恢复字段。没有网络 transport，不执行第三方业务项目，也不声称已做服务端接收验收。Axios/esbuild/构建产物和报告均留在忽略目录，不增加项目依赖。
 
 146 项自动化测试通过，新增 22 项覆盖顺序、实例/别名、eject/clear、非法返回、异步/条件/未知、shadowed 内建函数、预算、JSON 字段阶段、哈希和 Markdown。
 
-固定 Nacos 四个 reducer 在默认及开启模式下均保留 23 个发送位置、22 条原始记录及字段路径，求值为 2400 步。其现有 request hook 未声明 synchronous:true，且含条件/外部序列化，因此仍 unknown，不把新增模型当作已经还原 Nacos 的最终载荷。源码版本与范围沿用[公开样本记录](../archive/validation/aliyun-sites-analysis.md)。
+固定 Nacos 四个 reducer 在默认及开启模式下均保留 23 个发送位置、22 条原始记录及字段路径，求值为 2400 步。其现有 request hook 未声明 synchronous:true，且含条件/外部序列化，因此仍 unknown，不把新增模型当作已经还原 Nacos 的最终载荷。源码版本与范围沿用[公开样本记录](../../archive/validation/aliyun-sites-analysis.md)。
 
 下一步应从实际缺口中选择 runWhen/条件回调、已知序列化器或模块初始化关联逐项推进，继续保留独立预期和反例，不一次扩大到任意异步链。

@@ -6,7 +6,7 @@
 
 - 阿里云国际站 https://www.alibabacloud.com/：环境代理仍返回 CONNECT 403，未取得 HTML/JS。因此没有国际站脚本、深层引用或接口覆盖结论，也未使用其他途径绕过限制。
 - 成功下载[公开阿里云 GDB Console WebRequest.js](https://github.com/aliyun/alibabacloud-gdb-console/blob/49336dbcc958236e233a921f60353802cbd43130/src/utils/WebRequest.js)，固定提交 49336dbcc958236e233a921f60353802cbd43130。原文件 2810 字节；用 esbuild 0.25.0 做 ESM bundle/minify，axios 标记 external，未运行目标业务代码。
-- 自写样例的 5 个源文件，经同一工具实际生成 3 个压缩 ESM 分块、335 字节；作为小型回归材料提交，见 [async-chunks](../../examples/async-chunks/README.md)。它不是对真实国际站的替代实测。
+- 自写样例的 5 个源文件，经同一工具实际生成 3 个压缩 ESM 分块、335 字节；作为小型回归材料提交，见 [async-chunks](../../../examples/async-chunks/README.md)。它不是对真实国际站的替代实测。
 
 ## 原 JS 与压缩 JS 的对照
 

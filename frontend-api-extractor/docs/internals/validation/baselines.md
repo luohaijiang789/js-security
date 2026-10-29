@@ -1,6 +1,6 @@
 # 固定基准与逐调用差异
 
-0.8.2，2026-10-28。落实[实施清单](../archive/planning/implementation-through-0.10.md) P0-01～03；P0 的外部人工标注、独立验证集、统一 ID 和性能基线尚未完成。
+0.8.2，2026-10-28。落实[实施清单](../../archive/planning/implementation-through-0.10.md) P0-01～03；P0 的外部人工标注、独立验证集、统一 ID 和性能基线尚未完成。
 
 在提取器目录运行：
 
@@ -9,7 +9,7 @@ npm run verify:baseline -- --out ../work/baselines/core.json
 npm run compare:requests -- --expected ../work/baselines/gdb-before.json --actual ../work/baselines/gdb-after.json --out ../work/baselines/gdb-diff.json
 ```
 
-第一条开箱复跑仓库自带的[自写小型基准](../../examples/request-baseline/README.md)，输入哈希不符、未登记脚本、预期或完整性不匹配即失败，不安装/构建/执行样例业务。--manifest 可指定其他 authored-regression manifest，脚本与 expected.json 都须登记哈希。预期人工编写，工具没有自动更新预期选项。
+第一条开箱复跑仓库自带的[自写小型基准](../../../examples/request-baseline/README.md)，输入哈希不符、未登记脚本、预期或完整性不匹配即失败，不安装/构建/执行样例业务。--manifest 可指定其他 authored-regression manifest，脚本与 expected.json 都须登记哈希。预期人工编写，工具没有自动更新预期选项。
 
 第二条比较已有请求表 JSON：接受行数组或带 rows 的对象；构建任务 analysis.json 可直接输入。示例 GDB 文件为本地验证报告，不随 Git 分发，外部报告需自行生成。输出 JSON 和同路径追加 .md 的人读报告。比较成功退出 0，有差异退出 1，输入失败退出 2。--out 不指定时只输出 JSON。
 
@@ -30,6 +30,6 @@ npm run compare:requests -- --expected ../work/baselines/gdb-before.json --actua
 ## 本轮验证
 
 - 自写基准：3 个调用，跨文件两次 POST 快照 id=7/8；已删除 old 字段不能恢复，另一个相对 GET 保留 Header/URL Query 字段和未知 Host。脚本和人工预期有 SHA-256，完整性预期为 true。
-- GDB：沿用[固定 Commit/构建产物](../archive/validation/gdb-build-pilot.md)，逐一核对 4 个 JS 的哈希后重新分析。历史原始分析证据与本轮原始分析证据均用当前表格协议导出再比较；得到 4 行 unchanged，新增/丢失/变化/歧义/变未知均为 0，31672 步不变。完整性仍为 false，两处分区预算中断等旧缺口保留。
+- GDB：沿用[固定 Commit/构建产物](../../archive/validation/gdb-build-pilot.md)，逐一核对 4 个 JS 的哈希后重新分析。历史原始分析证据与本轮原始分析证据均用当前表格协议导出再比较；得到 4 行 unchanged，新增/丢失/变化/歧义/变未知均为 0，31672 步不变。完整性仍为 false，两处分区预算中断等旧缺口保留。
 - GDB 是同版历史回归，不能证明跨 Schema 迁移或相对人工答案的全仓准确率。未重新安装/构建或访问业务 API。原始代码/报告留在 work/baselines/ 等忽略目录。
 - 180 项自动化测试通过；新增 10 项覆盖手工预期、篡改/漏登记、逐字段差异、重复、多候选、上下文、条件/hook/调用链隔离、完整性/预算诊断与 CLI 退出码。

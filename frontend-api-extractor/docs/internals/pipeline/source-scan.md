@@ -1,6 +1,6 @@
 # 源码扫描配置参考（旧引擎）
 
-> 此文保留旧引擎配置和历史复跑。主路径与最新命令见[使用指南](../usage.md)。hybrid 漏选、范围和调用 ID 缺陷见[审计](../audit.md)，不能据本文旧推荐保证大仓覆盖。
+> 此文保留旧引擎配置和历史复跑。主路径与最新命令见[使用指南](../../usage.md)。hybrid 漏选、范围和调用 ID 缺陷见[难点与已知问题](../../challenges.md)，不能据本文旧推荐保证大仓覆盖。
 
 所有命令从 frontend-api-extractor 目录执行，需要 Node 22+。源码扫描不执行目标仓库代码或安装其依赖。先安装工具自身依赖：
 
@@ -25,7 +25,7 @@ node src/cli.js /path/to/frontend --engine hybrid --config /path/to/source-confi
 
 --engine默认semantic，保留原有逐入口语义模式；hybrid先索引全输入，再自动选中请求候选/显式请求配置所在文件精查；jshound只输出外部库存。无需手工猜API目录，也无需执行目标JS或API。依赖缺失/版本哈希不匹配会失败，不悄悄回退。我们的clients协议与maxSteps/maxDepth用于语义阶段，外部引擎另有输入、内存和时限约束。
 
-外部未核验结果保持partial，缺行列时保留null；原始记录与快照保存在 *.engines/，随报告保留以便回查。coverage finished只说明索引/选中任务结束，complete仍反映模型缺口。详情与同输入实测见[0.10报告](../archive/releases/release-0.10.md)，开源代码依据见[核对记录](jshound.md)。现阶段此选项属于源码CLI，构建CLI和插件UI未新增引擎切换入口。
+外部未核验结果保持partial，缺行列时保留null；原始记录与快照保存在 *.engines/，随报告保留以便回查。coverage finished只说明索引/选中任务结束，complete仍反映模型缺口。详情与同输入实测见[0.10报告](../../archive/releases/release-0.10.md)，开源代码依据见[核对记录](../research/jshound.md)。现阶段此选项属于源码CLI，构建CLI和插件UI未新增引擎切换入口。
 
 ## 从源码一键生成请求表
 
@@ -84,7 +84,7 @@ node src/cli.js ../work/ruoyi --config profiles/ruoyi-source.json --out ../work/
 npm run verify:targeted -- --manifest baselines/public/ruoyi.json --source-root ../work/ruoyi --out ../work/ruoyi-verified
 ```
 
-指定配置的库存实测：19 个 API 文件分区，2745 步，127 条候选，0 个超预算分区。15 个冻结检查点包括 7 个 POST；这 15 个位置/方法/原始 URL 通过，不代表 127 条全部经人工验收。Host 依赖运行时环境，保留未知；未使用网站域名或开发 proxy 补造 Host。完整问题台账、原版对照和局限见[0.9.4报告](../archive/releases/release-0.9.4.md)。
+指定配置的库存实测：19 个 API 文件分区，2745 步，127 条候选，0 个超预算分区。15 个冻结检查点包括 7 个 POST；这 15 个位置/方法/原始 URL 通过，不代表 127 条全部经人工验收。Host 依赖运行时环境，保留未知；未使用网站域名或开发 proxy 补造 Host。完整问题台账、原版对照和局限见[0.9.4报告](../../archive/releases/release-0.9.4.md)。
 
 ## 读表与归组
 

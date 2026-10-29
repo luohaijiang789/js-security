@@ -1,6 +1,6 @@
 # GDB Console：真实仓库构建与请求表
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 2026-10-28。输入 [aliyun/alibabacloud-gdb-console](https://github.com/aliyun/alibabacloud-gdb-console/tree/49336dbcc958236e233a921f60353802cbd43130)，固定 Commit 49336dbcc958236e233a921f60353802cbd43130。本文件仅保留来源、配置、证据摘要和小表格，不收录外部仓库、依赖或构建产物。
 
@@ -43,4 +43,4 @@ main JS SHA-256：9f228266db9be87868704e9ab73fd19122a8b9cdca7cd9a7479e32adda4eee
 
 任务 completed，analysisComplete=false。源码求值 31672 步；GraphVis、GraphZone 两个分区预算中断。1982 个第三方/非应用脚本/非脚本或缺内容 source 条目未纳入本轮应用分析，不能据此断言它们不发请求。纯 Webpack runtime 解析、远程 JS 抓取、所有类实例/回调关系及 AI 释义尚未完成。
 
-CSV、Markdown、完整 analysis.json/task.json 和日志由命令自动写入忽略目录。首次分析异常的失败任务也保留；随后从地址完整重跑成功，并在同一批产物哈希不变的前提下复核最终导出。复现命令和模型边界见[仓库流水线](../../reference/repository-pipeline.md)。
+CSV、Markdown、完整 analysis.json/task.json 和日志由命令自动写入忽略目录。首次分析异常的失败任务也保留；随后从地址完整重跑成功，并在同一批产物哈希不变的前提下复核最终导出。复现命令和模型边界见[仓库流水线](../../internals/pipeline/repository-build.md)。

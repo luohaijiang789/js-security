@@ -1,6 +1,6 @@
 # 前端代码仓JS请求API采集
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 **扫描固定版本的前端代码仓，提取 API、参数与代码证据；需要部署环境和产物关联时，再显式选择构建增强模式。** 源码模式已有 [frontend-api-extractor CLI](../../../README.md)，另有 npm/Docker 构建关联首版；0.9 已接统一 Schema/Excel、有限 Webpack4/5 与固定 SDK 模型；完整产物/SDK 恢复仍有限，见[当前验证](../releases/release-0.9.md)。
 
@@ -25,7 +25,7 @@ node src/cli.js /path/to/frontend --out reports/apis.json
 
 70 项自动化测试和指定真实源码范围的试跑见[测试说明](../validation/testing-through-0.10.md)与[外部仓库链接/结果](../validation/alibaba-real-world.md)。外部仓库、依赖和扫描产物不纳入 Git。后续统一任务前端接入仓库版本、扫描配置、接口/参数列表、代码证据与诊断导出；当前 CLI 已可独立运行。
 
-分段 URL、隐藏 Host、分散参数和后续 hook 的本轮核查与保守处理见[白盒复杂 JS 分析](../../reference/whitebox-hardening.md)。
+分段 URL、隐藏 Host、分散参数和后续 hook 的本轮核查与保守处理见[白盒复杂 JS 分析](../../internals/analysis/complex-js.md)。
 
 ## 1. 输入、流程与边界
 
