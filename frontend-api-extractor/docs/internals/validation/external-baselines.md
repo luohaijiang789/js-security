@@ -1,6 +1,6 @@
 # 外部切片人工预期与未知载体修正
 
-0.8.3，2026-10-28。完成[实施清单](../archive/planning/implementation-through-0.10.md) P0-04 的有限 GDB/Nacos/OSS 源码切片；P0-05 的独立验证集尚未完成。标注/清单与复跑命令见[外部基准目录](../../baselines/external/README.md)。
+0.8.3，2026-10-28。完成[实施清单](../../archive/planning/implementation-through-0.10.md) P0-04 的有限 GDB/Nacos/OSS 源码切片；P0-05 的独立验证集尚未完成。标注/清单与复跑命令见[外部基准目录](../../../baselines/external/README.md)。
 
 ## 实际验证
 

@@ -2,11 +2,11 @@
 
 已有仓库构建、源码辅助分析、网站资产收集、插件及 JSON/Excel 交付，完整覆盖、核心重构和现场验收仍有缺口。插件已执行测试见[使用与验证](../browser-extension/docs/usage.md)，下面列的是三路联合验收，不表示相关代码尚未实现，也不把局部测试外推为整体通过。
 
-提取器当前顺序与状态见[开发计划](../frontend-api-extractor/docs/roadmap.md)，样本分组、评分分母与发布门槛见[验证规则](../frontend-api-extractor/docs/testing.md)。本文件保留三路整体执行清单，不将计划标为已验收。
+提取器当前顺序与状态见[开发计划](../frontend-api-extractor/docs/plan.md)，样本分组、评分分母与发布门槛见[验证规则](../frontend-api-extractor/docs/testing.md)。本文件保留三路整体执行清单，不将计划标为已验收。
 
 ## 0. 提取器验证入口
 
-需求、开发和单路验收集中在提取器自己的 docs/，本页不重复勾选实现进度。历史完成项、动态 ESM/预算与构建实测均保留在[累计能力台账](../frontend-api-extractor/docs/archive/planning/implementation-through-0.10.md)和[样本归档](../frontend-api-extractor/docs/archive/README.md)。当前六项缺陷、嵌套 JS 与性能工作见[开发计划](../frontend-api-extractor/docs/roadmap.md)。
+需求、开发和单路验收集中在提取器自己的 docs/，本页不重复勾选实现进度。历史完成项、动态 ESM/预算与构建实测均保留在[累计能力台账](../frontend-api-extractor/docs/archive/planning/implementation-through-0.10.md)和[样本归档](../frontend-api-extractor/docs/archive/README.md)。当前六项缺陷、嵌套 JS 与性能工作见[开发计划](../frontend-api-extractor/docs/plan.md)。
 
 ## 1. 材料准备
 

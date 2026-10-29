@@ -1,6 +1,6 @@
 # 阿里云站点访问与公开代码取样
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 2026-10-27；提取器 0.4.0。此次只读获取页面头和公开源码，不运行目标业务代码，不调用提取出的接口。外部源码、压缩产物、工具及完整报告均留在忽略目录 `work/aliyun-sites/`，不增加第三方依赖或子模块。
 
@@ -76,4 +76,4 @@ Nacos 定向配置：`entries=["reducers/*.js"]`、`maxSteps=200000`、`maxCandi
 4. 增加 SDK 初始化→实例→操作的证据模型。先保留 endpoint、operation、参数候选，只有取得确定的 SDK 序列化规则后才输出 HTTP URL。
 5. Webpack runtime 分块定位仍需单独的线上/正式构建样本；本轮独立 ESM 压缩结果不能证明 Webpack 模块注册表已支持。
 
-本轮只增加分析记录，不修改提取器代码或测试数。既有 88 项自动化测试与本次外部样本对照分别计数。前次动态 JS 验证见 [async-assets.md](../../reference/async-assets.md)，更早版本的公开仓库验证见 [alibaba-real-world.md](alibaba-real-world.md)。
+本轮只增加分析记录，不修改提取器代码或测试数。既有 88 项自动化测试与本次外部样本对照分别计数。前次动态 JS 验证见 [async-assets.md](../../internals/pipeline/asset-discovery.md)，更早版本的公开仓库验证见 [alibaba-real-world.md](alibaba-real-world.md)。

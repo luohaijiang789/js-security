@@ -1,12 +1,12 @@
 # 前端 API 提取：后续迭代与验证
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 设计日期：2026-10-28（Asia/Shanghai）。最初基于提取器 0.5.0 设计，后续按版本推进。当前已完成项与待办统一维护在[实施清单](implementation-through-0.10.md)，完成一项勾选一项；本文保留详细设计与验收规则。总边界沿用[总方案](../../../../docs/overview.md)，记录粒度沿用[交付约定](../../../../docs/delivery.md)。
 
 ## 1. 判断依据与目标
 
-设计时（0.5.0）99 项自动化测试通过，以下为当时问题基线。同一 Nacos 13 文件默认扫描已能定位 23 个发送位置，但 globalLib.js 和 ServiceList.js 仍预算中断；API 层相对 URL 的 Host 未知，请求 hook 后状态未知。OSS Browser 的 STS/RAM endpoint 与操作参数目前仅人工确认，HTTP 请求未自动恢复。ESM 压缩对照通过不等于 Webpack 已支持。证据见[预算复跑](../../reference/budgets.md)、[站点与公开样本](../validation/aliyun-sites-analysis.md)。
+设计时（0.5.0）99 项自动化测试通过，以下为当时问题基线。同一 Nacos 13 文件默认扫描已能定位 23 个发送位置，但 globalLib.js 和 ServiceList.js 仍预算中断；API 层相对 URL 的 Host 未知，请求 hook 后状态未知。OSS Browser 的 STS/RAM endpoint 与操作参数目前仅人工确认，HTTP 请求未自动恢复。ESM 压缩对照通过不等于 Webpack 已支持。证据见[预算复跑](../../internals/analysis/budgets.md)、[站点与公开样本](../validation/aliyun-sites-analysis.md)。
 
 后续分别回答五个问题：请求在哪里发送；Host/URL 如何构造；各载体有哪些字段；业务入口如何连接到发送点；哪些信息仍未知。接口数量只作清单统计，不作准确率或覆盖率。
 

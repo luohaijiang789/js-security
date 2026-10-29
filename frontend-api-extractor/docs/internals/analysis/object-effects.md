@@ -24,12 +24,12 @@ operation 为 set/delete/unknown-write/history-truncated。单对象历史及展
 
 ## 验证
 
-[自写样例](../../examples/object-effects/README.md)包含 3 个源文件；manifest 固定 SHA-256 和配置，expected.json 独立指定预期，测试核对哈希。链路为 entry → prepare → transport → axios：POST https://api.example.test/v1/items，Header X-App=audit；obsolete/X-Old 删除，body.account.id 先 8 后 9。
+[自写样例](../../../examples/object-effects/README.md)包含 3 个源文件；manifest 固定 SHA-256 和配置，expected.json 独立指定预期，测试核对哈希。链路为 entry → prepare → transport → axios：POST https://api.example.test/v1/items，Header X-App=audit；obsolete/X-Old 删除，body.account.id 先 8 后 9。
 
 另以 esbuild 0.25.0 编译自写样例，在 Node vm 中用本地 Axios 快照 stub 执行，两个配置快照匹配人工预期。无网络传输，只验证调用配置语义，不证明 HTTP 编码或 hook 行为；引擎仍不执行目标代码。
 
 124 项自动化测试通过，新增 25 项覆盖别名、浅拷贝、快照、删除、求值顺序、条件、未知键/调用、序列化、原型链反例和证据上限。最后补充复合标量赋值右侧调用的反例后，25 项专项复跑通过。
 
-外部样本沿用[前次版本与范围](../archive/validation/aliyun-sites-analysis.md)，源码和报告只留忽略目录：Nacos 四个 reducer 保留 23 个发送位置、22 条记录，方法/URL/字段路径/hook 状态与 0.5 定向结果一致；GDB 原文件与本地压缩文件均保留 3 个发送位置、2 个模板及 conn/type/dsl。相对 URL 的 Host 与 hook 后字段仍未知。OSS 定向扫描仍只有 BaseHttp 的未解析发送位置，DI、Global.endpoint 和 SDK HTTP 未恢复。
+外部样本沿用[前次版本与范围](../../archive/validation/aliyun-sites-analysis.md)，源码和报告只留忽略目录：Nacos 四个 reducer 保留 23 个发送位置、22 条记录，方法/URL/字段路径/hook 状态与 0.5 定向结果一致；GDB 原文件与本地压缩文件均保留 3 个发送位置、2 个模板及 conn/type/dsl。相对 URL 的 Host 与 hook 后字段仍未知。OSS 定向扫描仍只有 BaseHttp 的未解析发送位置，DI、Global.endpoint 和 SDK HTTP 未恢复。
 
 下一步实现受限同步 Axios hook，核对实例关联、执行顺序、条件及删除/覆盖；不将本轮对象语义样例称为外部全仓或 hook 验收。

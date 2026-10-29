@@ -1,6 +1,6 @@
 # 0.9 基准登记与验证
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 结果解释与命令见[发布报告](../releases/release-0.9.md)。实现清单只勾选限定范围，不把 validationPassed 当 extractionComplete。
 

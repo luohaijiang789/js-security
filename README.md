@@ -26,7 +26,7 @@ npm ci
 node src/repository-cli.js https://github.com/aliyun/alibabacloud-gdb-console --work-dir ../work/repository-scans
 ```
 
-上述样本自动采用固定构建配置。其他仓库配置、预检和源码辅助命令见[使用指南](frontend-api-extractor/docs/usage.md)，当前缺陷和进度见[开发计划](frontend-api-extractor/docs/roadmap.md)。交付已有 JSON/Excel；外部测试源码、依赖和大报告只留 `work/`。
+上述样本自动采用固定构建配置。其他仓库配置、预检和源码辅助命令见[使用指南](frontend-api-extractor/docs/usage.md)，当前缺陷和进度见[开发计划](frontend-api-extractor/docs/plan.md)。交付已有 JSON/Excel；外部测试源码、依赖和大报告只留 `work/`。
 
 ## 文档与目录
 

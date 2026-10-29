@@ -1,6 +1,6 @@
 # 前端代码仓接口提取设计
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 ## 目标与约束
 
@@ -47,7 +47,7 @@ React/Preact/Next/Remix、Vue/Nuxt、Svelte/SvelteKit、Angular、Solid、原生
 
 客户端配置是显式信任规则：name 为源码里的精确表达式，例如 http 或 this.http；kind 支持 axios/fetch/ofetch/ky。规则用于无法进入实现的客户端，能追踪实现的本地函数优先向下分析。tsconfig/jsconfig 的路径别名可读取，用户 aliases 优先覆盖。
 
-0.5 起按入口与已知可达补漏资产分区分配剩余 maxSteps，局部中断不阻塞其他文件。maxStepsPerFile 为附加的单分区上限，默认 null；stats.partitions 与 Markdown 保留各分区的配额和中断状态。规则及未重试边界见[预算说明](../../reference/budgets.md)。
+0.5 起按入口与已知可达补漏资产分区分配剩余 maxSteps，局部中断不阻塞其他文件。maxStepsPerFile 为附加的单分区上限，默认 null；stats.partitions 与 Markdown 保留各分区的配额和中断状态。规则及未重试边界见[预算说明](../../internals/analysis/budgets.md)。
 
 ## 输出契约
 
@@ -55,7 +55,7 @@ schemaVersion、mode、stats、endpoints、diagnostics。接口包含 method、u
 
 ## 有界路径与候选传播（0.2）
 
-0.6 新增 usage.objectChanges 作为调用处对象改写证据；引用选择与发送快照分离。属性副作用、未知降级及证据上限见[对象改写说明](../../reference/object-effects.md)。hook 后结果仍未知，不将该字段解读成完整执行时间线。
+0.6 新增 usage.objectChanges 作为调用处对象改写证据；引用选择与发送快照分离。属性副作用、未知降级及证据上限见[对象改写说明](../../internals/analysis/object-effects.md)。hook 后结果仍未知，不将该字段解读成完整执行时间线。
 
 if 分支保留独立作用域和条件，提前 return 结束对应路径。返回值、三元与短路表达式产生有限候选，继续通过拼接、模板字符串、对象、实参及跨文件封装传播。请求落点展开候选，丢弃同一条件位置上相互冲突的路径。同一分支内 URL 和 method 不做无条件笛卡尔积；不同条件表达式之间尚未做全局逻辑求解。
 
@@ -79,6 +79,6 @@ P1：函数摘要缓存、增量索引、复杂 CommonJS 导出与别名变更�
 
 P2：monorepo 包解析、GraphQL 操作语义、OpenAPI 草稿、交互式调用链和 CI 差异报告。
 
-0.7 提供默认关闭的 modelRequestHooks。usage.afterRequestHooks 独立于调用处，有限显式同步回调、顺序/eject 与未知边界见[说明](../../reference/request-hooks.md)；不覆盖 transformRequest/transport。
+0.7 提供默认关闭的 modelRequestHooks。usage.afterRequestHooks 独立于调用处，有限显式同步回调、顺序/eject 与未知边界见[说明](../../internals/analysis/request-hooks.md)；不覆盖 transformRequest/transport。
 
-0.9.4 的分区策略、CLI退出码、模块限定客户端与调用ID迁移见[使用指南](../../reference/source-scanning.md)，真实业务反馈逐项状态见[修复台账](../releases/release-0.9.4.md)。maxStepsPerFile仍是上限；sequential可避免均分限制，仍受全局硬限。
+0.9.4 的分区策略、CLI退出码、模块限定客户端与调用ID迁移见[使用指南](../../internals/pipeline/source-scan.md)，真实业务反馈逐项状态见[修复台账](../releases/release-0.9.4.md)。maxStepsPerFile仍是上限；sequential可避免均分限制，仍受全局硬限。

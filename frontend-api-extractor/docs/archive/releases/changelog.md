@@ -1,20 +1,20 @@
 # 迭代记录
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 ## 0.10.0 / 插件0.7.1
 
 - 直接接入固定jshound本地worker，按哈希校验执行代码；--engine jshound/hybrid与默认semantic并存，数据/路由/导航候选分开。
 - 混合流程共享索引全输入，自动选请求候选和配置提示文件精查；未知字段/行列不补造，原始worker记录保留，解析失败额外检测。
 - RuoYi同160文件、100000语义预算：50个中断分区降为0，15位置/11字段检查保留；语义20分区3298步。三轮端到端时间未显著改善，不能称23.6倍提速。
-- 316项普通测试＋8项实际引擎集成；增加可复跑对照工具和函数热点统计。原semantic通用摘要与深度扩展仍待改进。[开源核对](../../reference/jshound.md)、[实测和范围](release-0.10.md)。
+- 316项普通测试＋8项实际引擎集成；增加可复跑对照工具和函数热点统计。原semantic通用摘要与深度扩展仍待改进。[开源核对](../../internals/research/jshound.md)、[实测和范围](release-0.10.md)。
 
 ## 0.9.4 / 插件0.7.1
 
 - 依据真实业务反馈修复条件函数整体失效实参：按对象原始身份跟踪受影响字段，保留未改写URL/方法/Body；有限cloneDeep与模块导出客户端/type支持。
 - CLI lazy help、缺依赖提示、开始/结束摘要、空/不完整退出码；--out默认一并Excel。scanFiles、functionInventory和sequential预算策略明确范围。
 - 业务调用位置、原始请求URL/Path、稳定call-site-v2调用ID、共享缺口、Excel补列；不宣称记录膨胀/分片已解决。
-- 313项测试；公开RuoYi15检查点通过，整仓仍50个预算中断分区。B8/B9/B10、B13、B17/B21继续待办。[逐项台账](release-0.9.4.md)、[使用指南](../../reference/source-scanning.md)。
+- 313项测试；公开RuoYi15检查点通过，整仓仍50个预算中断分区。B8/B9/B10、B13、B17/B21继续待办。[逐项台账](release-0.9.4.md)、[使用指南](../../internals/pipeline/source-scan.md)。
 
 ## 0.9.3 / 插件0.7.1
 
@@ -47,19 +47,19 @@
 
 - 冻结 GDB/Nacos/OSS 的有限外部源码切片 manifest 与人工字段/条件预期；新增 verify:external CLI，隔离冻结文件后核对逐条结果，独立保留 validationPassed/extractionComplete。
 - 修复未知配置把未解析 Query/Body/Header 显示为无字段的问题，保留载体未知；显式覆盖和已知缺省仍区分。
-- 193 项测试通过；固定上游 11 文件哈希一致，18 个限定发送位置/22 条候选预期通过，但提取完整性均 false。清单 P0-04 勾选，独立盲测仍待推进，见[外部基准验证](../../reference/external-baselines.md)。
+- 193 项测试通过；固定上游 11 文件哈希一致，18 个限定发送位置/22 条候选预期通过，但提取完整性均 false。清单 P0-04 勾选，独立盲测仍待推进，见[外部基准验证](../../internals/validation/external-baselines.md)。
 
 ## 0.8.2
 
 - 增加持续维护的[实施清单](../planning/implementation-through-0.10.md)，限定完成项逐项勾选，整阶段未完成保持待办。
 - 新增手工预期/哈希/config 微型基准及复跑命令；新增逐调用请求差异 CLI，报告新增/丢失/变化/变未知/歧义及报告级状态变化。
-- 180 项测试通过；GDB 同版 4 行逐项一致，旧预算/缺口保留。这是历史回归，外部人工切片与独立验证集仍待建立，见[验证](../../reference/baselines.md)。
+- 180 项测试通过；GDB 同版 4 行逐项一致，旧预算/缺口保留。这是历史回归，外部人工切片与独立验证集仍待建立，见[验证](../../internals/validation/baselines.md)。
 
 ## 0.8.1
 
 - 仓库 CLI/profile 支持可选部署页面 URL，按浏览器 URL 规则解析静态相对地址。请求表保留原始 URL、解析 URL、部署基址、Host 依据和状态。
 - 代码 Host 与上下文候选独立标记；动态地址、冲突、不支持协议保留缺口，不把部署假设提升为实际请求。解析 URL 不合并 Query 配置或证明最终序列化。
-- 170 项测试通过；复用固定 Commit 的真实 GDB 构建产物重新分析，4 行/3 个发送位置保持一致，示例上下文下 4 行 Host 均为明确标记的候选，见[验证](../../reference/deployment-context.md)。未重新构建或访问业务 API。
+- 170 项测试通过；复用固定 Commit 的真实 GDB 构建产物重新分析，4 行/3 个发送位置保持一致，示例上下文下 4 行 Host 均为明确标记的候选，见[验证](../../internals/analysis/deployment-context.md)。未重新构建或访问业务 API。
 
 ## 0.8.0
 
@@ -73,21 +73,21 @@
 - 可选 modelRequestHooks，默认关闭；有限显式同步 Axios request hook 按逆注册顺序求值，支持已知 eject/clear 与实例隔离。
 - usage.afterRequestHooks 独立保存后阶段候选、执行次序和缺口，不覆盖调用处；JSON 输入字段与编码后字段分开。
 - 异步/条件/未知控制、捕获堆、defaults 改写等保守未知；预算中断保留调用处记录，Markdown 分阶段展示。
-- 146 项测试通过；新增 22 项，真实 Axios 1.7.9 本地 adapter 对照通过。Nacos 原始记录保留，其复杂 hook 仍未还原，见[验证](../../reference/request-hooks.md)。
+- 146 项测试通过；新增 22 项，真实 Axios 1.7.9 本地 adapter 对照通过。Nacos 原始记录保留，其复杂 hook 仍未还原，见[验证](../../internals/analysis/request-hooks.md)。
 
 ## 0.6.0
 
 - 分离引用选择和发送快照，修复属性读取、对象构造与传参丢失别名/副作用。
 - 增加 delete、属性 +=、Object.assign 覆盖证据；未知键/外部调用/条件函数副作用降级，JSON 保存快照。
 - usage.objectChanges 记录位置、条件、载体与前后值，单对象 128 条历史上限，截断有诊断。
-- 124 项测试通过，含 25 项新增用例及带哈希/人工预期的微型样例；Nacos/GDB 关键结果保留。hook、DI 和 SDK 全链路仍待支持，见[验证](../../reference/object-effects.md)。
+- 124 项测试通过，含 25 项新增用例及带哈希/人工预期的微型样例；Nacos/GDB 关键结果保留。hook、DI 和 SDK 全链路仍待支持，见[验证](../../internals/analysis/object-effects.md)。
 
 ## 0.5.0
 
 - 求值预算按入口/已知可达补漏资产分区，跨文件调用计入当前入口；局部中断后继续扫描其他分区。
 - maxSteps 成为不超额的硬上限；新增可选 maxStepsPerFile，默认 null。JSON/Markdown 保留分区配额、实际步数、中断与未扫描状态。
 - 同一 Nacos 13 文件默认库存扫描由 3 个发送位置增至 23 个；Host、hook 与页面链路缺口仍保留，OSS SDK 未恢复。
-- 99 项自动化测试通过；分配规则和固定样本对照见 [budgets.md](../../reference/budgets.md)。
+- 99 项自动化测试通过；分配规则和固定样本对照见 [budgets.md](../../internals/analysis/budgets.md)。
 
 ## 0.4.0
 

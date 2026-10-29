@@ -21,7 +21,7 @@ npm run scan:repository -- https://github.com/aliyun/alibabacloud-gdb-console --
 
 ## 同版 GDB 产物验证
 
-沿用[真实构建记录](../archive/validation/gdb-build-pilot.md)的仓库链接、Commit 49336dbcc958236e233a921f60353802cbd43130 和 4 个 JS；先逐一核对原记录的产物 SHA-256，再用当前分析器重新分析并导出两份表。没有重跑安装/构建，也没有访问任何业务 API。
+沿用[真实构建记录](../../archive/validation/gdb-build-pilot.md)的仓库链接、Commit 49336dbcc958236e233a921f60353802cbd43130 和 4 个 JS；先逐一核对原记录的产物 SHA-256，再用当前分析器重新分析并导出两份表。没有重跑安装/构建，也没有访问任何业务 API。
 
 下面的 gdb.example.test **仅是自定义测试上下文，不是发现的部署域名**。
 

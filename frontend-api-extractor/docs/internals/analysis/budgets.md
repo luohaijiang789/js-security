@@ -39,7 +39,7 @@ JSON 新增 `stats.partitions`，每项有 file、phase、state、steps、limit�
 
 ## 固定样本对照
 
-输入均为[上一轮下载的公开代码](../archive/validation/aliyun-sites-analysis.md)，未修改业务文件。旧引擎来自主干 a469ee6（分析器 0.4.0）；两引擎均采用默认库存模式、maxSteps=100000、maxCandidates=16、maxDepth=8。
+输入均为[上一轮下载的公开代码](../../archive/validation/aliyun-sites-analysis.md)，未修改业务文件。旧引擎来自主干 a469ee6（分析器 0.4.0）；两引擎均采用默认库存模式、maxSteps=100000、maxCandidates=16、maxDepth=8。
 
 | 同一输入与范围 | 引擎 | 发送位置 | 输出记录 | 求值步数 | 预算中断 |
 | --- | --- | ---: | ---: | ---: | --- |
@@ -56,4 +56,4 @@ OSS 仍无自动恢复的 HTTP 接口；STS/RAM SDK 模型没有因调度改变�
 
 ## 0.9.1优先入口
 
-可选entryPriority为glob数组，默认空。先排列匹配入口；每个优先入口配额为普通均分与maxSteps×0.5/优先入口数中的较大者，再受剩余全局预算及maxStepsPerFile限制。未使用额度继续留给后续分区，不跳过其他文件；partitions标记priority。Webpack可据精确库契约的转发/消费者生成提示；优先级不是请求识别结论。反例及实测见[0.9.1](../archive/releases/release-0.9.1.md)。
+可选entryPriority为glob数组，默认空。先排列匹配入口；每个优先入口配额为普通均分与maxSteps×0.5/优先入口数中的较大者，再受剩余全局预算及maxStepsPerFile限制。未使用额度继续留给后续分区，不跳过其他文件；partitions标记priority。Webpack可据精确库契约的转发/消费者生成提示；优先级不是请求识别结论。反例及实测见[0.9.1](../../archive/releases/release-0.9.1.md)。

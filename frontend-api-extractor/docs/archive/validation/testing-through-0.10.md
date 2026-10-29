@@ -1,6 +1,6 @@
 # 累计验证报告
 
-> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../requirements.md)和[开发计划](../../roadmap.md)。
+> 历史记录：保留当时方案、能力与验证，不作为当前进度或能力承诺。当前见[需求](../../goal.md)和[开发计划](../../plan.md)。
 
 ## 0.9.1 当前验收
 
@@ -18,7 +18,7 @@ npm test
 npm run demo
 ```
 
-0.8.3 的 `npm test`：193 项通过，0 项失败。0.8.3 新增 13 项外部人工基准与未知载体回归，见[外部切片验证](../../reference/external-baselines.md)。0.8.2 的 180 项保留。0.8.2 新增 10 项基准与差异回归，见[固定基准](../../reference/baselines.md)。0.8.1 的 170 项保留。0.8.1 新增 8 项部署上下文与表格回归，另在离线仓库流程核对配置落盘，见[部署上下文验证](../../reference/deployment-context.md)。0.8.0 的 162 项保留。0.7 的 146 项保留，新增 13 项仓库/产物/表格验证及 3 项真实应用异常回归。0.6 的 124 项保留，新增 22 项同步 hook 验证。0.5 的 99 项保留，新增 25 项对象副作用与改写证据测试。0.4 的 88 项保留，新增 11 项预算隔离测试。0.3 的 70 项保留，0.4 新增 17 项异步资产测试与 1 项 CLI 补漏测试。原 52 项保留，新增 18 项白盒复杂 JS 与证据回归。V1 的 33 项保留，并将原来只能输出未知值的 3 项分支用例升级为检查具体候选集合；新增 19 项迭代测试。
+0.8.3 的 `npm test`：193 项通过，0 项失败。0.8.3 新增 13 项外部人工基准与未知载体回归，见[外部切片验证](../../internals/validation/external-baselines.md)。0.8.2 的 180 项保留。0.8.2 新增 10 项基准与差异回归，见[固定基准](../../internals/validation/baselines.md)。0.8.1 的 170 项保留。0.8.1 新增 8 项部署上下文与表格回归，另在离线仓库流程核对配置落盘，见[部署上下文验证](../../internals/analysis/deployment-context.md)。0.8.0 的 162 项保留。0.7 的 146 项保留，新增 13 项仓库/产物/表格验证及 3 项真实应用异常回归。0.6 的 124 项保留，新增 22 项同步 hook 验证。0.5 的 99 项保留，新增 25 项对象副作用与改写证据测试。0.4 的 88 项保留，新增 11 项预算隔离测试。0.3 的 70 项保留，0.4 新增 17 项异步资产测试与 1 项 CLI 补漏测试。原 52 项保留，新增 18 项白盒复杂 JS 与证据回归。V1 的 33 项保留，并将原来只能输出未知值的 3 项分支用例升级为检查具体候选集合；新增 19 项迭代测试。
 
 | 类别 | 数量 | 主要校验 |
 | --- | ---: | --- |
@@ -75,24 +75,24 @@ node src/cli.js examples/multi-framework --format markdown --out reports/multi-f
 
 ## 本轮白盒复核
 
-见 [问题分析与实施边界](../../reference/whitebox-hardening.md)。固定版本 Nacos console-ui-next 的 namespace.ts 复跑得到 203 个可解析源码资产、5 个调用点/10 个动态前缀 URL 候选，10 个均标请求 hook 后状态未知。只复核该 API 层，不宣称页面链路或整个仓库已覆盖。外部源码与原始报告不进入 Git。
+见 [问题分析与实施边界](../../internals/analysis/complex-js.md)。固定版本 Nacos console-ui-next 的 namespace.ts 复跑得到 203 个可解析源码资产、5 个调用点/10 个动态前缀 URL 候选，10 个均标请求 hook 后状态未知。只复核该 API 层，不宣称页面链路或整个仓库已覆盖。外部源码与原始报告不进入 Git。
 
 ## 深层与压缩 JS 对照
 
-[深层 JS 验证](../../reference/async-assets.md)保留公开原文件链接、哈希、esbuild 参数、发送点/字段检查和国际站 CONNECT 403 失败。该对照不声称任意混淆、Webpack runtime 或线上站点已覆盖。
+[深层 JS 验证](../../internals/pipeline/asset-discovery.md)保留公开原文件链接、哈希、esbuild 参数、发送点/字段检查和国际站 CONNECT 403 失败。该对照不声称任意混淆、Webpack runtime 或线上站点已覆盖。
 
 ## 预算隔离与同样本复跑
 
-[分区预算验证](../../reference/budgets.md)记录同一 Nacos 13 文件的旧版/新版默认扫描，以及 OSS 的 SDK 缺口。Nacos 自动定位的发送点由 3 个增至 23 个，与四个 reducer 的独立 AST 位置一致；预算中断文件继续明确标记，不提升为全仓或运行时覆盖证明。
+[分区预算验证](../../internals/analysis/budgets.md)记录同一 Nacos 13 文件的旧版/新版默认扫描，以及 OSS 的 SDK 缺口。Nacos 自动定位的发送点由 3 个增至 23 个，与四个 reducer 的独立 AST 位置一致；预算中断文件继续明确标记，不提升为全仓或运行时覆盖证明。
 
 ## 对象改写与快照
 
-[对象副作用验证](../../reference/object-effects.md)记录哈希固定的自写样例、独立配置快照参考和 Nacos/GDB 回归。hook 求值、DI 和 SDK HTTP 未因此完成。
+[对象副作用验证](../../internals/analysis/object-effects.md)记录哈希固定的自写样例、独立配置快照参考和 Nacos/GDB 回归。hook 求值、DI 和 SDK HTTP 未因此完成。
 
 ## 有限同步 request hook
 
-[同步 hook 验证](../../reference/request-hooks.md)记录开启范围、JSON 字段阶段、真实 Axios 本地 adapter 对照与 Nacos 保留结果。与实际网络/服务端接收验收分开。
+[同步 hook 验证](../../internals/analysis/request-hooks.md)记录开启范围、JSON 字段阶段、真实 Axios 本地 adapter 对照与 Nacos 保留结果。与实际网络/服务端接收验收分开。
 
 ## 真实仓库到请求表
 
-[仓库流程](../../reference/repository-pipeline.md)与[GDB 构建请求表](gdb-build-pilot.md)分别记录流程范围和真实结果。离线任务测试与真实 Docker/npm 构建分开；后者实际生成 4 个 JS、关联 21 个应用 source 与 3 个发送位置。完整性仍 false，未掩盖 vendor、Host 或预算缺口。
+[仓库流程](../../internals/pipeline/repository-build.md)与[GDB 构建请求表](gdb-build-pilot.md)分别记录流程范围和真实结果。离线任务测试与真实 Docker/npm 构建分开；后者实际生成 4 个 JS、关联 21 个应用 source 与 3 个发送位置。完整性仍 false，未掩盖 vendor、Host 或预算缺口。

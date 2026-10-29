@@ -1,6 +1,6 @@
 # 交付协议 2.0.0
 
-0.9 将源码、构建、网站脚本和插件实测适配到统一底稿；实现见 [delivery.js](../../src/delivery.js)、[xlsx.js](../../src/xlsx.js)，验收见 [delivery.test.js](../../test/delivery.test.js)。这是交付协议版本，旧引擎 schemaVersion=1 不变。
+0.9 将源码、构建、网站脚本和插件实测适配到统一底稿；实现见 [delivery.js](../../../src/delivery.js)、[xlsx.js](../../../src/xlsx.js)，验收见 [delivery.test.js](../../../test/delivery.test.js)。这是交付协议版本，旧引擎 schemaVersion=1 不变。
 
 | 顶层字段 | 内容 |
 | --- | --- |
@@ -37,7 +37,7 @@ node src/delivery-cli.js --input /path/to/unpacked-plugin-task --out ../work/obs
 
 ## 0.9.1兼容补充
 
-records新增可选linkState：entry-trace / function-inventory / unlinked；发现依据也进入discoveryBasis。缺字段的历史结果保持未知，不推断已连通入口。Excel新增定位依据/阶段；使用标准DEFLATE，无新增依赖，JSON内容与证据不变。匹配编译库契约的原始行证据含clientModel，其参考版本不等于已证明安装版本，记录保留partial。详见[验收](../archive/releases/release-0.9.1.md)。
+records新增可选linkState：entry-trace / function-inventory / unlinked；发现依据也进入discoveryBasis。缺字段的历史结果保持未知，不推断已连通入口。Excel新增定位依据/阶段；使用标准DEFLATE，无新增依赖，JSON内容与证据不变。匹配编译库契约的原始行证据含clientModel，其参考版本不等于已证明安装版本，记录保留partial。详见[验收](../../archive/releases/release-0.9.1.md)。
 
 ## 0.9.4 附加字段
 
