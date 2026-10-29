@@ -1,6 +1,6 @@
 # 工具与项目评估索引
 
-核查日期：2026-10-22。这里保存可长期引用的选型依据；候选探索过程仍放在 [Temp](../Temp/README.md)。
+核查日期：2026-10-22。这里保存仍可长期引用的选型依据；失效的候选探索文档已经删除，需要时通过 Git 历史追溯。
 
 **当前入口：[用户已确认的六个参考项目](已确认参考项目.md)**：EASYapi、maksimu/openapi-devtools、mitmproxy2swagger、Akto、BurpAPIFinder、jshound。**BurpAPIFinder 有 bug，需要维护**，具体问题待后续登记。
 

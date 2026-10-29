@@ -1,8 +1,0 @@
-{
-  "entries": ["src/pages/**"],
-  "layers": [
-    { "name": "page", "match": ["src/pages/**"] },
-    { "name": "service", "match": ["src/services/**"] },
-    { "name": "transport", "match": ["src/transport/**"] }
-  ]
-}

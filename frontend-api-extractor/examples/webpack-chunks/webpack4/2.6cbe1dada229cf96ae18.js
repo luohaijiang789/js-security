@@ -1,1 +1,0 @@
-(window.webpackJsonp=window.webpackJsonp||[]).push([[2],{2:function(e,t,n){"use strict";function i(e){return fetch("https://deep.example.test/v2/query",{method:"POST",body:JSON.stringify({id:e})})}n.r(t),n.d(t,"query",(function(){return i}))}}]);

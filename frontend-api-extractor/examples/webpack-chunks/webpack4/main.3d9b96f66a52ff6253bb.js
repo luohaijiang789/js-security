@@ -1,1 +1,0 @@
-(window.webpackJsonp=window.webpackJsonp||[]).push([[0],[function(t,n,e){"use strict";function u(t){return fetch("https://api.example.test/users/lookup",{method:"POST",body:JSON.stringify({account:{id:t}})})}e.d(n,"a",(function(){return u}))},function(t,n,e){"use strict";e.r(n);var u=e(0);Object(u.a)(7),e.e(2).then(e.bind(null,2)).then(t=>t.query(9))}],[[1,1]]]);
