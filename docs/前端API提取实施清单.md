@@ -1,6 +1,6 @@
 # 前端 API 提取实施清单
 
-更新：2026-10-29（UTC）；当前提取器版本 0.9.3 / 插件 0.7.1。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
+更新：2026-10-29（UTC）；当前提取器版本 0.9.4 / 插件 0.7.1。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
 
 目标：输入前端 GitHub 仓库地址 → 固定版本 → 自动安装/正式构建 → 清点 JS/引用 → 有界深入分析 → 导出逐调用请求表。表格包含 JS 与源码位置、Host、URL、方法、Query/Body/Header 字段、条件、依据和未解析项。AI 释义独立附加。
 
@@ -21,7 +21,7 @@
 - [x] B06 逐调用/条件/阶段的 CSV、Markdown、JSON 请求表；真实 GDB 得到 3 个发送位置、4 行候选（0.8）。[请求表](../frontend-api-extractor/docs/gdb-build-pilot.md)
 - [x] B07 可选部署页面基址补全静态相对地址；代码 Host 与上下文候选分开（0.8.1）。[验证](../frontend-api-extractor/docs/deployment-context.md)
 
-## 已实现能力台账（累计至 0.9.3）
+## 已实现能力台账（累计至 0.9.4）
 
 下面保留 0.1～0.8.3 并补充 0.9 的累计能力，按实际实现的子集勾选。B01～B07 保留为流程索引，详细能力以下表/条目为准；后续 P0～P5 中未完成的扩展继续保持未勾选。版本取首次交付或主要补强版本，不把历史测试数累计相加。
 
@@ -179,6 +179,17 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 - [x] K08 静态bind的this/预填参数/重复绑定/call/apply/箭头词法this；分支绑定对象别名、自有方法覆盖/删除和预算限制，7份自写原生JS对照（0.9.3）。[验证](../frontend-api-extractor/docs/release-0.9.3.md)
 - [x] K09 明确序列化JSON请求体不再因格式大括号误判动态；字段未知与不支持replacer仍partial（0.9.3）。[测试](../frontend-api-extractor/test/bind.test.js)
 
+## 0.9.4 真实业务反馈补强与未完成阻断
+
+- [x] K10 条件副作用按原始对象/字段降级，保留未改写URL、方法和Body；URL自身写入/整对象未知副作用仍降级（0.9.4）。[测试](../frontend-api-extractor/test/company-regressions.test.js)
+- [x] K11 模块+导出客户端配置、别名/显式命名重导出/namespace及限定type方法字段；lodash cloneDeep普通对象子集（0.9.4）。[使用](../frontend-api-extractor/docs/usage.md)
+- [x] K12 帮助不依赖第三方安装、缺依赖提示、CLI摘要/退出码、--out默认Excel（0.9.4）。[使用](../frontend-api-extractor/docs/usage.md)
+- [x] K13 scanFiles保留依赖的分区选择、functionInventory显式开关、sequential配额和独立coverage/outcome（0.9.4）。[验证](../frontend-api-extractor/docs/release-0.9.4.md)
+- [x] K14 业务调用位置/原始URL/Excel补列，调用ID移除条件与entry枚举，同调用点同原因缺口共享记录关联（0.9.4）。[身份迁移](../frontend-api-extractor/docs/usage.md)
+- [x] K15 公开完整RuoYi-Vue3固定源码对照，15冻结检查点和限定字段通过；实际Excel。库存范围原版已能发现，不称新增召回（0.9.4）。[来源与逐项台账](../frontend-api-extractor/docs/release-0.9.4.md)
+- [ ] K16 B8/B9/B10：安全跨入口摘要与依赖放大治理尚未实现；本轮整仓仍有50个预算中断分区。[逐项状态](../frontend-api-extractor/docs/release-0.9.4.md)
+- [ ] K17 B13/B17/B21：未解析发送点独立集合、全部记录膨胀治理、分片合并/压缩尚未完成。[逐项状态](../frontend-api-extractor/docs/release-0.9.4.md)
+
 ## 每次迭代的完成检查
 
 每轮在下面的日志写明本轮条目、证据和未完成项，再更新对应勾选。测试通过不能替代真实项目/站点/Chrome 验收。
@@ -205,5 +216,6 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 | 0.9.1 / 插件0.7.1 | J01～J06，真实压缩请求恢复、封装链、模块作用域/库契约及依据交付 | 提取器279、插件155项；旧外部22/22、Ant16/16、新定向4位置/8候选；原始XML不变 | [验证与剩余项](../frontend-api-extractor/docs/release-0.9.1.md) |
 | 0.9.2 / 插件0.7.1 | K05～K07、P3-04限定验收；构建前检查、固定原生编译器补装 | 提取器286项全通过；独立Vite无map首测4/4业务形态；GDB 3位置/4候选、Nacos 1位置/4候选回归通过；真实重复构建/Excel与仅检查入口通过 | [验证与范围](../frontend-api-extractor/docs/release-0.9.2.md) |
 | 0.9.3 / 插件0.7.1 | K08～K09，绑定函数及已知JSON序列化状态 | 提取器298项；7份自写原生行为对照；GDB/Nacos/weather冻结回归通过；跨文件Excel样例 | [验证与剩余项](../frontend-api-extractor/docs/release-0.9.3.md) |
+| 0.9.4 / 插件0.7.1 | K10～K15：业务反馈限定修复，K16/K17待办 | 提取器313项；RuoYi15冻结检查点/字段通过，API目录19分区2745步；整仓50分区仍中断 | [完整21项状态与边界](../frontend-api-extractor/docs/release-0.9.4.md) |
 
 历史说明（0.8.2 文档补全时）：按实现、测试、历次验证补录 S/E/R/Q/D/V 和独立黑盒一台账，补齐 0.1.0～0.8.2 历史；该次仅补文档，180 项为当时最近一次代码验证记录。后续迭代以表中各版本记录为准。

@@ -59,7 +59,7 @@ export function requestCall(target, args, mergeConfig) {
   } else if (!member || member === 'request') {
     data = typeof args[0] === 'string' ? {...args[1],url:args[0]} : args[0] ?? {};
     url = data.url ?? (isUnknown(data) ? data : undefined);
-    method = data.method ?? (hasUnknown(data) ? unknown('config.method') : target.method ?? 'GET');
+    method = data.method ?? (target.methodField ? data[target.methodField] : undefined) ?? (hasUnknown(data) ? unknown('config.method') : target.method ?? 'GET');
   } else return {value:unknown('unsupported client member')};
   return {method,url,data};
 }

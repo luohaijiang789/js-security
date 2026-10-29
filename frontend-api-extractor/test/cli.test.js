@@ -17,7 +17,7 @@ test('CLI 自动加载目标配置，stdout 是可解析 JSON', async t => {
   });
   const result = run(root);
   assert.equal(result.status, 0, result.stderr);
-  assert.equal(result.stderr, '');
+  assert.match(result.stderr, /扫描开始/);
   assert.deepEqual(JSON.parse(result.stdout).endpoints.map(e => e.url), ['/cli']);
 });
 

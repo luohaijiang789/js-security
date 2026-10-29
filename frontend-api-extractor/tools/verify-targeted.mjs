@@ -107,6 +107,7 @@ try {
         "generatedColumn",
         "method",
         "url",
+        "requestUrl",
         "host",
       ].every((key) => !Object.hasOwn(e, key) || e[key] === row[key]) &&
       Object.entries(e.fields ?? {}).every(([carrier, names]) =>
