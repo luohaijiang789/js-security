@@ -1,6 +1,6 @@
 # 真实封装与无 map 产物回归
 
-[0.9.1完整结果与边界](../../docs/release-0.9.1.md)。只提交manifest、哈希、手工方法/字段/位置预期；不提交第三方源码或构建产物。
+[0.9.1完整结果与边界](../../docs/archive/releases/release-0.9.1.md)。只提交manifest、哈希、手工方法/字段/位置预期；不提交第三方源码或构建产物。
 
 - [nacos-wrapper.json](nacos-wrapper.json)：固定Nacos三份源文件＋独立自写驱动，1发送点/4条件候选；验证真实wrapper，不代表页面生命周期。
 - [gdb-no-map.json](gdb-no-map.json)：固定GDB正式构建的四份JS，仅复制JS隔离分析，不读取map/源码/依赖。人工枚举3个POST位置及Body字段，4条件候选。该样本已用于开发，不是独立盲测。

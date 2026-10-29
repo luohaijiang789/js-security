@@ -1,91 +1,81 @@
-# 使用指南（0.10）
+# 使用指南
 
-所有命令从 frontend-api-extractor 目录执行，需要 Node 22+。源码扫描不执行目标仓库代码或安装其依赖。先安装工具自身依赖：
+本文只描述当前 **0.10.0** 的可运行入口。jshound 增强核心及自动递归构建分析仍在[计划](roadmap.md)中，不能按目标架构假定已经实现。
+
+所有命令从 `frontend-api-extractor/` 执行。工具需 Node.js 22+；仓库构建另需 Git、可用的本地 Docker 和依赖下载网络。目标项目使用的 Node/包管理器由构建配置决定。
 
 ```bash
 npm ci
-node src/cli.js --help
+node src/repository-cli.js --help
 ```
 
-## 大仓优先：共享索引发现，再定向精查
+## 仓库 → 构建 JS → Excel
 
-先在主仓库根目录初始化已有的固定 jshound 子模块：
+已有固定样本配置可直接运行：
 
 ```bash
-git submodule update --init --depth 1 references/repos/jshound
+node src/repository-cli.js https://github.com/aliyun/alibabacloud-gdb-console --work-dir ../work/repository-scans
 ```
 
-回到 frontend-api-extractor 目录运行：
+该地址自动采用 [gdb-console.json](../profiles/gdb-console.json)，固定 Commit `49336dbcc958236e233a921f60353802cbd43130`，使用项目需要的构建环境。历史实测见 [GDB 报告](archive/validation/gdb-build-pilot.md)，本次文档整理没有重跑构建。
+
+其他仓库先复制[配置模板](../profiles/repository.example.json)，调整环境、项目目录、包管理器、构建命令和产物目录。以下 `OWNER/REPO` 替换为真实仓库：
 
 ```bash
-node src/cli.js /path/to/frontend --engine hybrid --config /path/to/source-config.json --out ../work/hybrid/report.json
+mkdir -p ../work/my-project
+cp profiles/repository.example.json ../work/my-project/build-profile.json
+node src/repository-cli.js https://github.com/OWNER/REPO --profile ../work/my-project/build-profile.json --inspect-only --work-dir ../work/my-project/runs
 ```
 
---engine默认semantic，保留原有逐入口语义模式；hybrid先索引全输入，再自动选中请求候选/显式请求配置所在文件精查；jshound只输出外部库存。无需手工猜API目录，也无需执行目标JS或API。依赖缺失/版本哈希不匹配会失败，不悄悄回退。我们的clients协议与maxSteps/maxDepth用于语义阶段，外部引擎另有输入、内存和时限约束。
+预检会拉取并固定仓库，检查脚本/锁文件并输出 `build-plan.json`，不执行 Docker 安装/构建。核对计划后，去掉 `--inspect-only` 运行正式任务；用 `--ref` 指定真实完整 40 位 Commit 可固定复跑。未指定版本且无内置版本时会固定远端 HEAD。
 
-外部未核验结果保持partial，缺行列时保留null；原始记录与快照保存在 *.engines/，随报告保留以便回查。coverage finished只说明索引/选中任务结束，complete仍反映模型缺口。详情与同输入实测见[0.10报告](release-0.10.md)，开源代码依据见[核对记录](open-source-analysis.md)。现阶段此选项属于源码CLI，构建CLI和插件UI未新增引擎切换入口。
+当前 npm 需要 package-lock；pnpm/Yarn Classic 需要对应锁文件及明确完整包管理器版本。`projectDir` 支持子项目，不能自动猜测所有 monorepo/多应用构建；私有依赖和环境缺失会失败。更多配置见[现有构建机制](reference/repository-pipeline.md)。
 
-## 从源码一键生成请求表
+终端返回 `taskDir`，结果在 `taskDir/delivery/api_assets.xlsx` 与 `taskDir/delivery/analysis.json`。原始分析在 `taskDir/analysis.json`；`task.json`、`logs/` 记录构建和分析状态。失败先查具体阶段，不反复提高分析预算重试安装问题。
+
+## 怎样读四项结果
+
+| 目标 | 当前结果位置 |
+| --- | --- |
+| URL | API 总表的 URL、原始请求 URL、Path；底稿的 url/requestUrl 等 |
+| 接口参数 | API 总表字段摘要及参数明细的 carrier/path/state；Query/Body/Header 分开 |
+| Host | Host 及地址状态；未知不意味着当前页面域名 |
+| 对应 JS | 产物位置与源码位置分开；查底稿 generatedFile/sourceFile 和证据 |
+
+当前 Excel 仍含方法、阶段、条件、业务位置、仓库/Commit、缺口等辅助列。四项精简主视图尚未实现。静态候选不等于实际发生请求；无精确行列的外部候选不能可靠按调用 ID 统计，见 [A06](audit.md)。
+
+仓库任务退出 0 表示流程完成，仍须看 `task.json` 的分析完整性和 gaps。构建/执行错误退出 1。源码 CLI 的 2/3 状态是另一入口的契约，不要套用到构建 CLI。
+
+## 本地源码辅助扫描
+
+源码模式不构建、不安装目标依赖、不执行目标业务代码：
 
 ```bash
 node src/cli.js /path/to/frontend --config /path/to/scan.config.json --out ../work/source/report.json
 ```
 
-默认同时生成 `report.json.delivery/analysis.json` 和 `report.json.delivery/api_assets.xlsx`。`--delivery-dir ../work/delivery` 可指定交付目录；`--no-delivery` 仅写原始报告。没有 --out 时 stdout 保持 JSON/Markdown，需显式 --delivery-dir 才写 Excel。
+生成 `report.json`、`report.json.delivery/api_assets.xlsx` 和统一底稿。配置见[示例](../api-extractor.config.example.json)，详细配置见[源码扫描参考](reference/source-scanning.md)。
 
-stderr 输出开始消息和最终 JSON 摘要，包含候选数、未解析发送位置数、步数、覆盖状态和交付目录。退出码：0=扫描结束且存在有地址片段的候选；1=启动/输入/执行错误；2=没有此类候选；3=至少一个分区超预算、未扫描或没有匹配入口。模型诊断不等于预算中断；读取 summary/coverage 和报告缺口。`--allow-empty`、`--allow-incomplete` 可分别接受相应状态，默认不启用。
-
-## 先限定业务范围，再扩大扫描
-
-```json
-{
-  "scanFiles": ["src/api/**", "src/services/**"],
-  "aliases": {"@/*": ["src/*"]},
-  "functionInventory": true,
-  "maxSteps": 1000000,
-  "partitionStrategy": "fair"
-}
-```
-
-scanFiles 限定入口分区，依赖仍按 include/exclude 加载用于解析。它不等同于将 include 限成这几个文件；后者可能使依赖不可分析。include/exclude 原已支持，用于解析资产范围。scanFiles 与 entries 同时设置时取交集。
-
-functionInventory 默认 true：entries 模式也补扫当前入口文件未追踪的函数定义，结果标为 function-inventory。只希望实际静态入口调用链时设置 `functionInventory:false` 并给 entries；未知外部回调中的候选仍标为未连通，不能当作已发生的请求。API 目录库存不等于页面生命周期验收。
-
-默认全局预算仍为 100000，未实现自动保证任意整仓完成。maxStepsPerFile 是附加上限，fair 模式还受剩余预算均分限制。需先给某文件完整配额时可使用 `partitionStrategy:"sequential"`，此时上限为 min(maxStepsPerFile, 剩余全局预算)，可能使后续文件额度不足；所有未完成分区照实输出。不能把提高上限当作消除重复计算。
-
-## 适配外部请求封装
-
-```json
-{
-  "scanFiles": ["src/api/**"],
-  "aliases": {"@/*": ["src/*"]},
-  "clients": [
-    {"module":"@company/http","export":"fetchData","kind":"axios","methodField":"type"}
-  ],
-  "maxSteps": 1000000
-}
-```
-
-规则按模块和导出名匹配，支持命名导入别名、受限显式命名重导出与 namespace 导入；本地同名函数不套规则。methodField=type 只用于该明确封装，标准 Axios 不会将非标准 type 自动当 method。旧 name 配置仍可用。规则表示用户声明的调用处协议，不证明外部库已展开或最终传输行为；复杂 SDK/运行时改写仍可能未知。
-
-已加 lodash/lodash-es 的明确 cloneDeep 导入子集，保留对象克隆独立性；同名本地函数走实际解析，未知克隆库不猜。
-
-## 公开仓库复跑
-
-测试目标：[RuoYi-Vue3 固定版本](https://github.com/yangzongzhuan/RuoYi-Vue3/tree/838965c5a18d2c61b73ec30c6e288057aaa08b63)。第三方 checkout 放到仓库根 work/，只需源码，无须构建或目标 node_modules：
+默认 `semantic` 是旧逐入口分析，可能耗时和超预算；源码还可选择 `jshound` 或 `hybrid`：
 
 ```bash
-git clone --depth 1 --no-checkout https://github.com/yangzongzhuan/RuoYi-Vue3.git ../work/ruoyi
-git -C ../work/ruoyi fetch --depth 1 origin 838965c5a18d2c61b73ec30c6e288057aaa08b63
-git -C ../work/ruoyi checkout --detach 838965c5a18d2c61b73ec30c6e288057aaa08b63
-node src/cli.js ../work/ruoyi --config profiles/ruoyi-source.json --out ../work/ruoyi-result/report.json
-npm run verify:targeted -- --manifest baselines/public/ruoyi.json --source-root ../work/ruoyi --out ../work/ruoyi-verified
+git -C .. submodule update --init --depth 1 references/repos/jshound
+node src/cli.js /path/to/frontend --engine jshound --out ../work/indexed/report.json
+node src/cli.js /path/to/frontend --engine hybrid --out ../work/hybrid/report.json
 ```
 
-指定配置的库存实测：19 个 API 文件分区，2745 步，127 条候选，0 个超预算分区。15 个冻结检查点包括 7 个 POST；这 15 个位置/方法/原始 URL 通过，不代表 127 条全部经人工验收。Host 依赖运行时环境，保留未知；未使用网站域名或开发 proxy 补造 Host。完整问题台账、原版对照和局限见[0.9.4报告](release-0.9.4.md)。
+jshound 输出未核验候选，原生缺精确行列。hybrid 有已复现的客户端漏选 A01，不能当作保证全仓覆盖的推荐模式；当前构建 CLI 不接受 `--engine`。引擎原始快照和记录在 `report.json.engines/`，保留便于回查。
 
-## 读表与归组
+源码 CLI：0=处理结束且存在带地址片段候选；1=错误；2=没有这类候选；3=coverage 未完成。`--allow-empty` / `--allow-incomplete` 可显式放行相应状态。coverage finished 不等于模型完整；同时查看 complete、diagnostics 和未解析字段。maxSteps 仅限语义求值，不是整个程序时间上限。
 
-API总表增加业务调用点、候选API组、条件、仓库/Commit、发送机制、原始请求URL及Query/Body/Header已知字段名称摘要。源码列仍是实际发送点；业务调用点取调用链中发送文件之外最近的调用位置，缺失时回用发送点；它不是完整页面链证明。
+## 可选 AI 字段释义
 
-调用ID按物理发送点和业务位置等稳定上下文计算，不含条件、参数值、entry 枚举或阶段。条件/阶段仍保留在独立记录中。同一调用点的相同原因缺口共享 ID，并用 recordIds 关联全部记录。新增 `migration.identityVersion=call-site-v2`，旧版调用ID需重新生成，不能跨版本直接比较。原始证据与条件候选仍保留，尚未解决所有记录膨胀或分片合并问题。
+通过环境变量提供密钥，endpoint 使用完整 OpenAI 兼容 chat/completions 地址：
+
+```bash
+node src/ai-cli.js --input /path/to/task/delivery/analysis.json --out ../work/ai-delivery --enabled --endpoint https://provider.example/v1/chat/completions --model MODEL --key-env FRONTEND_AI_API_KEY
+```
+
+替换示例 endpoint/model，并在运行环境设置 `FRONTEND_AI_API_KEY`；不将密钥写进配置或 Git。当前仅对已提取字段加释义，不会修复漏发现的接口，真实模型质量尚未验收。
+
+网站收集与插件是辅助方案，见主仓库[网站 JS 方案](../../docs/网站%20JS%20收集与静态分析.md)。不要把独立收集命令当作已经自动接入上述仓库构建。已知阻断统一见[审计](audit.md)，复跑规则见[验证](testing.md)。

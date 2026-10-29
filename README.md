@@ -8,26 +8,25 @@
 
 | 方案 | 做法 | 本轮边界 |
 |---|---|---|
-| [前端代码仓JS请求API采集（白盒）](docs/前端代码仓JS请求API采集.md) | 源码模式直接扫描固定版本代码仓；构建增强模式联合源码、产物和 source map | 源码提取 CLI 已实现；模式、语义层与分析预算分别配置；不主动调用提取出的 API |
+| [前端代码仓 API 提取（白盒）](frontend-api-extractor/README.md) | 固定仓库并构建 JS，分析嵌套引用，提取 URL、参数、Host、JS 文件 | 已有构建和 Excel；jshound 增强核心重构中，仍有漏扫与性能缺口 |
 | [JS 请求采集浏览器插件（黑盒一）](docs/JS%20请求采集浏览器插件.md) | 自研 MV3 插件，当前浏览器所有窗口中的 HTTP/HTTPS 网页自动接入，Filter 控制留存，CDP 记录真实请求及可取得调用栈 | 只覆盖实际触发且可观测场景；采集缺失明确记录 |
 | [网站 JS 收集与静态分析（黑盒二）](docs/网站%20JS%20收集与静态分析.md) | 获取部署脚本，分析请求与字段候选 | 脚本引用最多三层；需适配打包代码与页面上下文 |
 
-**白盒源码模式已有独立 API 提取 CLI；黑盒一已有独立 MV3 插件；构建增强和黑盒二继续 PoC 与集成。** [插件开发与安装](docs/插件开发与安装.md)列出功能、命令、参考版本和待验收范围。 jshound、Vespasian、Akto、OpenAPI DevTools 和流量转 OpenAPI 工具已经覆盖大部分通用能力；先验证现成输出，再只补调用栈、源码定位、缺口状态和统一 Excel。白盒与网站 JS 分析的复用范围用同版源码/产物对照确定。
+白盒以仓库构建后四项提取为主路径，源码扫描保留为辅助诊断；黑盒一已有独立 MV3 插件，黑盒二已有资产收集和本地分析入口，真实现场验收仍有限。各工程当前状态以其 README 和开发计划为准。
 
 三路可以独立运行。结果分别标记“仓库静态 / 网站 JS 静态 / 插件实测”，可关联而不抹平版本、调用和字段差异。工作簿包含 API 总表、参数明细、分析缺口，另保留 `analysis.json` 证据底稿。
 
-## 前端代码仓 API 提取（白盒·源码模式）
+## 前端代码仓 API 提取
 
-[frontend-api-extractor](frontend-api-extractor/README.md) 扫描本地前端仓库，支持 JS/TS、React/Vue/Svelte 等脚本、自定义入口与语义层、跨文件请求封装和有限条件候选。结果包含方法、地址、参数、源码位置、调用链和未解析原因。调用者先将目标仓库检出到所需 Commit；源码模式不要求目标构建成功。
+[frontend-api-extractor](frontend-api-extractor/README.md) 的主目标是输入仓库、固定版本、正式构建、分析产物与嵌套 JS，输出四项主信息及代码依据。当前以 jshound 增强核心替换旧分析方式的设计已确认，尚未完成实现。
 
 ```bash
 cd frontend-api-extractor
 npm ci
-npm test
-node src/cli.js /path/to/frontend --out reports/apis.json
+node src/repository-cli.js https://github.com/aliyun/alibabacloud-gdb-console --work-dir ../work/repository-scans
 ```
 
-扫描范围、别名和预算见[配置示例](frontend-api-extractor/api-extractor.config.example.json)。当前交付 JSON/Markdown；统一任务前端与 Excel 适配待接入。[外部试跑记录](frontend-api-extractor/docs/alibaba-real-world.md)只保留测试仓库固定版本链接和结果，外部源码与扫描产物不纳入 Git。
+上述样本自动采用固定构建配置。其他仓库配置、预检和源码辅助命令见[使用指南](frontend-api-extractor/docs/usage.md)，当前缺陷和进度见[开发计划](frontend-api-extractor/docs/roadmap.md)。交付已有 JSON/Excel；外部测试源码、依赖和大报告只留 `work/`。
 
 ## 文档与目录
 
@@ -49,7 +48,7 @@ js-security/
 ├── docs/                  # 当前方案、交付规则、验证计划
 ├── Temp/                  # 候选工具与研究讨论，非实测结论
 ├── references/            # 工具、插件、项目评估与固定核查依据
-├── frontend-api-extractor/ # 独立前端源码 API 提取 CLI、配置、测试及小样例
+├── frontend-api-extractor/ # 仓库构建、JS 提取、文档、配置与验证
 └── browser-extension/     # 独立浏览器插件工程（依赖、源码、构建、测试）
     ├── src/               # MV3 后台、管理标签页、详情侧栏与采集模块
     ├── tests/             # 核心、转存、真实 CDP、页面与现场测试
