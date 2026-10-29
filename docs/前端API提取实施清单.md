@@ -1,6 +1,6 @@
 # 前端 API 提取实施清单
 
-更新：2026-10-28（UTC）；当前提取器版本 0.9.2 / 插件 0.7.1。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
+更新：2026-10-29（UTC）；当前提取器版本 0.9.3 / 插件 0.7.1。本文件累计记录此前已实现能力，并作为后续迭代的执行清单，每项完成后更新勾选、版本和证据。详细设计沿用[迭代路线与验证](前端API提取迭代路线与验证.md)，范围沿用[总方案](API资产收集总方案.md)。
 
 目标：输入前端 GitHub 仓库地址 → 固定版本 → 自动安装/正式构建 → 清点 JS/引用 → 有界深入分析 → 导出逐调用请求表。表格包含 JS 与源码位置、Host、URL、方法、Query/Body/Header 字段、条件、依据和未解析项。AI 释义独立附加。
 
@@ -21,7 +21,7 @@
 - [x] B06 逐调用/条件/阶段的 CSV、Markdown、JSON 请求表；真实 GDB 得到 3 个发送位置、4 行候选（0.8）。[请求表](../frontend-api-extractor/docs/gdb-build-pilot.md)
 - [x] B07 可选部署页面基址补全静态相对地址；代码 Host 与上下文候选分开（0.8.1）。[验证](../frontend-api-extractor/docs/deployment-context.md)
 
-## 已实现能力台账（累计至 0.9.2）
+## 已实现能力台账（累计至 0.9.3）
 
 下面保留 0.1～0.8.3 并补充 0.9 的累计能力，按实际实现的子集勾选。B01～B07 保留为流程索引，详细能力以下表/条目为准；后续 P0～P5 中未完成的扩展继续保持未勾选。版本取首次交付或主要补强版本，不把历史测试数累计相加。
 
@@ -174,6 +174,11 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 - [x] K06 原锁缺平台包时显式固定 esbuild Linux 编译器补充；父包声明/SHA512/严格解包/只读工具/独立来源回执，原锁不变（0.9.2）。[测试](../frontend-api-extractor/test/native-dependency.test.js)
 - [x] K07 独立无map冻结预期与通用构建验证器；严格URL路径/Query字段集合/已知字段依据，意外发送位置失败（0.9.2）。[基准](../frontend-api-extractor/baselines/validation/weather-no-map.json)
 
+## 0.9.3 绑定函数与请求体状态
+
+- [x] K08 静态bind的this/预填参数/重复绑定/call/apply/箭头词法this；分支绑定对象别名、自有方法覆盖/删除和预算限制，7份自写原生JS对照（0.9.3）。[验证](../frontend-api-extractor/docs/release-0.9.3.md)
+- [x] K09 明确序列化JSON请求体不再因格式大括号误判动态；字段未知与不支持replacer仍partial（0.9.3）。[测试](../frontend-api-extractor/test/bind.test.js)
+
 ## 每次迭代的完成检查
 
 每轮在下面的日志写明本轮条目、证据和未完成项，再更新对应勾选。测试通过不能替代真实项目/站点/Chrome 验收。
@@ -199,5 +204,6 @@ B05 只完成 source-map 辅助关联，不代表以下项完成。
 | 0.9.0 / 插件0.7.0 | P0余项、P1子集、封装/类/表单、有限Webpack、固定SDK、OpenAI兼容接口、黑盒二与统一Excel | 验证数量与性能见本轮报告；真实Vue/pnpm/Yarn构建、SDK61操作 | [验证与未通过项](../frontend-api-extractor/docs/release-0.9.md)、[基准](../frontend-api-extractor/docs/validation-0.9.md) |
 | 0.9.1 / 插件0.7.1 | J01～J06，真实压缩请求恢复、封装链、模块作用域/库契约及依据交付 | 提取器279、插件155项；旧外部22/22、Ant16/16、新定向4位置/8候选；原始XML不变 | [验证与剩余项](../frontend-api-extractor/docs/release-0.9.1.md) |
 | 0.9.2 / 插件0.7.1 | K05～K07、P3-04限定验收；构建前检查、固定原生编译器补装 | 提取器286项全通过；独立Vite无map首测4/4业务形态；GDB 3位置/4候选、Nacos 1位置/4候选回归通过；真实重复构建/Excel与仅检查入口通过 | [验证与范围](../frontend-api-extractor/docs/release-0.9.2.md) |
+| 0.9.3 / 插件0.7.1 | K08～K09，绑定函数及已知JSON序列化状态 | 提取器298项；7份自写原生行为对照；GDB/Nacos/weather冻结回归通过；跨文件Excel样例 | [验证与剩余项](../frontend-api-extractor/docs/release-0.9.3.md) |
 
 历史说明（0.8.2 文档补全时）：按实现、测试、历次验证补录 S/E/R/Q/D/V 和独立黑盒一台账，补齐 0.1.0～0.8.2 历史；该次仅补文档，180 项为当时最近一次代码验证记录。后续迭代以表中各版本记录为准。

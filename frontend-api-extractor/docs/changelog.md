@@ -1,5 +1,11 @@
 # 迭代记录
 
+## 0.9.3 / 插件0.7.1
+
+- 静态bind保留this/预填参数/重复绑定/箭头词法this；分支克隆保持绑定对象别名，函数自有call/apply/bind覆盖不再误当原生。
+- 修复明确JSON.stringify请求体因大括号误标动态；未知输入与不支持replacer仍partial。
+- 提取器298项测试；7份自写情景用原生JS＋假fetch对照；GDB/Nacos/weather冻结回归通过。真实页面全链仍未完成。[验证](release-0.9.3.md)。
+
 ## 0.9.2 / 插件0.7.1
 
 - 新增 inspect-only 固定仓库构建计划，检查脚本、输入路径/大小、锁文件与工具冲突；不启动 Docker 或安装依赖。

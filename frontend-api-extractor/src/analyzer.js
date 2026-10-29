@@ -302,7 +302,7 @@ export async function analyze(root, options = {}) {
     const fields = clean(constructed);
     const unresolved = [];
     for (const [key, value] of Object.entries({ url: rawUrl, method, baseURL: base, ...fields, spread: data[UNKNOWN] })) {
-      if (dynamic(value) || key === 'spread' && value) unresolved.push(key === 'spread' ? `未知配置展开: ${value}` : `${key} 含动态值`);
+      if (dynamic(constructed[key]?.[TAG]==='serialized'?constructed[key]:value) || key === 'spread' && value) unresolved.push(key === 'spread' ? `未知配置展开: ${value}` : `${key} 含动态值`);
     }
     if(ctx.discovery==='asset-local')unresolved.push('业务入口未连接，值仅为资产级局部候选');
     if(hooks.length||info?.observed){unresolved.push(config.modelRequestHooks?'request hook 后结果另见 afterRequestHooks':'request hook 未建模，Host/URL/参数可能继续变化');if(!config.modelRequestHooks)diagnostic('REQUEST_HOOK_UNMODELED','检测到可能的请求拦截器；仅报告调用处构造值',node);}
@@ -443,6 +443,10 @@ export async function analyze(root, options = {}) {
   }
   function writeProperty(reference,value,node,ctx,operation='set') {
     let {target,key}=reference;
+    if(target?.[TAG]==='function'){
+      if(typeof key==='string'&&['bind','call','apply'].includes(key)){target.functionMembers??={};if(operation==='delete')delete target.functionMembers[key];else target.functionMembers[key]=value;effect(ctx,'mutated');return;}
+      target.functionMembersUnknown=true;diagnostic('FUNCTION_MEMBER_UNMODELED','函数属性动态或未支持改写，call/apply/bind不再假设原生',node);return;
+    }
     if(target?.[TAG]==='instance')target=target.properties;
     if(!target || typeof target!=='object' || target[TAG] || isUnknown(target)&&!target[CHANGES]) {
       if(config.modelRequestHooks&&target?.[CLIENT_STATE])target[CLIENT_STATE].gaps.push('unsupported client/defaults write');
@@ -474,6 +478,13 @@ export async function analyze(root, options = {}) {
     if(object!=null&&Object.hasOwn(object,key))return object[key];
     if(object&&typeof object==='object'&&!object[TAG]&&!hasUnknown(object)&&!['constructor','toString','valueOf','hasOwnProperty','isPrototypeOf','propertyIsEnumerable','toLocaleString','__proto__'].includes(String(key)))return undefined;
     return unknown(node.getText());
+  }
+  function functionMember(object,key,node){
+    const fn=object?.[TAG]==='function'?object:object?.[TAG]==='intrinsic'&&object.method==='bound-instance'?object.fn:null;
+    if(!fn||!['call','apply','bind'].includes(key))return null;
+    if(fn.functionMembersUnknown)return unknown('function member overwritten');
+    if(Object.hasOwn(fn.functionMembers??{},key)){const member=fn.functionMembers[key],direct=ts.isCallExpression(node.parent)&&node.parent.expression===node;return direct&&member?.[TAG]==='function'&&!ts.isArrowFunction(member.node)?{[TAG]:'intrinsic',method:'bound-object',receiver:fn,fn:member}:member;}
+    return {[TAG]:'intrinsic',method:'function-'+key,receiver:fn};
   }
   function memberValue(object,key,node){
     const member=ownValue(object,key,node),direct=ts.isCallExpression(node.parent)&&node.parent.expression===node;
@@ -616,7 +627,7 @@ export async function analyze(root, options = {}) {
           if(config.modelRequestHooks){const interceptor=interceptorProperty(value,node.name.text);if(interceptor)return interceptor;if(value?.[TAG]==='intrinsic'&&value.method.startsWith('axios-'))return unknown(node.getText());}
           if(value?.[TAG]==='module')return moduleExport(value,node.name.text,env,ctx,node);
           if(value?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:value.namespace};
-          if(value?.[TAG]==='function'&&['call','apply'].includes(node.name.text))return {[TAG]:'intrinsic',method:'function-'+node.name.text,receiver:value};
+          const functionProperty=functionMember(value,node.name.text,node);if(functionProperty)return functionProperty;
           if(value?.[TAG]==='instance'){const key=node.name.text;if(Object.hasOwn(value.properties,key))return value.properties[key];if(value.methods[key])return {[TAG]:'intrinsic',method:'bound-instance',receiver:value,fn:value.methods[key]};return unknown(node.getText());}
           if(typeof value==='string'&&['indexOf','includes','startsWith','endsWith','split','toLowerCase','toUpperCase','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'string-'+node.name.text,receiver:value};
           if(Array.isArray(value)&&['push','pop','shift','unshift','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'array-'+node.name.text,receiver:value};
@@ -641,7 +652,7 @@ export async function analyze(root, options = {}) {
             if (bound.has(s)) return bound.get(s);
           }
         } else if(ts.isClassDeclaration(d)||ts.isClassExpression(d))return {[TAG]:'class',node:d,env};
-        else if (ts.isFunctionDeclaration(d) || ts.isMethodDeclaration(d)) return { [TAG]: 'function', node: d, env };
+        else if (ts.isFunctionDeclaration(d) || ts.isMethodDeclaration(d)) {const fn={ [TAG]: 'function', node: d, env };env.set(s,fn);return fn;}
         else if (ts.isExportAssignment(d)) return evaluate(d.expression, env, ctx, next);
       }
       if(ts.isIdentifier(node)&&config.angularServices.includes(node.text)&&!(s?.declarations?.some(d=>sources.has(d.getSourceFile().fileName))))return angularService(node.text,env,ctx,node);
@@ -656,7 +667,7 @@ export async function analyze(root, options = {}) {
           if(config.modelRequestHooks){const interceptor=interceptorProperty(object,node.name.text);if(interceptor)return interceptor;if(object?.[TAG]==='intrinsic'&&object.method.startsWith('axios-'))return unknown(node.getText());}
           if(object?.[TAG]==='module')return moduleExport(object,node.name.text,env,ctx,node);
           if(object?.[TAG]==='module-promise' && node.name.text==='then')return {[TAG]:'intrinsic',method:'module-then',namespace:object.namespace};
-          if(object?.[TAG]==='function'&&['call','apply'].includes(node.name.text))return {[TAG]:'intrinsic',method:'function-'+node.name.text,receiver:object};
+          const functionProperty=functionMember(object,node.name.text,node);if(functionProperty)return functionProperty;
           if(object?.[TAG]==='instance'){const key=node.name.text;if(Object.hasOwn(object.properties,key))return object.properties[key];if(object.methods[key])return {[TAG]:'intrinsic',method:'bound-instance',receiver:object,fn:object.methods[key]};return unknown(node.getText());}
           if(typeof object==='string'&&['indexOf','includes','startsWith','endsWith','split','toLowerCase','toUpperCase','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'string-'+node.name.text,receiver:object};
           if(Array.isArray(object)&&['push','pop','shift','unshift','slice'].includes(node.name.text))return {[TAG]:'intrinsic',method:'array-'+node.name.text,receiver:object};
@@ -676,6 +687,7 @@ export async function analyze(root, options = {}) {
           const interceptor=interceptorProperty(v,k);if(interceptor)return interceptor;
           if(v?.[TAG]==='intrinsic'&&v.method.startsWith('axios-')){if(v.state&&isUnknown(k))v.state.gaps.push('dynamic interceptor property');return unknown(node.getText());}
         }
+        const functionProperty=functionMember(v,k,node);if(functionProperty)return functionProperty;
         return v?.[TAG]==='module'?moduleExport(v,k,env,ctx,node):!isUnknown(v)&&v!=null&&!isUnknown(k)?ownValue(v,k,node):unknown(node.getText());
       },node);
     }
@@ -812,6 +824,11 @@ export async function analyze(root, options = {}) {
         if(result.value?.[TAG]==='serialized')result.value.input=cloneEnv(new Map([['form',result.value.input]])).get('form');
         return result.value;
       }
+      if(target.method==='function-bind') {
+        const fn=target.receiver,boundArgs=[...(fn.boundArgs??[]),...args.slice(1)];
+        if(boundArgs.length>config.maxCandidates){diagnostic('BOUND_ARGUMENT_LIMIT','bind预填参数超过maxCandidates，绑定目标保持未知',node);return unknown('bind argument limit');}
+        return {...fn,functionMembers:undefined,functionMembersUnknown:false,boundArgs,boundThis:Object.hasOwn(fn,'boundThis')?fn.boundThis:args[0]??unknown('bind global this')};
+      }
       if(['function-call','function-apply'].includes(target.method)) {
         const forwarded=target.method==='function-call'?args.slice(1):args[1]==null?[]:args[1];
         if(!Array.isArray(forwarded)||hasUnknown(forwarded)){diagnostic('DYNAMIC_APPLY_ARGUMENTS','apply requires a finite known argument array',node);return unknown(node.getText());}
@@ -861,6 +878,8 @@ export async function analyze(root, options = {}) {
     return unknown(node.getText());
   }
   function invoke(fn, args, ctx, call) {
+    if(Object.hasOwn(fn,'boundThis')){args=[...fn.boundArgs,...args];ctx={...ctx,thisValue:fn.boundThis};}
+
     if (ctx.chain.length >= config.maxDepth) { diagnostic('MAX_DEPTH', '达到调用深度上限', call); return unknown('maxDepth'); }
     if (ctx.active.has(fn.node)&&(ts.isFunctionDeclaration(fn.node)||(ctx.closures??[]).some(c=>c.node===fn.node&&c.env===fn.env))) { diagnostic('RECURSION', '递归调用已截断', call); return unknown('recursive'); }
     if (!analyzedFunctions.has(fn.node)) analyzedFunctions.set(fn.node,new Set());
