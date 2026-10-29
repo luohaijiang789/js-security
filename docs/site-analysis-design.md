@@ -1,6 +1,6 @@
 # 黑盒二：网站 JS 递归收集与 API 提取设计
 
-状态：设计，尚无新的可运行实现。用户当前优先实现黑盒二，不等待白盒。依据见[讨论结论](api-discovery-decisions.md)，进度与验收见[实施计划](site-analysis-plan.md)。
+状态：已按[执行计划](site-analysis-plan.md)开始实施；[S1 独立离线原型](../site-js-analyzer/README.md)已可运行，后续递归、精确定位和正式 Excel 尚未完成。用户当前优先实现黑盒二，不等待白盒。依据见[讨论结论](api-discovery-decisions.md)，进度与验收见[实施计划](site-analysis-plan.md)。
 
 ## 1. 目标与首版入口
 

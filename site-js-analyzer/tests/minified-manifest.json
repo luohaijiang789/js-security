@@ -1,0 +1,9 @@
+{
+  "generator": "esbuild@0.28.2 --minify --format=esm (without bundling)",
+  "sha256": {
+    "level2.js": "b3ca6ae20f96ee68a157bce09d554c98025f81b38a951c9c55f7304876a8b2b1",
+    "level3.js": "0c04ff1f150fa563f14c6d6a8e850d3538f55fba686c11902f13bd7f1b96f43d",
+    "level4.js": "7b27527120a66d90145b05cc06587f553aaa115ccb43c07f386972de4bc69822",
+    "main.js": "d77d025c4bb755136e32724aa5c31c7810b47a90ccaeab0d7ba5fbde1d078ed8"
+  }
+}

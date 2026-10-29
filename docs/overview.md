@@ -31,7 +31,7 @@ flowchart LR
 
 白盒当前主线已经收敛为：**仓库 → 固定版本 → 正式构建 → 嵌套 JS 分析 → URL、参数、Host、JS 文件**。旧实现已经删除，当前处于架构和基线设计阶段；具体状态只在[提取器实施计划](../frontend-api-extractor/docs/plan.md)维护。
 
-当前优先实现黑盒二，按[详细设计](site-analysis-design.md)先做 HAR/资产包导入、递归补取、jshound 离线提取与统计，不等待白盒。请求识别和值追踪可复用，输入与上下文适配分别维护；状态见[黑盒二计划](site-analysis-plan.md)。
+当前优先实现黑盒二，不等待白盒。按[详细设计](site-analysis-design.md)已完成[离线原型](../site-js-analyzer/README.md)的目录/HAR 导入、内部字段保留与候选预览；递归补取、精确位置和正式统计继续按阶段实施。请求识别和值追踪可复用，输入与上下文适配分别维护；状态见[黑盒二计划](site-analysis-plan.md)。
 
 ## 证据和边界
 

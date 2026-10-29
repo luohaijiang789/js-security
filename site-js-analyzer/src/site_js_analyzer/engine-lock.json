@@ -1,0 +1,7 @@
+{
+  "name": "jshound",
+  "repository": "https://github.com/AmbitSecurity/jshound",
+  "commit": "f34f9c5dcfa0f30816a66881ea9a8d8573c24f05",
+  "license": "MIT",
+  "api": "analyze_with_paths"
+}
