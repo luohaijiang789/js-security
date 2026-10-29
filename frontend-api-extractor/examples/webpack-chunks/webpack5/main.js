@@ -1,1 +1,0 @@
-"use strict";(self.webpackChunk=self.webpackChunk||[]).push([[792],{44:(e,t,s)=>{(0,s(87).$)(7),s.e(944).then(s.bind(s,944)).then(e=>e.query(9))},87:(e,t,s)=>{function n(e){return fetch("https://api.example.test/users/lookup",{method:"POST",body:JSON.stringify({account:{id:e}})})}s.d(t,{$:()=>n})}},e=>{e(e.s=44)}]);

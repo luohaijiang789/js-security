@@ -1,7 +1,0 @@
-{
-  "method": "POST",
-  "url": "https://api.example.test/v1/items",
-  "headers": {"X-App": "audit"},
-  "bodies": [{"account": {"id": 8}}, {"account": {"id": 9}}],
-  "changeSource": "prepare.js"
-}

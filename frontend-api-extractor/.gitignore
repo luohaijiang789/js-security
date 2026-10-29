@@ -5,5 +5,3 @@ work/
 /benchmarks/
 *.tgz
 *.zip
-!examples/multi-framework/dist/
-!examples/multi-framework/dist/ignored.js

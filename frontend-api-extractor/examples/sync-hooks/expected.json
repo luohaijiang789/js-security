@@ -1,8 +1,0 @@
-{
-  "callSiteUrl": "https://before.test/original",
-  "method": "POST",
-  "url": "https://after.test/items",
-  "headers": {"X-Order": "first"},
-  "body": "{\"id\":7,\"tag\":\"added\"}",
-  "activeHookCount": 2
-}
