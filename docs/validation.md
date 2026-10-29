@@ -6,7 +6,7 @@
 
 ## 0. 提取器验证入口
 
-需求、开发和单路验收集中在提取器自己的 docs/，本页不重复勾选实现进度。历史完成项、动态 ESM/预算与构建实测均保留在[累计能力台账](../frontend-api-extractor/docs/archive/planning/implementation-through-0.10.md)和[样本归档](../frontend-api-extractor/docs/archive/README.md)。当前六项缺陷、嵌套 JS 与性能工作见[开发计划](../frontend-api-extractor/docs/plan.md)。
+需求、开发和单路验收集中在提取器自己的 docs/，本页不重复勾选实现进度。旧版记录通过 Git 历史追溯；当前六项缺陷、嵌套 JS 与性能工作见[开发计划](../frontend-api-extractor/docs/plan.md)。
 
 ## 1. 材料准备
 

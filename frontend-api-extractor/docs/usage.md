@@ -17,7 +17,7 @@ node src/repository-cli.js --help
 node src/repository-cli.js https://github.com/aliyun/alibabacloud-gdb-console --work-dir ../work/repository-scans
 ```
 
-该地址自动采用 [gdb-console.json](../profiles/gdb-console.json)，固定 Commit `49336dbcc958236e233a921f60353802cbd43130`，使用项目需要的构建环境。历史实测见 [GDB 报告](archive/validation/gdb-build-pilot.md)，本次文档整理没有重跑构建。
+该地址自动采用 [gdb-console.json](../profiles/gdb-console.json)，固定 Commit `49336dbcc958236e233a921f60353802cbd43130`，使用项目需要的构建环境。本次文档整理没有重跑该构建。
 
 其他仓库先复制[配置模板](../profiles/repository.example.json)，调整环境、项目目录、包管理器、构建命令和产物目录。以下 `OWNER/REPO` 替换为真实仓库：
 
@@ -29,7 +29,7 @@ node src/repository-cli.js https://github.com/OWNER/REPO --profile ../work/my-pr
 
 预检会拉取并固定仓库，检查脚本/锁文件并输出 `build-plan.json`，不执行 Docker 安装/构建。核对计划后，去掉 `--inspect-only` 运行正式任务；用 `--ref` 指定真实完整 40 位 Commit 可固定复跑。未指定版本且无内置版本时会固定远端 HEAD。
 
-当前 npm 需要 package-lock；pnpm/Yarn Classic 需要对应锁文件及明确完整包管理器版本。`projectDir` 支持子项目，不能自动猜测所有 monorepo/多应用构建；私有依赖和环境缺失会失败。更多配置见[现有构建机制](internals/pipeline/repository-build.md)。
+当前 npm 需要 package-lock；pnpm/Yarn Classic 需要对应锁文件及明确完整包管理器版本。`projectDir` 支持子项目，不能自动猜测所有 monorepo/多应用构建；私有依赖和环境缺失会失败。
 
 终端返回 `taskDir`，结果在 `taskDir/delivery/api_assets.xlsx` 与 `taskDir/delivery/analysis.json`。原始分析在 `taskDir/analysis.json`；`task.json`、`logs/` 记录构建和分析状态。失败先查具体阶段，不反复提高分析预算重试安装问题。
 
@@ -54,7 +54,7 @@ node src/repository-cli.js https://github.com/OWNER/REPO --profile ../work/my-pr
 node src/cli.js /path/to/frontend --config /path/to/scan.config.json --out ../work/source/report.json
 ```
 
-生成 `report.json`、`report.json.delivery/api_assets.xlsx` 和统一底稿。配置见[示例](../api-extractor.config.example.json)，详细配置见[源码扫描参考](internals/pipeline/source-scan.md)。
+生成 `report.json`、`report.json.delivery/api_assets.xlsx` 和统一底稿。配置见[示例](../api-extractor.config.example.json)。
 
 默认 `semantic` 是旧逐入口分析，可能耗时和超预算；源码还可选择 `jshound` 或 `hybrid`：
 
