@@ -59,8 +59,6 @@ taskDir/
 frontend-api-extractor/
 ├── README.md        # 项目入口
 ├── docs/            # 目标、设计、难点、计划、测试和使用
-│   ├── internals/   # 按职责分类的现有机制与开源依据
-│   └── archive/     # 历次发布、实测、早期方案和累计能力
 ├── src/             # 当前实现；新核心逐步替换
 ├── tools/           # 验证、对照和审计工具
 ├── profiles/        # 构建与扫描配置
@@ -83,4 +81,4 @@ frontend-api-extractor/
 | [测试与验收](docs/testing.md) | 如何同时验证正确性、覆盖和速度 |
 | [使用](docs/usage.md) | 当前版本实际能运行哪些命令 |
 
-全部导航见 [docs/README.md](docs/README.md)。历史能力与验证保留在[归档](docs/archive/README.md)，不再逐版堆到本页。实现语言按复用效果、提取正确性和性能选择，不限定为 JavaScript。
+全部导航见 [docs/README.md](docs/README.md)。旧方案和逐版本报告通过 Git 历史追溯，不继续留在工作树。实现语言按复用效果、提取正确性和性能选择，不限定为 JavaScript。

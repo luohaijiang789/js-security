@@ -47,7 +47,7 @@ Webpack module ID/require/chunk loader、Vite/Rollup ESM 等由适配器转换�
 4. 封装摘要描述实参如何进入请求、默认配置、条件及字段写集，避免每个页面重复展开依赖。
 5. 副作用、hook、闭包及未知调用按受影响字段降级；地址与载体状态、构造处与 hook 后结果分别保存。
 
-jshound 提供识别、索引、客户端与封装恢复基础，其名称启发式和字段归并需要约束，见[开源核对](internals/research/jshound.md)。外部候选不直接升级为确定接口，单一发现器不作为精查的排他门禁。
+jshound 提供识别、索引、客户端与封装恢复基础。固定上游版本 `f34f9c5` 的 `indexExports`、`collectWrappers` 和跨批次模块索引用于建立共享发现能力；其输出缺少精确行列，部分归因依赖名称启发式，因此外部候选不能直接升级为确定接口，单一发现器也不能成为精查的排他门禁。上游源码见 [jshound](https://github.com/AmbitSecurity/jshound)。
 
 摘要键考虑模块版本、绑定、实参抽象值、this、相关闭包/配置/hook；只用 AST 节点不安全。复用时重新关联当前调用位置，防止字段串线。不要求模拟完整页面生命周期。
 
@@ -67,6 +67,8 @@ jshound 提供识别、索引、客户端与封装恢复基础，其名称启发
 | 构建/收集/调度 | 比较现有 Node 与上游 Python 收集能力；可跨进程复用，统一输入/结果协议 |
 | 性能热点 | 先定位，再决定是否用 Python/Go/Rust 等实现独立模块；以测量证明收益 |
 | AI/交付 | 对接稳定协议，不绑定解析语言 |
+
+算法参考包括 [CodeQL JavaScript 数据流](https://codeql.github.com/docs/codeql-language-guides/analyzing-data-flow-in-javascript-and-typescript/)、[TAJS 按需精化](https://cs.au.dk/~amoeller/papers/tajsvr/)和 [Jelly](https://github.com/cs-au-dk/jelly) 的工作列表求解。它们只作为设计依据，未接入的能力不写成已实现。
 
 正式增强维护可访问 fork，保留许可证与上游基线；增强提交先推送 fork，再更新引用。当前参考子模块仍固定原版，增强 fork 尚未创建。先对比上游完整工具与当前 worker，决定收集功能复用范围。
 

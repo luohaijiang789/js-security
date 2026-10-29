@@ -15,4 +15,4 @@
 - [浏览器请求采集插件](../browser-extension/README.md)：实际请求采集、安装、规格、UI 和现场验收。
 - [工具与项目评估](../references/README.md)：外部方案、固定版本和采用依据。
 
-旧版提取器设计、发布和验证已经迁入[提取器归档](../frontend-api-extractor/docs/archive/README.md)。外部源码、依赖、构建产物和完整报告只放 `work/`。
+旧版提取器设计、发布和验证通过 Git 历史追溯。外部源码、依赖、构建产物和完整报告只放 `work/`。
