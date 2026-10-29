@@ -78,4 +78,4 @@ node src/ai-cli.js --input /path/to/task/delivery/analysis.json --out ../work/ai
 
 替换示例 endpoint/model，并在运行环境设置 `FRONTEND_AI_API_KEY`；不将密钥写进配置或 Git。当前仅对已提取字段加释义，不会修复漏发现的接口，真实模型质量尚未验收。
 
-网站收集与插件是辅助方案，见主仓库[网站 JS 方案](../../docs/网站%20JS%20收集与静态分析.md)。不要把独立收集命令当作已经自动接入上述仓库构建。已知阻断统一见[审计](audit.md)，复跑规则见[验证](testing.md)。
+网站收集与插件是辅助方案，见主仓库[网站 JS 方案](../../docs/site-analysis.md)。不要把独立收集命令当作已经自动接入上述仓库构建。已知阻断统一见[审计](audit.md)，复跑规则见[验证](testing.md)。
