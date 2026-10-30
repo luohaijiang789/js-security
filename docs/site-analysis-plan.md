@@ -52,9 +52,9 @@ S0.4 的独立样本准备可与 S1/S2 的通用输入实现交错推进，但�
 - [x] **S2.1 引用发现**：复用 chunk_map/module specifier，覆盖 import、字面量动态 import、Webpack/Vite 表、内联脚本和 import map；确定引用与推测分开。产出 AssetEdge，保留父位置/类型/解析基址。
 - [x] **S2.2 深度与队列**：内联 0、直接外链 1，默认补取至 3；已取得更深资产仍分析。循环/多父复用，短路径晚到重新评估，未知父链不记第一层。验证层数与队列停止原因。
 - [x] **S2.3 网络范围与会话**：只请求确定静态资产，资源来源与 API Host 分离；逐跳检查重定向，认证信息不自动跨域；401/403/登录 HTML 留缺口。受控服务器核对无主动 API 请求。
-已落地的边界：S2.1 复用固定引擎，Webpack 4 旧式 builder 未暴露的引用位置保留 null；Vite 没有可靠模块基址的表项只做候选。S2.3 的会话仅接受本地显式 origin 请求头，不从 HAR 复制认证。以下 S2.4 已完成串行预算与恢复，仍缺并发调度及压力验证，因此整项保持未勾选。
+已落地的边界：S2.1 复用固定引擎，Webpack 4 旧式 builder 未暴露的引用位置保留 null；Vite 没有可靠模块基址的表项只做候选。S2.3 的会话仅接受本地显式 origin 请求头，不从 HAR 复制认证。S2.4 已完成并发预算、原子 checkpoint、哈希恢复和受控较大输入验证；不代表生产大站性能或完整 S2 验收。
 
-- [ ] **S2.4 预算与恢复**：配置文件数/字节/超时/重试/并发/总时长；超限、解析失败保存部分数据，支持快照恢复。禁止截断当完整；不可访问目标不绕过网络策略。
+- [x] **S2.4 预算与恢复**：配置文件数/字节/超时/重试/并发/总时长；超限、解析失败保存部分数据，支持快照恢复。禁止截断当完整；不可访问目标不绕过网络策略。
 - [ ] **S2.5 扩展上下文**：Worker/importScripts、脚本插入、source map 分别适配；原始脚本、map 和源码层数不混用。不主动注册 Service Worker。
 - [ ] **S2.6 递归验收**：同一引擎对比补取前后，新增 API 可关联具体新增脚本；受控多层矩阵和独立冻结样本同时验证。
 
@@ -96,7 +96,13 @@ S0.4 的独立样本准备可与 S1/S2 的通用输入实现交错推进，但�
 
 本轮验证：[52 项自动化检查](../site-js-analyzer/tests/test_collection.py)（含原有 27 项）、[冻结引用样例与受控递归](../site-js-analyzer/tests/check_collection.py)、原始/HAR/压缩与公开 Swagger UI 回归。冻结 Webpack demo/webpack4/Vite 共识别 3/2/5 条引用；Vite 其中 3 条缺基址证据的表项保留候选。默认三层取得 b/c，恢复到四层仅取 d，候选数分别 1/3/4，服务端未记录任何业务 API 探测；循环/多父、晚到短链、版本歧义、阻断 map、重定向认证隔离、截断、403/503、预算和篡改恢复有正常/反例验证。原始日志在 `work/blackbox2-tools/logs/s2-*`，可回查结果在 `work/site-collection-check-*/`。
 
-下一执行项：完善 S2.4 的并发与更大输入预算验证，再做 S2.5 Worker/脚本插入/source map 上下文；S0.4 独立标注样本及 S2.6 整体验收未完成。增强 fork、API 精确定位、正式 Excel 和浏览器接入也继续未勾选，不把当前可运行链路当作完整黑盒二完成。
+2026-10-30 继续完成 S2.4：CLI/schema 升至 0.3；增加 `--fetch-concurrency`（默认 4，范围 1–32）、按层有界调度、同上下文 URL/重定向共享、线程安全文件/字节预留及本轮 `fetch_statistics`。HTTP 线程只获取正文，主线程更新图与原子 checkpoint；超时/取消回收在途任务，已完成正文仍可恢复，兼容 0.2 checkpoint。未知长度无法证明 EOF 时不收录，失败读取保守计费；系统 DNS 阻塞不承诺强制中断。统计指应用正文，不代表网卡流量。
+
+验证：[62 项自动化测试](../site-js-analyzer/tests/test_concurrency.py)（含原有 52 项）、[公开引用回归](../site-js-analyzer/tests/check_collection.py)、[原始/HAR/压缩及公开 bundle 回归](../site-js-analyzer/tests/check_baseline.py)、[较大输入采集检查](../site-js-analyzer/tests/check_collection_load.py)全部通过；0.3.0 wheel 在新虚拟环境安装并跑通 13 请求基线。准确命令见 [CLI 验证入口](../site-js-analyzer/README.md#验证)，原始日志为 `work/blackbox2-tools/logs/s24-*`，结果为 `work/site-collection-load-0df5847934/`、`work/site-collection-check-fb1c9e2999/`、`work/site-analyzer-check-b7a38a7155/`、`work/site-wheel-check-s24/`。
+
+本地采集记录（不是吞吐保证）：128 个脚本加共享循环子脚本共 129 次 GET、257 条引用边；串行/并发约 8.40/3.06 秒、并发峰值 1/4，图语义一致。文件上限 8 后保存 8 个脚本，恢复仅 GET 缺失的 121 个。16 个 URL 上重复的冻结 Swagger UI 派生正文，加共享子脚本共读取 26,948,279 字节；串行/并发图一致，预算无超支、退出时无在途请求或预留。没有业务 API 探测。重复正文命中 AST 缓存，不能外推不同大包分析成本；Python 与子进程 RSS 高水位分别约 91 MiB / 1.25 GiB，子进程计量是 Linux 已结束子进程最大值，不是完整进程树总量。内存限制与优化仍需 S5 验证。
+
+下一执行项：S2.5 Worker/importScripts、脚本插入和 source map 上下文，随后补独立样本与 S2.6 递归验收。S0.4、S3 精确发送点、S4 正式统计/Excel、S5 性能及浏览器产品集成继续未完成；API 仍为文件级候选。
 
 ## 必测矩阵
 

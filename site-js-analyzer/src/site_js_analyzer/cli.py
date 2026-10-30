@@ -40,6 +40,7 @@ def parser():
     run.add_argument('--fetch-deadline', type=float, default=60)
     run.add_argument('--fetch-retries', type=int, default=1)
     run.add_argument('--max-fetch-files', type=int, default=100)
+    run.add_argument('--fetch-concurrency', type=int, default=4, help='Maximum concurrent static-resource requests (1-32).')
     run.add_argument('--session-file', type=Path, help='Local exact-origin header map; never copied into reports.')
     return root
 
@@ -52,7 +53,7 @@ def main(argv=None):
         print('Invalid input path or symbolic link.', file=sys.stderr)
         return 2
     durations = [args.timeout, args.discovery_timeout, args.fetch_timeout, args.fetch_deadline]
-    if any(not math.isfinite(v) or v <= 0 for v in durations) or min(args.max_files, args.max_asset_mib, args.max_total_mib, args.max_fetch_files) <= 0 or args.max_js_depth < 0 or not 0 <= args.fetch_retries <= 5:
+    if any(not math.isfinite(v) or v <= 0 for v in durations) or min(args.max_files, args.max_asset_mib, args.max_total_mib, args.max_fetch_files) <= 0 or args.max_js_depth < 0 or not 0 <= args.fetch_retries <= 5 or not 1 <= args.fetch_concurrency <= 32:
         print('Budgets and timeout must be positive.', file=sys.stderr)
         return 2
     if args.page_url and (not args.directory or not http_url(args.page_url)):
@@ -70,13 +71,14 @@ def main(argv=None):
         print(f'Cannot create output: {error}', file=sys.stderr)
         return 2
     snapshot = Snapshot(output, args.max_files, args.max_asset_mib*1024*1024, args.max_total_mib*1024*1024)
-    task = dict(id=str(uuid.uuid4()), schema_version='0.2', tool_version=__version__, engine=LOCK,
+    task = dict(id=str(uuid.uuid4()), schema_version='0.3', tool_version=__version__, engine=LOCK,
                 input=str(source.resolve()), input_type='har' if args.har else 'resume' if args.resume else 'directory',
                 started_at=datetime.now(timezone.utc).isoformat(), phase='import', status='running',
                 settings=dict(timeout=args.timeout, max_files=args.max_files, max_asset_mib=args.max_asset_mib, max_total_mib=args.max_total_mib,
                               max_js_depth=args.max_js_depth, seed_js=args.seed_js, discovery_timeout=args.discovery_timeout,
                               fetch_js=args.fetch_js, allowed_origins=args.allow_origin, fetch_timeout=args.fetch_timeout,
-                              fetch_deadline=args.fetch_deadline, max_fetch_files=args.max_fetch_files, fetch_retries=args.fetch_retries))
+                              fetch_deadline=args.fetch_deadline, max_fetch_files=args.max_fetch_files, fetch_retries=args.fetch_retries,
+                              fetch_concurrency=args.fetch_concurrency))
     records, candidates, groups, other = [], [], [], []
     code = 0
     try:
@@ -99,7 +101,7 @@ def main(argv=None):
             if args.session_file and not args.fetch_js:
                 raise ValueError('--session-file is only used with --fetch-js.')
             ReferenceGraph(snapshot, args.engine_root, max_depth=args.max_js_depth,
-                           timeout=args.discovery_timeout, seeds=args.seed_js).run(fetcher)
+                           timeout=args.discovery_timeout, seeds=args.seed_js, concurrency=args.fetch_concurrency).run(fetcher)
             task['collection_snapshot_sha256'] = digest([(a['id'], a['sha256']) for a in snapshot.assets])
             task['phase'] = 'analyze'
             print(f'Analyzing {len(snapshot.assets)} assets with pinned jshound...', file=sys.stderr)
@@ -127,6 +129,7 @@ def main(argv=None):
     edges = getattr(snapshot, 'reference_edges', [])
     report = dict(task=task, contexts=snapshot.contexts, assets=snapshot.assets, candidates=candidates, api_group_previews=groups,
                   reference_edges=edges, fetch_events=getattr(snapshot, 'fetch_events', []),
+                  fetch_statistics=getattr(snapshot, 'fetch_statistics', None),
                   collection_checkpoint='collection.json' if (output/'collection.json').exists() else None,
                   engine_record_file='engine-records.json', other_engine_record_ids=other, gaps=snapshot.gaps,
                   statistics=dict(imported_assets=sum(a.get('acquisition') != 'static-supplement' for a in snapshot.assets),

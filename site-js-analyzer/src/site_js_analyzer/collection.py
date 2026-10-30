@@ -1,5 +1,6 @@
 """Evidence graph, shortest reference depths, and opt-in static JS supplementation."""
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed, wait, CancelledError
 from html.parser import HTMLParser
 from pathlib import Path, PurePosixPath
 import posixpath
@@ -107,12 +108,15 @@ def mapped_specifier(specifier, module_url, document_base, maps):
 
 
 class ReferenceGraph:
-    def __init__(self, snapshot, engine_root, *, max_depth=3, timeout=60, seeds=()):
+    def __init__(self, snapshot, engine_root, *, max_depth=3, timeout=60, seeds=(), concurrency=4):
         self.snapshot = snapshot
         self.engine_root = verify_engine(engine_root)
         self.max_depth = max_depth
         self.end = time.monotonic()+timeout
         self.seeds = set(seeds)
+        if not 1 <= concurrency <= 32:
+            raise ValueError('Collection concurrency must be between 1 and 32.')
+        self.concurrency = concurrency
         self.edges, self.cache, self.scanned, self.maps = [], {}, set(), {}
         self.failures = {}
         self.import_gaps = list(snapshot.gaps)
@@ -301,8 +305,63 @@ class ReferenceGraph:
             parent = by_id[edge['parent_asset_id']]
             edge['child_depth'] = parent['js_depth']+1 if parent['js_depth'] is not None else None
 
+    def _accept_future(self, future, edge, fetcher):
+        key = (edge['context_id'], edge['target_url'])
+        try:
+            response = dict(future.result())
+            parent = next(a for a in self.snapshot.assets if a['id'] == edge['parent_asset_id'])
+            previous = {a['id'] for a in self.snapshot.assets}
+            asset = self.snapshot.add(response.pop('data'), location=response['url'], url=response['url'], kind='js',
+                                      page_url=parent['page_url'], context_id=parent['context_id'],
+                                      observation={'source': 'static-supplement', 'time': response['fetched_at']})
+            if asset is None:
+                raise FetchError('body_rejected', 'Fetched response failed snapshot validation; no partial script was imported.')
+            asset['url_aliases'] = sorted(set(asset.get('url_aliases', [])) | set(response['aliases']))
+            if asset['id'] not in previous:
+                asset.update(acquisition='static-supplement', fetched_at=response['fetched_at'])
+            # Keep the accepted edge truthful even if the wave deadline prevents
+            # the next full graph refresh. Newly discovered references wait for resume.
+            edge.update(status='available', child_asset_ids=[asset['id']])
+            depth = edge.get('child_depth')
+            if depth is not None and (asset.get('js_depth') is None or depth < asset['js_depth']):
+                asset['js_depth'] = depth
+            return True
+        except (FetchError, CancelledError) as error:
+            kind = error.kind if isinstance(error, FetchError) else 'fetch_cancelled'
+            edge['status'], edge['error'] = kind, str(error) or 'Collection stopped before this request started.'
+            self.failures[key] = (kind, edge['error'])
+            return False
+        finally:
+            self.checkpoint(fetcher)
+
+    def _wave(self, executor, fetcher, edges):
+        futures = {executor.submit(fetcher.get, e['target_url'], self.snapshot.max_asset_bytes,
+                                   context_id=e['context_id']): e for e in edges}
+        processed, grew = set(), False
+        try:
+            remaining = min(self.end, fetcher.end)-time.monotonic()
+            if remaining <= 0:
+                raise TimeoutError('Collection wave deadline reached.')
+            for future in as_completed(futures, timeout=remaining):
+                processed.add(future)
+                grew |= self._accept_future(future, futures[future], fetcher)
+        except BaseException:
+            fetcher.cancel()
+            for future in futures:
+                future.cancel()
+            # Drain every worker before exposing a stable checkpoint/report.
+            wait(futures)
+            for future, edge in futures.items():
+                if future not in processed:
+                    self._accept_future(future, edge, fetcher)
+            raise
+        return grew
+
     def run(self, fetcher=None):
-        initial_bytes = self.snapshot.total_bytes
+        executor = None
+        if fetcher:
+            fetcher.configure_budget(max(0, self.snapshot.max_total_bytes-self.snapshot.total_bytes), self.end)
+            executor = ThreadPoolExecutor(max_workers=self.concurrency, thread_name_prefix='static-js')
         try:
             while True:
                 self.snapshot.resolve_contexts()
@@ -311,7 +370,7 @@ class ReferenceGraph:
                 self.checkpoint(fetcher)
                 pending = [e for e in self.edges if e['status'] == 'pending']
                 pending.sort(key=lambda e: (e['child_depth'] is None, e['child_depth'] or 0, e['id']))
-                grew = False
+                selected, keys = [], set()
                 for edge in pending:
                     if edge['child_depth'] is None:
                         edge['status'] = 'unknown_depth'
@@ -326,30 +385,23 @@ class ReferenceGraph:
                     if key in self.failures:
                         edge['status'], edge['error'] = self.failures[key]
                         continue
-                    parent = next(a for a in self.snapshot.assets if a['id'] == edge['parent_asset_id'])
-                    try:
-                        response = fetcher.get(edge['target_url'], min(self.snapshot.max_asset_bytes, self.snapshot.max_total_bytes-initial_bytes-fetcher.bytes))
-                        previous = {a['id'] for a in self.snapshot.assets}
-                        asset = self.snapshot.add(response.pop('data'), location=response['url'], url=response['url'], kind='js',
-                                                  page_url=parent['page_url'], context_id=parent['context_id'],
-                                                  observation={'source': 'static-supplement', 'time': response['fetched_at']})
-                        if asset is None:
-                            raise FetchError('body_rejected', 'Fetched response failed snapshot validation; no truncated/invalid script was imported.')
-                        asset['url_aliases'] = sorted(set(asset.get('url_aliases', [])) | set(response['aliases']))
-                        if asset['id'] not in previous:
-                            asset.update(acquisition='static-supplement', fetched_at=response['fetched_at'])
-                        grew = True
-                        # Restart resolution so a short path can unblock previously deep edges.
-                        self.checkpoint(fetcher)
-                        break
-                    except FetchError as error:
-                        edge['status'], edge['error'] = error.kind, str(error)
-                        self.failures[key] = (error.kind, str(error))
-                if not grew:
+                    if key in keys:
+                        continue
+                    if selected and edge['child_depth'] != selected[0]['child_depth']:
+                        continue
+                    if len(selected) < self.concurrency:
+                        selected.append(edge)
+                        keys.add(key)
+                if not selected:
                     break
+                self._wave(executor, fetcher, selected)
+                # Even an all-failure wave can leave other URLs at this layer untried.
         except TimeoutError as error:
-            self.snapshot.gap('reference_deadline', str(error), incomplete=True)
+            kind = 'reference_deadline' if time.monotonic() >= self.end else 'fetch_deadline'
+            self.snapshot.gap(kind, str(error), incomplete=True)
         finally:
+            if executor:
+                executor.shutdown(wait=True, cancel_futures=True)
             for edge in self.edges:
                 status = edge['status']
                 if status in {'available', 'candidate'}:
@@ -359,12 +411,14 @@ class ReferenceGraph:
                                   asset_id=edge['parent_asset_id'], source=edge['id'], incomplete=incomplete)
             self.snapshot.reference_edges = self.edges
             self.snapshot.fetch_events = fetcher.events if fetcher else []
+            self.snapshot.fetch_statistics = fetcher.statistics() if fetcher else None
             self.checkpoint(fetcher)
         return self.edges
 
     def checkpoint(self, fetcher):
-        value = dict(schema_version='0.2', assets=self.snapshot.assets, contexts=self.snapshot.contexts,
-                     edges=self.edges, fetch_events=fetcher.events if fetcher else [], import_gaps=self.import_gaps)
+        value = dict(schema_version='0.3', assets=self.snapshot.assets, contexts=self.snapshot.contexts,
+                     edges=self.edges, fetch_events=fetcher.events if fetcher else [], import_gaps=self.import_gaps,
+                     fetch_statistics=fetcher.statistics() if fetcher else None)
         path = self.snapshot.output/'collection.json'
         temporary = path.with_suffix('.tmp')
         temporary.write_text(json.dumps(value, ensure_ascii=False, indent=2))
@@ -377,7 +431,7 @@ def restore_snapshot(snapshot, source):
     if checkpoint.stat().st_size > snapshot.max_total_bytes:
         raise ValueError('Collection checkpoint exceeds input budget.')
     data = json.loads(checkpoint.read_text())
-    if data.get('schema_version') != '0.2' or not isinstance(data.get('assets'), list):
+    if data.get('schema_version') not in {'0.2', '0.3'} or not isinstance(data.get('assets'), list):
         raise ValueError('Unsupported collection checkpoint.')
     for entry in data['assets']:
         relative = entry['body_file']

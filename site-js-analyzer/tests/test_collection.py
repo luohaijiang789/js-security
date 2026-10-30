@@ -286,7 +286,7 @@ class CollectionTest(unittest.TestCase):
         base,requests=self.serve();fetcher=StaticFetcher([base],max_files=1)
         with self.assertRaises(FetchError) as large:fetcher.get(base+'/large.js',8)
         self.assertEqual(large.exception.kind,'fetch_byte_budget')
-        with self.assertRaises(FetchError) as files:fetcher.get(base+'/large.js',4096)
+        with self.assertRaises(FetchError) as files:fetcher.get(base+'/another.js',4096)
         self.assertEqual(files.exception.kind,'fetch_file_budget')
         fetcher=StaticFetcher([base],deadline=0)
         with self.assertRaises(FetchError) as deadline:fetcher.get(base+'/large.js',4096)
