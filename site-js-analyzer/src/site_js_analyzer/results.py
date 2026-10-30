@@ -84,6 +84,7 @@ def build_candidates(snapshot, records):
             method = None
         candidate = dict(id=request_id, source='site-js-static', engine_record_id=envelope['id'],
                          asset_id=envelope['asset_id'], context_id=asset['context_id'] if asset else None,
+                         js_depth=asset.get('js_depth') if asset else None,
                          url=url, url_expression=record['template'], host=host, path=path, method=method,
                          sink=record['sink'], evidence_status='file-level' if asset else 'unmapped',
                          confidence='candidate', send_site=None, call_context=None,
@@ -132,5 +133,6 @@ def write_report(output, report, records):
     write_csv(output/'candidates.csv', ['id', 'url', 'host', 'method', 'asset_id', 'confidence', 'evidence_status', 'engine_record_id'], report['candidates'])
     fields = [dict(request_id=candidate['id'], **field) for candidate in report['candidates'] for field in candidate['parameters']]
     write_csv(output/'parameters.csv', ['request_id', 'carrier', 'path', 'expression', 'evidence', 'value_status'], fields)
-    write_csv(output/'assets.csv', ['id', 'url', 'location', 'sha256', 'context_id', 'page_url', 'body_file', 'analysis_status'], report['assets'])
+    write_csv(output/'assets.csv', ['id', 'url', 'location', 'sha256', 'context_id', 'page_url', 'body_file', 'analysis_status', 'js_depth', 'acquisition', 'fetched_at', 'reference_url'], report['assets'])
+    write_csv(output/'references.csv', ['id', 'parent_asset_id', 'kind', 'confidence', 'target', 'target_url', 'target_location', 'child_asset_ids', 'child_depth', 'status', 'line', 'column', 'resolution_base', 'resolution_basis', 'resolution_reason'], report.get('reference_edges', []))
     write_csv(output/'gaps.csv', ['id', 'kind', 'asset_id', 'request_id', 'source', 'message', 'incomplete'], report['gaps'])

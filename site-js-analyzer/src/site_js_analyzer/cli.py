@@ -1,4 +1,5 @@
 import argparse
+from collections import Counter
 from datetime import datetime, timezone
 import json
 import math
@@ -8,18 +9,21 @@ import uuid
 
 from . import __version__
 from .assets import Snapshot, digest, http_url
+from .acquisition import StaticFetcher
+from .collection import ReferenceGraph, restore_snapshot
 from .engine import LOCK, analyze, default_engine_root
 from .results import build_candidates, write_report
 
 
 def parser():
-    root = argparse.ArgumentParser(description='Offline website JS candidate analysis; no API requests are sent.')
+    root = argparse.ArgumentParser(description='Website JS candidates and reference graph; only explicitly enabled static-resource GETs.')
     root.add_argument('--version', action='version', version=__version__)
     commands = root.add_subparsers(dest='command', required=True)
     run = commands.add_parser('analyze')
     inputs = run.add_mutually_exclusive_group(required=True)
     inputs.add_argument('--har', type=Path)
     inputs.add_argument('--directory', type=Path)
+    inputs.add_argument('--resume', type=Path, help='Restore verified bodies from a previous output directory.')
     run.add_argument('--out', type=Path, required=True)
     run.add_argument('--page-url', help='Explicit execution page URL for a local directory.')
     run.add_argument('--engine-root', type=Path, default=default_engine_root())
@@ -27,23 +31,34 @@ def parser():
     run.add_argument('--max-files', type=int, default=1000)
     run.add_argument('--max-asset-mib', type=int, default=20)
     run.add_argument('--max-total-mib', type=int, default=128)
+    run.add_argument('--max-js-depth', type=int, default=3)
+    run.add_argument('--seed-js', action='append', default=[], help='Explicit imported JS URL/location at depth 1.')
+    run.add_argument('--discovery-timeout', type=float, default=60)
+    run.add_argument('--fetch-js', action='store_true', help='Supplement certain JS references within the explicit origin allowlist.')
+    run.add_argument('--allow-origin', action='append', default=[])
+    run.add_argument('--fetch-timeout', type=float, default=10)
+    run.add_argument('--fetch-deadline', type=float, default=60)
+    run.add_argument('--fetch-retries', type=int, default=1)
+    run.add_argument('--max-fetch-files', type=int, default=100)
+    run.add_argument('--session-file', type=Path, help='Local exact-origin header map; never copied into reports.')
     return root
 
 
 def main(argv=None):
     args = parser().parse_args(argv)
-    source = args.har or args.directory
+    source = args.har or args.directory or args.resume
     output = args.out.resolve()
-    if source.is_symlink() or not source.exists() or (args.har and not source.is_file()) or (args.directory and not source.is_dir()):
+    if source.is_symlink() or not source.exists() or (args.har and not source.is_file()) or ((args.directory or args.resume) and not source.is_dir()):
         print('Invalid input path or symbolic link.', file=sys.stderr)
         return 2
-    if not math.isfinite(args.timeout) or args.timeout <= 0 or min(args.max_files, args.max_asset_mib, args.max_total_mib) <= 0:
+    durations = [args.timeout, args.discovery_timeout, args.fetch_timeout, args.fetch_deadline]
+    if any(not math.isfinite(v) or v <= 0 for v in durations) or min(args.max_files, args.max_asset_mib, args.max_total_mib, args.max_fetch_files) <= 0 or args.max_js_depth < 0 or not 0 <= args.fetch_retries <= 5:
         print('Budgets and timeout must be positive.', file=sys.stderr)
         return 2
     if args.page_url and (not args.directory or not http_url(args.page_url)):
         print('--page-url requires a directory and a valid HTTP/HTTPS page URL.', file=sys.stderr)
         return 2
-    if args.directory and (output == source.resolve() or source.resolve() in output.parents):
+    if (args.directory or args.resume) and (output == source.resolve() or source.resolve() in output.parents):
         print('Output must be outside the input directory.', file=sys.stderr)
         return 2
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
@@ -55,16 +70,21 @@ def main(argv=None):
         print(f'Cannot create output: {error}', file=sys.stderr)
         return 2
     snapshot = Snapshot(output, args.max_files, args.max_asset_mib*1024*1024, args.max_total_mib*1024*1024)
-    task = dict(id=str(uuid.uuid4()), schema_version='0.1', tool_version=__version__, engine=LOCK,
-                input=str(source.resolve()), input_type='har' if args.har else 'directory',
+    task = dict(id=str(uuid.uuid4()), schema_version='0.2', tool_version=__version__, engine=LOCK,
+                input=str(source.resolve()), input_type='har' if args.har else 'resume' if args.resume else 'directory',
                 started_at=datetime.now(timezone.utc).isoformat(), phase='import', status='running',
-                settings=dict(timeout=args.timeout, max_files=args.max_files, max_asset_mib=args.max_asset_mib, max_total_mib=args.max_total_mib))
+                settings=dict(timeout=args.timeout, max_files=args.max_files, max_asset_mib=args.max_asset_mib, max_total_mib=args.max_total_mib,
+                              max_js_depth=args.max_js_depth, seed_js=args.seed_js, discovery_timeout=args.discovery_timeout,
+                              fetch_js=args.fetch_js, allowed_origins=args.allow_origin, fetch_timeout=args.fetch_timeout,
+                              fetch_deadline=args.fetch_deadline, max_fetch_files=args.max_fetch_files, fetch_retries=args.fetch_retries))
     records, candidates, groups, other = [], [], [], []
     code = 0
     try:
         print('Importing local snapshot...', file=sys.stderr)
         if args.har:
             snapshot.import_har(source)
+        elif args.resume:
+            restore_snapshot(snapshot, source)
         else:
             snapshot.import_directory(source, args.page_url)
         snapshot.resolve_contexts()
@@ -72,6 +92,15 @@ def main(argv=None):
         if not snapshot.assets:
             snapshot.gap('empty_input', 'No usable JS/HTML assets were imported.', incomplete=True)
         else:
+            task['phase'] = 'collect'
+            print('Discovering JS references'+(' and supplementing allowed scripts...' if args.fetch_js else ' offline...'), file=sys.stderr)
+            fetcher = StaticFetcher(args.allow_origin, max_files=args.max_fetch_files, timeout=args.fetch_timeout,
+                                    deadline=args.fetch_deadline, retries=args.fetch_retries, session_file=args.session_file) if args.fetch_js else None
+            if args.session_file and not args.fetch_js:
+                raise ValueError('--session-file is only used with --fetch-js.')
+            ReferenceGraph(snapshot, args.engine_root, max_depth=args.max_js_depth,
+                           timeout=args.discovery_timeout, seeds=args.seed_js).run(fetcher)
+            task['collection_snapshot_sha256'] = digest([(a['id'], a['sha256']) for a in snapshot.assets])
             task['phase'] = 'analyze'
             print(f'Analyzing {len(snapshot.assets)} assets with pinned jshound...', file=sys.stderr)
             records = analyze(snapshot, args.engine_root, args.timeout)
@@ -86,15 +115,25 @@ def main(argv=None):
     except RuntimeError as error:
         snapshot.gap('engine_error', str(error), incomplete=True)
         code = 3
+    except KeyboardInterrupt:
+        snapshot.gap('interrupted', 'Collection/analysis interrupted; saved bodies can be restored.', incomplete=True)
+        code = 4
     task['status'] = 'completed_with_gaps' if code == 0 and snapshot.gaps else 'completed' if code == 0 else 'partial' if code == 4 else 'failed'
     task['stopped_phase'] = task['phase']
     task['phase'] = 'finished'
     task['exit_code'] = code
     task['finished_at'] = datetime.now(timezone.utc).isoformat()
     task['stop_reasons'] = sorted({gap['kind'] for gap in snapshot.gaps if gap['incomplete']})
+    edges = getattr(snapshot, 'reference_edges', [])
     report = dict(task=task, contexts=snapshot.contexts, assets=snapshot.assets, candidates=candidates, api_group_previews=groups,
+                  reference_edges=edges, fetch_events=getattr(snapshot, 'fetch_events', []),
+                  collection_checkpoint='collection.json' if (output/'collection.json').exists() else None,
                   engine_record_file='engine-records.json', other_engine_record_ids=other, gaps=snapshot.gaps,
-                  statistics=dict(imported_assets=len(snapshot.assets), engine_records=len(records),
+                  statistics=dict(imported_assets=sum(a.get('acquisition') != 'static-supplement' for a in snapshot.assets),
+                                  total_assets=len(snapshot.assets), supplemented_assets=sum(a.get('acquisition') == 'static-supplement' for a in snapshot.assets),
+                                  reference_edges=len(edges), reference_statuses=dict(Counter(e['status'] for e in edges)),
+                                  asset_depths=dict(Counter(str(a.get('js_depth')) for a in snapshot.assets)), engine_records=len(records),
+                                  candidate_records_by_depth=dict(Counter(str(c.get('js_depth')) for c in candidates)),
                                   request_candidates=len(candidates), concrete_candidate_groups=len(groups),
                                   confirmed_api_groups=None, call_context_count=None, unique_send_sites=None,
                                   gap_count=len(snapshot.gaps)))

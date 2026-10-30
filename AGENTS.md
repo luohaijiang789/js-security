@@ -10,7 +10,7 @@
 - AI 只提供结构化封装建议和字段释义；建议经 AST/绑定证据核验后才能影响确定结果，释义不能改写提取事实。
 - 白盒状态只在 frontend-api-extractor/docs/plan.md 勾选，黑盒二状态只在 docs/site-analysis-plan.md 勾选；实现、自动化测试和冻结公开样本验证同时完成后才可标 `[x]`。需求、架构、分析设计和测试规则分别维护，不保存逐版本报告。
 - 三类证据分别保留为仓库静态、网站 JS 静态、插件实测；同 URL 不等于同版或同参数。插件旧 JS 探索服务当前没有兼容后端，新黑盒二独立实现，不依赖白盒接口冻结。
-- 黑盒二自有工程在 site-js-analyzer/，协议在其 docs/protocol.md，唯一进度清单仍是 docs/site-analysis-plan.md；先规划再按任务 ID/前置条件实施。S1 原型只输出文件级引擎候选，不将原生归并记录当精确调用点；独立测试用 Python unittest，冻结样本回归用 tests/check_baseline.py。
+- 黑盒二自有工程在 site-js-analyzer/，协议在其 docs/protocol.md，唯一进度清单仍是 docs/site-analysis-plan.md；先规划再按任务 ID/前置条件实施。当前 0.2 支持引用图、最短层数与显式精确 origin 的串行补取/恢复；默认离线，推测引用不自动下载，重定向逐跳检查且认证不跨域继承。API 仍只输出文件级引擎候选，不将原生归并记录当精确调用点；独立测试用 Python unittest，冻结样本回归用 tests/check_baseline.py。
 - 用户当前要求优先实现黑盒二，设计以 docs/site-analysis-design.md 为准；先以 HAR/资产包验证递归收集与静态提取，再接浏览器直接输入，不等待白盒，也不恢复旧分析服务。部分开源工具已有递归能力，不得将递归本身描述为独有创新。
 - 总体边界以 docs/overview.md 为准；参考工具只保留在 references/，失效探索材料通过 Git 历史追溯。
 - API 发现与统计方向以 docs/api-discovery-decisions.md 为依据：白盒利用业务源码/依赖结构，明确业务请求先提取，封装与 SDK 沿相关链路深入；黑盒 JS 不强制分业务/三方，以底层发送点所在 JS 定位。保留接口分组、调用上下文/发送位置、实测次数三种统计及候选/缺口，不能宣称简单规则覆盖所有业务 API；具体阶段协议和分组算法仍待验证。

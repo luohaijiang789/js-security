@@ -59,13 +59,13 @@ class Snapshot:
         if record not in self.gaps:
             self.gaps.append(record)
 
-    def add(self, data, *, location, kind, page_url=None, url=None, context_key=None, observation=None):
-        context_id = 'ctx-' + digest([context_key, page_url])[:20]
+    def add(self, data, *, location, kind, page_url=None, url=None, context_key=None, observation=None, context_id=None):
+        context_id = context_id or 'ctx-' + digest([context_key, page_url])[:20]
         content_hash = digest(data)
         asset_id = 'asset-' + digest([location, url, context_id, content_hash])[:20]
         if asset_id in self._by_id:
             self._by_id[asset_id]['observations'].append(observation)
-            return
+            return self._by_id[asset_id]
         if len(self.assets) >= self.max_files or len(data) > self.max_asset_bytes or self.total_bytes+len(data) > self.max_total_bytes:
             self.gap('input_budget', 'Asset exceeds configured file/byte budget.', incomplete=True, source=location)
             return
@@ -91,6 +91,7 @@ class Snapshot:
         self.assets.append(asset)
         self._by_id[asset_id] = asset
         self.total_bytes += len(data)
+        return asset
 
     def import_directory(self, source, page_url=None):
         source = Path(source)
@@ -238,6 +239,7 @@ class Snapshot:
 
     def resolve_contexts(self):
         """Keep document identity separate from the request base (HTML base href)."""
+        self.contexts = []
         groups = {}
         for asset in self.assets:
             groups.setdefault(asset['context_id'], []).append(asset)

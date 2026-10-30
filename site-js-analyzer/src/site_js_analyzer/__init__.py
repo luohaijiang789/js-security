@@ -1,3 +1,3 @@
-"""Website JS static analysis; version 0.1 retains file-level engine evidence."""
+"""Website JS static analysis; file-level API evidence with a traceable reference graph."""
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

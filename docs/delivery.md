@@ -76,4 +76,4 @@ Excel 不放敏感原值或超长源码，外部字符串按文本写入。长�
 
 ## 当前状态
 
-黑盒二已提供[协议 0.1](../site-js-analyzer/docs/protocol.md)的 JSON、内部底稿、正文快照与 CSV 候选预览；精确位置、正式接口统计及 Excel 仍待执行计划后续阶段。浏览器插件保留自己的现有导出。白盒 JSON、Excel、身份算法和插件重新导入协议均尚未实现，完成情况只在[提取器实施计划](../frontend-api-extractor/docs/plan.md)勾选。
+黑盒二已提供[协议 0.2](../site-js-analyzer/docs/protocol.md)的 JSON、内部底稿、正文快照、引用关系与 CSV 候选预览，以及显式串行补取与 checkpoint 恢复；精确位置、正式接口统计及 Excel 仍待执行计划后续阶段。浏览器插件保留自己的现有导出。白盒 JSON、Excel、身份算法和插件重新导入协议均尚未实现，完成情况只在[提取器实施计划](../frontend-api-extractor/docs/plan.md)勾选。

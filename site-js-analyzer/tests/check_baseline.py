@@ -32,8 +32,10 @@ def main():
     for name in expected['hashes']:
         html = name.endswith('.html')
         body = (fixture/name).read_bytes()
+        # Frozen HTML declares /main.js. Keep this HAR consistent with that URL;
+        # CDN execution/request bases are covered separately by integration tests.
         entries.append(dict(pageref='p1', _resourceType='document' if html else 'script',
-                            request={'url': 'https://fixture.example.test/' if html else 'https://cdn.example.test/'+name},
+                            request={'url': 'https://fixture.example.test/' if html else 'https://fixture.example.test/'+name},
                             response={'status': 200, 'content': {'mimeType': 'text/html' if html else 'application/javascript',
                                       'encoding': 'base64', 'text': base64.b64encode(body).decode()}}))
     har = target/'fixture.har'

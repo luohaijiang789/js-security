@@ -1,6 +1,6 @@
 # 黑盒二：网站 JS 递归收集与 API 提取设计
 
-状态：已按[执行计划](site-analysis-plan.md)开始实施；[S1 独立离线原型](../site-js-analyzer/README.md)已可运行，后续递归、精确定位和正式 Excel 尚未完成。用户当前优先实现黑盒二，不等待白盒。依据见[讨论结论](api-discovery-decisions.md)，进度与验收见[实施计划](site-analysis-plan.md)。
+状态：已按[执行计划](site-analysis-plan.md)开始实施；[S1 独立离线原型](../site-js-analyzer/README.md)已可运行，现已增加引用图、最短深度和受控串行补取；并发、扩展上下文、API 精确定位和正式 Excel 尚未完成。用户当前优先实现黑盒二，不等待白盒。依据见[讨论结论](api-discovery-decisions.md)，进度与验收见[实施计划](site-analysis-plan.md)。
 
 ## 1. 目标与首版入口
 
@@ -122,7 +122,7 @@ Host/Method/路径不完整的记录留在未解析区，不与具体接口强�
 
 建议独立 `site-js-analyzer/` 工程，不向浏览器插件混入 Python/引擎依赖，不恢复已删除白盒旧服务。增强核心先建立可访问 fork，再锁定可拉取 Commit。
 
-目标命令（未实现）：`site-js-analyzer analyze --har session.har --config task.json --out work/site-scan/`。同一资产快照可离线重放。后续浏览器直接接入需协调黑盒一的 CDP 调试连接所有权，不能两路竞争同一会话。
+完整目标命令（配置文件尚待实现，当前命令见独立工程 README）：`site-js-analyzer analyze --har session.har --config task.json --out work/site-scan/`。同一资产快照可离线重放。后续浏览器直接接入需协调黑盒一的 CDP 调试连接所有权，不能两路竞争同一会话。
 
 交付 `analysis.json`、`api_assets.xlsx` 和资产快照清单。Excel 包含统计概览、API 总表、参数明细、JS 资产、引用关系和分析缺口；候选可明确筛选并单独统计。正文和长证据通过哈希/ID 回查，遵循[交付约定](delivery.md)。
 
