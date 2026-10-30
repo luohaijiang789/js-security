@@ -18,9 +18,9 @@
 |---|---|---|
 | [前端代码仓 API 提取（白盒）](frontend-api-extractor/README.md) | 固定仓库并构建 JS，分析嵌套引用，提取 URL、参数、Host、JS 文件 | 旧实现已删除，当前先完成新架构、测试基线和实施计划 |
 | [JS 请求采集浏览器插件（黑盒一）](browser-extension/docs/requirements.md) | 自研 MV3 插件，当前浏览器所有窗口中的 HTTP/HTTPS 网页自动接入，Filter 控制留存，CDP 记录真实请求及可取得调用栈 | 只覆盖实际触发且可观测场景；采集缺失明确记录 |
-| [网站 JS 收集与静态分析（黑盒二）](website-js-extractor/README.md) | 独立 MV3 插件收集 JS 与上下文，本地服务静态分析 | 当前只有设计；先验证采集和 jshound，再完成主表与复杂请求恢复 |
+| [网站 JS 收集与静态分析（黑盒二）](website-js-extractor/README.md) | 独立 MV3 插件收集 JS 与上下文，本地服务静态分析 | 插件/服务尚在设计；已有独立 CLI 0.2 原型，产品集成和完整验收待完成 |
 
-当前先推进黑盒二的网站 JS 分析核心，再由白盒接入仓库构建资产。白盒与黑盒二目前均无可运行实现；黑盒一已有独立 MV3 插件。各工程当前状态以其 README 和开发计划为准。
+当前先推进黑盒二的网站 JS 分析核心，再由白盒接入仓库构建资产。白盒尚无可运行实现，黑盒二的独立插件/HTTP 服务未实现；[CLI 分析原型](site-js-analyzer/README.md)已支持离线分析、引用图和受控串行补取/恢复，黑盒一已有独立 MV3 插件。各工程当前状态以其 README 和开发计划为准。
 
 三路可以独立运行。结果分别标记“仓库静态 / 网站 JS 静态 / 插件实测”，可关联而不抹平版本、调用和字段差异。工作簿包含 API 总表、参数明细、分析缺口，另保留 `analysis.json` 证据底稿。
 
@@ -47,7 +47,8 @@ js-security/
 ├── README.md / AGENTS.md   # 项目介绍与工作约定
 ├── docs/                  # 当前方案、交付规则、验证计划
 ├── references/            # 工具、插件、项目评估与固定核查依据
-├── website-js-extractor/ # 黑盒二设计与实施计划，优先验证 JS 分析核心
+├── website-js-extractor/ # 黑盒二插件/本地服务的产品设计与实施计划
+├── site-js-analyzer/      # 已实现的独立 CLI 分析原型与测试
 ├── frontend-api-extractor/ # 白盒提取器新架构与实施计划，后续接入分析核心
 └── browser-extension/     # 独立浏览器插件工程（依赖、源码、构建、测试）
     ├── src/               # MV3 后台、管理标签页、详情侧栏与采集模块

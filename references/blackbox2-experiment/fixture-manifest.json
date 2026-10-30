@@ -1,0 +1,146 @@
+{
+  "requests": [
+    {
+      "id": "users",
+      "path": "/api/users",
+      "method": "GET",
+      "query": [
+        "limit"
+      ],
+      "body": [],
+      "file": "main.js"
+    },
+    {
+      "id": "orders",
+      "path": "/api/orders",
+      "method": "POST",
+      "query": [],
+      "body": [
+        "userId",
+        "context.source"
+      ],
+      "headers": [
+        "X-Tenant"
+      ],
+      "file": "main.js"
+    },
+    {
+      "id": "profile",
+      "path": "/api/profile",
+      "method": "PUT",
+      "query": [],
+      "body": [
+        "name"
+      ],
+      "file": "main.js"
+    },
+    {
+      "id": "events",
+      "path": "/api/events",
+      "method": "POST",
+      "query": [],
+      "body": [
+        "event"
+      ],
+      "file": "main.js"
+    },
+    {
+      "id": "catalog",
+      "path": "/api/catalog",
+      "method": "GET",
+      "query": [
+        "page",
+        "sort"
+      ],
+      "body": [],
+      "file": "main.js"
+    },
+    {
+      "id": "alias",
+      "path": "/api/alias",
+      "method": "GET",
+      "query": [],
+      "body": [],
+      "file": "main.js"
+    },
+    {
+      "id": "item",
+      "path": "/api/items/",
+      "method": "GET",
+      "query": [
+        "view"
+      ],
+      "body": [],
+      "file": "main.js",
+      "dynamic": true
+    },
+    {
+      "id": "alpha",
+      "path": "/api/alpha",
+      "method": "POST",
+      "query": [],
+      "body": [
+        "alphaId"
+      ],
+      "file": "main.js"
+    },
+    {
+      "id": "beta",
+      "path": "/api/beta",
+      "method": "POST",
+      "query": [],
+      "body": [
+        "betaId"
+      ],
+      "file": "main.js"
+    },
+    {
+      "id": "ticket",
+      "path": "/v2/tickets",
+      "method": "POST",
+      "query": [],
+      "body": [
+        "title"
+      ],
+      "file": "main.js"
+    },
+    {
+      "id": "layer2",
+      "path": "/api/layer2",
+      "method": "POST",
+      "query": [],
+      "body": [
+        "level"
+      ],
+      "file": "level2.js"
+    },
+    {
+      "id": "layer3",
+      "path": "/api/layer3",
+      "method": "GET",
+      "query": [],
+      "body": [],
+      "file": "level3.js"
+    },
+    {
+      "id": "layer4",
+      "path": "/api/layer4",
+      "method": "GET",
+      "query": [],
+      "body": [],
+      "file": "level4.js"
+    }
+  ],
+  "decoys": [
+    "/not-a-network-route",
+    "/ordinary-function",
+    "/assets/logo.svg"
+  ],
+  "hashes": {
+    "index.html": "c42877a5aaa3e716db8b3fdad51c6d9cb58f5ffde590ee64ddb79e4b769bfe40",
+    "main.js": "6d834f586e4f30861abab8e281e0535cb4c479f8e4ce8025862a6e5b2dcf0d69",
+    "level2.js": "e9e77bde22768849a94ece5d095d3cb0ef93e3c4d49af921cdf9d6bae897a26c",
+    "level3.js": "ded6698f75ee58bae074d2d3eb63198f22ecce3e0919214ccd733b3f14d285a3",
+    "level4.js": "d58fdc8412bcdf050930a76d64edaf6a4e4e9e229a7fcac4b116468f4d91fd74"
+  }
+}

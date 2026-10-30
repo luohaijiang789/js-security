@@ -18,6 +18,8 @@ API 总表保留以上基础记录；插件请求组、API 组属于关联视图
 
 ## 2. 工作簿 api_assets.xlsx
 
+统计同时保留接口分组数、调用上下文/发送位置数，以及插件实测请求次数；三者不能互相替代。一个共享发送点可能对应多个接口，同一接口也可能对应多处调用。候选、未解析项和资产缺口单列；具体分组规则仍需冻结与验证，见[讨论结论](api-discovery-decisions.md)。黑盒 JS 不强制提供业务/第三方归属，以底层发送点所在脚本及位置为主要定位，上层调用可取得时补充。
+
 ### API 总表
 
 支持按 Host、Path、Method、来源、候选状态和完整性筛选；保留不同调用与观察记录。
@@ -66,10 +68,12 @@ API 总表保留以上基础记录；插件请求组、API 组属于关联视图
 - `analysis.json`：机器可读底稿，保存资产、配置可用性、模型版本、表达式、代码依据、缺口和跨来源关联。
 - 插件原始 JSONL 包：按[插件规格](../browser-extension/docs/requirements.md)保留；导入时在底稿记录包/分片、请求 ID 和定位信息，确保可回查。
 
+黑盒二首版在三个明细 Sheet 之外增加统计概览、JS 资产和引用关系视图，见[详细设计](site-analysis-design.md)，状态见[黑盒二计划](site-analysis-plan.md)。
+
 Excel 不放敏感原值或超长源码，外部字符串按文本写入。长内容通过证据 ID 关联，不静默截断；超过工作表行数上限时按来源/分片拆分并提供清单，不丢弃记录。敏感值保护不破坏字段名、结构和缺失标记。
 
 三路分别记录运行/任务标识、工具与 Schema 版本、时间、范围、配置及错误统计。未知版本保留未知，不以同名文件代替内容版本。没有真实输入时不生成伪造扫描结果。
 
 ## 当前状态
 
-黑盒一插件保留自己的现有导出。黑盒二 JSON/Excel、资产包和新服务协议均尚未实现，状态只在[黑盒二计划](../website-js-extractor/docs/plan.md)维护；白盒 JSON、Excel、身份算法和构建适配尚未实现，状态只在[白盒计划](../frontend-api-extractor/docs/plan.md)维护。
+黑盒一插件保留自己的现有导出。黑盒二已有 [CLI 原型协议 0.2](../site-js-analyzer/docs/protocol.md)的 JSON、原始底稿、正文快照、引用图与 CSV 候选预览；正式 Excel、精确位置、插件资产包和新 HTTP 服务协议尚未实现。产品状态在[产品计划](../website-js-extractor/docs/plan.md)，原型验证在[原型计划](site-analysis-plan.md)；白盒状态在[白盒计划](../frontend-api-extractor/docs/plan.md)，不互相替代。

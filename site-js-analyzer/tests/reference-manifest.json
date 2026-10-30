@@ -1,0 +1,45 @@
+{
+  "engine_commit": "f34f9c5dcfa0f30816a66881ea9a8d8573c24f05",
+  "cases": [
+    {
+      "name": "webpack-demo",
+      "path": "examples/demo-app/app.4f2a9c1e.js",
+      "expected_targets": [
+        "static/chunks/settings.a1b2c3d4.js",
+        "static/chunks/billing.e5f6a7b8.js",
+        "static/chunks/admin.c9d0e1f2.js"
+      ],
+      "expected_urls": [
+        "https://site.example.test/_assets/static/chunks/settings.a1b2c3d4.js",
+        "https://site.example.test/_assets/static/chunks/billing.e5f6a7b8.js",
+        "https://site.example.test/_assets/static/chunks/admin.c9d0e1f2.js"
+      ],
+      "sha256": "686b29336ac7970b1a3e09f27cf672e419ad34ba7268ce0984e32b17968897df"
+    },
+    {
+      "name": "webpack4",
+      "path": "tests/fixtures/webpack4-jsonp/app.js",
+      "expected_targets": [
+        "vendors-main.073e6052.chunk.js",
+        "pages.admin.e5fd8aa1.chunk.js"
+      ],
+      "expected_urls": [
+        "https://site.example.test/assets/webpack/vendors-main.073e6052.chunk.js",
+        "https://site.example.test/assets/webpack/pages.admin.e5fd8aa1.chunk.js"
+      ],
+      "sha256": "c0dbd0fd27ec3707b05ec3c860897d8ca330b1a0af36c43826881416ddd9656b"
+    },
+    {
+      "name": "vite",
+      "path": "tests/fixtures/vite-literal-chunks/app.js",
+      "expected_targets": [
+        "assets/src-97epdJdY.js",
+        "assets/react-dom-BzP9Lo1b.js",
+        "assets/preload-helper-Czpn1I53.js",
+        "./BoardHistoryLog-D7tgZ4er.js",
+        "./settings-Bq12Xy9z.js"
+      ],
+      "sha256": "e7a5866e63f5935e475eb2843b359d03d86f3aee8f65130031eec66003801599"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "site-js-analyzer"
+version = "0.2.0"
+description = "Offline website JavaScript API evidence and candidate inventory"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+site-js-analyzer = "site_js_analyzer.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+site_js_analyzer = ["engine-lock.json", "*.js"]

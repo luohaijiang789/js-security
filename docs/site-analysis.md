@@ -1,10 +1,12 @@
 # 网站 JS 收集与静态分析
 
-黑盒二现独立放在 [website-js-extractor](../website-js-extractor/README.md)，优先于白盒开展设计和分析核心验证。
+黑盒二的独立插件与本地服务产品设计放在 [website-js-extractor](../website-js-extractor/README.md)，优先于白盒开展设计和分析核心验证。
 
 - [需求与操作](../website-js-extractor/docs/requirements.md)：独立插件与本地服务的用户流程。
 - [测试与验收](../website-js-extractor/docs/testing.md)：冻结样本、效果指标与目标 Chrome 现场门槛。
 - [设计](../website-js-extractor/docs/design.md)：脚本收集、三层获取边界、页面上下文和静态分析。
 - [实施计划](../website-js-extractor/docs/plan.md)：设计冻结、基线验证、实现及验收。
+
+已有[site-js-analyzer CLI 0.2 原型](../site-js-analyzer/README.md)，可导入 HAR/目录、生成引用图并进行显式受控补取；[原型设计](site-analysis-design.md)和[原型进度](site-analysis-plan.md)保留为实验/实现依据，不代替上述产品阶段验收。
 
 三路关系见[总览](overview.md)，共享输出见[交付约定](delivery.md)。
