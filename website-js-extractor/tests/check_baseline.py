@@ -54,7 +54,7 @@ def main():
     summary = []
     for name, input_args in commands:
         output = target/name
-        command = [sys.executable, '-m', 'site_js_analyzer', 'analyze', *input_args, '--out', str(output)]
+        command = [sys.executable, '-m', 'website_js_extractor', 'analyze', *input_args, '--out', str(output)]
         result = subprocess.run(command, capture_output=True, text=True, timeout=150)
         (target/(name+'.log')).write_text(result.stdout+result.stderr)
         if result.returncode != 0:

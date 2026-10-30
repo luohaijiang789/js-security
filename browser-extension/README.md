@@ -116,4 +116,4 @@ npm test/test:browser 会先正式构建，避免页面测试读取旧 dist。�
 
 0.7.1 的旧 JS 探索结果只作历史数据，不作为新提取器能力证明。黑盒二的新接口与实现进度见[独立实施计划](../website-js-extractor/docs/plan.md)。
 
-黑盒二已有[独立 CLI 原型](../site-js-analyzer/README.md)用于 HAR/目录和受控补取验证；它尚未接入此旧面板，也不代表新插件/HTTP 服务已交付。
+黑盒二已有[命令行分析入口](../website-js-extractor/docs/usage.md)用于 HAR/目录和受控补取验证；它尚未接入此旧面板，也不代表新插件/HTTP 服务已交付。

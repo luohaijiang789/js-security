@@ -2,9 +2,24 @@
 
 黑盒二采用 **独立 Chrome MV3 插件 + 本地分析服务**：用户正常访问已登录网站，插件收集部署 JS、嵌套引用和页面上下文，以 jshound 为基线静态提取 **URL、请求参数、Host、对应 JS 文件**。
 
-本目录的独立插件与 HTTP 服务当前只有设计，尚未交付。已有 [site-js-analyzer 0.4 CLI 原型](../site-js-analyzer/README.md)和[原型验证](../docs/site-analysis-plan.md)，支持离线分析、引用图及受控并发补取，但不等于产品协议、精确请求绑定、Excel 或 MV3 现场验收完成。先验证黑盒二分析核心，再由白盒接入仓库正式构建资产；黑盒一继续独立提供真实请求证据。
+本工程已实现 0.4 命令行分析入口及分析核心：支持 HAR/目录导入、引用图、受控并发补取、Worker 上下文、JSON/CSV 和快照恢复。源码、Python 依赖、测试与产品设计统一维护在此目录。[安装与运行](docs/usage.md)提供当前可执行命令，[实施计划](docs/plan.md)是唯一进度入口。
 
-## 使用流程
+独立 MV3 插件与 HTTP 服务尚未实现；source map、精确请求绑定、正式 API 统计、Excel 和 MV3 现场验收继续待完成。后续 HTTP 服务复用本工程核心，命令行保留为离线运行与验证入口。
+
+## 工程结构
+
+```text
+website-js-extractor/
+  pyproject.toml               # Python 包与 website-js-extractor 命令
+  src/website_js_extractor/    # 已实现的分析核心和命令行
+  tests/                      # 自动化与冻结样本验证
+  docs/                       # 需求、架构、使用、协议和唯一计划
+  THIRD_PARTY_NOTICES.md
+```
+
+后续插件放在 `extension/`；HTTP 路由、任务和存储在现有 Python 包内扩展，协议按需放在 `contracts/`。尚未实现的目录不预建空框架。
+
+## 目标产品流程（尚未实现）
 
 ```mermaid
 flowchart LR
@@ -33,7 +48,7 @@ flowchart LR
 
 工程基线为 **TypeScript/Vue 3 独立插件 + Python 3.12 本机服务 + Node.js 22.12+ / Babel / jshound fork 分析核心**；元数据采用 IndexedDB/SQLite，正文按哈希保存。首发目标为 Windows 11 x64 桌面 Chrome，实际支持版本需现场验收。
 
-未来实现分别放在本工程的 `extension/`、`service/`，协议在 `contracts/`；核心增强位于锁定的 jshound fork。依赖不放到根目录或黑盒一工程；不预建空实现。目录、进程、技术决策见[工程架构](docs/architecture.md)，各模块输入输出和完成条件见[模块规格](docs/modules.md)。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
+插件未来放在本工程的 `extension/`，HTTP 服务在现有 `src/website_js_extractor/` 内扩展，协议在 `contracts/`；核心增强位于锁定的 jshound fork。依赖不放到根目录或黑盒一工程；不预建空实现。目录、进程、技术决策见[工程架构](docs/architecture.md)，各模块输入输出和完成条件见[模块规格](docs/modules.md)。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
 
 ## 文档
 
@@ -45,6 +60,9 @@ flowchart LR
 | [模块规格](docs/modules.md) | 模块工作包、输入输出、分析算法、接口与完成条件 |
 | [共享提取范围](../docs/js-analysis-scope.md) | 请求场景、JS 分层、发现起点与路由位置 |
 | [测试与验收](docs/testing.md) | 冻结输入、验证矩阵、效果与性能门槛 |
-| [实施计划](docs/plan.md) | 唯一实现进度清单与阶段交付物 |
+| [安装与运行](docs/usage.md) | 当前命令行、输入、结果与复现检查 |
+| [分析核心设计](docs/analysis-design.md) | 资产图、定位、统计的实现目标与边界 |
+| [当前结果协议](docs/protocol.md) | 已实现的 0.4 结果、上下文与恢复规则 |
+| [实施计划](docs/plan.md) | 核心与产品的唯一进度清单 |
 
 三路关系和共享交付见[总览](../docs/overview.md)、[交付约定](../docs/delivery.md)。不主动调用提取 API，不自动提交业务表单，不执行下载脚本，不默认发送代码到 AI。外部脚本、站点快照和完整报告放在主仓库 `work/`。

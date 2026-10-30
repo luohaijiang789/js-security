@@ -3,17 +3,17 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "site-js-analyzer"
+name = "website-js-extractor"
 version = "0.4.0"
 description = "Offline website JavaScript API evidence and candidate inventory"
 requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
-site-js-analyzer = "site_js_analyzer.cli:main"
+website-js-extractor = "website_js_extractor.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.setuptools.package-data]
-site_js_analyzer = ["engine-lock.json", "*.js"]
+website_js_extractor = ["engine-lock.json", "*.js"]

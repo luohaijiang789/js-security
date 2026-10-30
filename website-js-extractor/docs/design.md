@@ -130,7 +130,7 @@ jshound 原始输出独立保存；导出归并若丢失调用/参数差异，�
 
 工作台包含任务概览、JS 资产与引用图、API 主表、分析缺口。点击资产/API 在可见右侧栏查看正文位置、四项字段、调用链与加工证据。已完成/部分/未知分别显示；不将单一百分比称为全站覆盖率。
 
-未来代码放在本目录：`extension/` 保存插件自身 package/锁文件/src/tests，`service/` 保存任务与 jshound 适配，`contracts/` 保存冻结协议和预期；全部按阶段核验后创建。工程架构明确Python启动锁定Node核心、SQLite/正文目录、fork发行和安装方案；具体兼容与资源上限仍须实测，不搭空代码框架。
+代码统一放在本工程：现有 `src/website_js_extractor/` 保存命令行、资产与 jshound 适配，后续在同一包内扩展 HTTP/任务/存储；`extension/` 保存插件 package/锁文件/src/tests，`contracts/` 保存冻结协议和预期；未实现部分按阶段核验后创建。工程架构明确Python启动锁定Node核心、SQLite/正文目录、fork发行和安装方案；具体兼容与资源上限仍须实测，不搭空代码框架。
 
 ## 9. 官方依据与待验证项
 

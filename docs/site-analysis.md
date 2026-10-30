@@ -7,6 +7,6 @@
 - [设计](../website-js-extractor/docs/design.md)：脚本收集、三层获取边界、页面上下文和静态分析。
 - [实施计划](../website-js-extractor/docs/plan.md)：设计冻结、基线验证、实现及验收。
 
-已有[site-js-analyzer CLI 0.4 原型](../site-js-analyzer/README.md)，可导入 HAR/目录、生成引用图并进行显式受控补取；[原型设计](site-analysis-design.md)和[原型进度](site-analysis-plan.md)保留为实验/实现依据，不代替上述产品阶段验收。
+本工程的[命令行与分析核心](../website-js-extractor/docs/usage.md)已实现 HAR/目录导入、引用图、受控补取和 Worker 上下文；源码、测试、依赖、[分析设计](../website-js-extractor/docs/analysis-design.md)及[唯一计划](../website-js-extractor/docs/plan.md)均在同一目录。插件/HTTP 服务与精确绑定仍按实际证据验收。
 
 三路关系见[总览](overview.md)，共享输出见[交付约定](delivery.md)。

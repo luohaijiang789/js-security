@@ -1,6 +1,6 @@
 # 黑盒二：网站 JS 递归收集与 API 提取设计
 
-状态：已按[执行计划](site-analysis-plan.md)开始实施；[S1 独立离线原型](../site-js-analyzer/README.md)已可运行，现已增加引用图、最短深度和受控并发补取与恢复；Worker 上下文和保守动态 script 引用已增加；source map、API 精确定位和正式 Excel 尚未完成。用户当前优先实现黑盒二，不等待白盒。依据见[讨论结论](api-discovery-decisions.md)，进度与验收见[实施计划](site-analysis-plan.md)。
+状态：已按[执行计划](plan.md)开始实施；[命令行分析核心](usage.md)已可运行，现已增加引用图、最短深度和受控并发补取与恢复；Worker 上下文和保守动态 script 引用已增加；source map、API 精确定位和正式 Excel 尚未完成。用户当前优先实现黑盒二，不等待白盒。依据见[讨论结论](../../docs/api-discovery-decisions.md)，进度与验收见[实施计划](plan.md)。
 
 ## 1. 目标与首版入口
 
@@ -34,11 +34,11 @@ flowchart LR
 | BurpAPIFinder `1f298590fa03` | 端点线索对照，接受已有 Burp 导出 | 不采用默认主动爬取流程；用户反馈 bug 仍未修复 |
 | 自有任务与结果层 | Python 管理资产、HTTP 获取、引擎适配、Excel/JSON | 不再自研一套 JS 解释器；有量化差距再增强 Node/Babel 链 |
 
-核查入口：[jshound API](../references/repos/jshound/jshound/__init__.py)、[递归获取](../references/repos/jshound/jshound/fetch.py)、[输出转换](../references/repos/jshound/jshound/export/requests.py)、[Burp 提取与排队](../references/repos/BurpAPIFinder/src/main/java/burp/IProxyScanner.java)。本轮核对固定源码，没有新增准确率实测；子模块初始化见[说明](../references/repos/README.md)。
+核查入口：[jshound API](../../references/repos/jshound/jshound/__init__.py)、[递归获取](../../references/repos/jshound/jshound/fetch.py)、[输出转换](../../references/repos/jshound/jshound/export/requests.py)、[Burp 提取与排队](../../references/repos/BurpAPIFinder/src/main/java/burp/IProxyScanner.java)。本轮核对固定源码，没有新增准确率实测；子模块初始化见[说明](../../references/repos/README.md)。
 
-原生引擎内部会归并记录，常用请求导出会丢部分字段、将路由候选转成 GET。因此不能只包装 CLI 输出就宣称有逐调用证据。基线阶段检查归并前记录，必要时在可访问增强 fork 暴露位置与来源；保留原始类型、`query_schema`、嵌套 `body_schema`、Header 和未知表达式。历史导出差距见[评估](../references/网站浏览器挂载与动静态联合采集评估.md)。
+原生引擎内部会归并记录，常用请求导出会丢部分字段、将路由候选转成 GET。因此不能只包装 CLI 输出就宣称有逐调用证据。基线阶段检查归并前记录，必要时在可访问增强 fork 暴露位置与来源；保留原始类型、`query_schema`、嵌套 `body_schema`、Header 和未知表达式。历史导出差距见[评估](../../references/网站浏览器挂载与动静态联合采集评估.md)。
 
-最新[开源能力试验](../references/blackbox2-experiment/README.md)已运行 6 项工具并验证受控递归/压缩样例：jshound 为当前最合适基线，jsluice 作独立对照。内部 4 个 Query 字段未进入常用 JSONL，故结果适配优先读内部记录；公开真实 bundle 的动态结果与耗时另列，不用受控 13/13 代替真实站点验收。
+最新[开源能力试验](../../references/blackbox2-experiment/README.md)已运行 6 项工具并验证受控递归/压缩样例：jshound 为当前最合适基线，jsluice 作独立对照。内部 4 个 Query 字段未进入常用 JSONL，故结果适配优先读内部记录；公开真实 bundle 的动态结果与耗时另列，不用受控 13/13 代替真实站点验收。
 
 ## 3. 输入与资产快照
 
@@ -120,10 +120,10 @@ Host/Method/路径不完整的记录留在未解析区，不与具体接口强�
 
 ## 7. 工程与输出
 
-建议独立 `site-js-analyzer/` 工程，不向浏览器插件混入 Python/引擎依赖，不恢复已删除白盒旧服务。增强核心先建立可访问 fork，再锁定可拉取 Commit。
+代码、依赖和测试统一放在 `website-js-extractor/` 工程，不向浏览器插件混入 Python/引擎依赖，不恢复已删除白盒旧服务。增强核心先建立可访问 fork，再锁定可拉取 Commit。
 
-完整目标命令（配置文件尚待实现，当前命令见独立工程 README）：`site-js-analyzer analyze --har session.har --config task.json --out work/site-scan/`。同一资产快照可离线重放。后续浏览器直接接入需协调黑盒一的 CDP 调试连接所有权，不能两路竞争同一会话。
+完整目标命令（配置文件尚待实现，当前可执行命令见本工程使用说明）：`website-js-extractor analyze --har session.har --config task.json --out work/site-scan/`。同一资产快照可离线重放。后续浏览器直接接入需协调黑盒一的 CDP 调试连接所有权，不能两路竞争同一会话。
 
-交付 `analysis.json`、`api_assets.xlsx` 和资产快照清单。Excel 包含统计概览、API 总表、参数明细、JS 资产、引用关系和分析缺口；候选可明确筛选并单独统计。正文和长证据通过哈希/ID 回查，遵循[交付约定](delivery.md)。
+交付 `analysis.json`、`api_assets.xlsx` 和资产快照清单。Excel 包含统计概览、API 总表、参数明细、JS 资产、引用关系和分析缺口；候选可明确筛选并单独统计。正文和长证据通过哈希/ID 回查，遵循[交付约定](../../docs/delivery.md)。
 
 顺序：冻结原生基线 → 递归补取 → 位置/字段适配 → 统计交付 → 浏览器直接接入。分别量化新增脚本贡献、分析能力提升和重复候选，不用候选数量增长替代效果验证。

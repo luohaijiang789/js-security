@@ -99,4 +99,4 @@ work/blackbox2-tools/bin/jsluice urls --include-source work/blackbox2-tools/fixt
 
 ## 下一步
 
-直接围绕 jshound 基线做最小结果适配：保留内部 Query/嵌套结构，新增逐发送点位置与引用缺口；jsluice 作为独立对照。再补真实打包器、登录态、Worker、多版本和独立人工标注样本。这里的实验完成不代表[黑盒二计划](../../docs/site-analysis-plan.md)的完整实现项通过。
+直接围绕 jshound 基线做最小结果适配：保留内部 Query/嵌套结构，新增逐发送点位置与引用缺口；jsluice 作为独立对照。再补真实打包器、登录态、Worker、多版本和独立人工标注样本。这里的实验完成不代表[黑盒二计划](../../website-js-extractor/docs/plan.md)的完整实现项通过。

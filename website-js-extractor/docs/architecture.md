@@ -1,6 +1,6 @@
 # 工程架构与技术决策
 
-本文规定黑盒二怎样组织和运行；模块实现见[模块规格](modules.md)，采集与分析流程见[整体设计](design.md)，唯一完成状态见[实施计划](plan.md)。以下是实施基线，不代表已有代码或实测支持。
+本文规定黑盒二怎样组织和运行；模块实现见[模块规格](modules.md)，采集与分析流程见[整体设计](design.md)，唯一完成状态见[实施计划](plan.md)。现有命令行和分析核心已落在同一 Python 包；以下区分当前代码与后续插件/HTTP 服务目标，不代表全部能力已有实测支持。
 
 ## 1. 要交付的产品
 
@@ -61,7 +61,7 @@ Python负责调度/校验/持久化，Node负责JS语义；即使上游Python分
 
 ## 4. 工程目录
 
-以下是待逐阶段创建的目录；目前不建立空实现。
+当前 Python 工程已包含 pyproject、src、tests 和 docs；插件、HTTP 路由、契约等未实现部分按阶段创建，不建立空实现。
 
 ```text
 website-js-extractor/
@@ -73,14 +73,13 @@ website-js-extractor/
     src/service-client/              # 配对、续传、状态和结果查询
     src/ui/                          # Vue 工作台及证据侧栏
     tests/                           # 单元、组合、真实 MV3 入口
-  service/                           # 独立 Python 工程与依赖锁
-    src/website_js_extractor/
-      api/                           # 版本化路由、鉴权、错误映射
-      tasks/                         # 任务/作业状态、取消和恢复
-      storage/                       # SQLite、正文与manifest校验
-      analyzer/                      # jshound适配、Node进程和结果校验
-      export/                        # JSON、Excel、证据资产包
-    tests/
+  pyproject.toml                     # 已有统一 Python 包和命令入口
+  src/website_js_extractor/           # 已有分析核心、CLI、引用与结果适配
+    cli.py / assets.py / engine.py    # 当前实现
+    api/                             # 后续：HTTP 路由、鉴权、错误映射
+    tasks/                           # 后续：任务/作业状态、取消和恢复
+    storage/                         # 后续：SQLite、正文与 manifest 校验
+    export/                          # 后续：Excel、证据资产包
   contracts/
     schemas/                         # JSON Schema 2020-12，协议唯一来源
     examples/                        # 最小正例、反例与期望错误
@@ -92,19 +91,19 @@ website-js-extractor/
   docs/
 ```
 
-第三方分析器继续放在根 `references/repos/jshound/` 子模块的可访问 fork，不复制进 `extension/` 或 `service/`。Python 适配器通过配置的锁定核心路径启动；发行时将该 Commit 的核心及所需依赖打入服务包，保留许可证与版本清单。
+第三方分析器继续放在根 `references/repos/jshound/` 子模块的可访问 fork，不复制进本工程源码或 `extension/`。Python 适配器通过配置的锁定核心路径启动；发行时将该 Commit 的核心及所需依赖打入服务包，保留许可证与版本清单。
 
 运行数据放用户显式选择的任务根目录，布局为 `metadata.sqlite`、`objects/<sha256>`、`snapshots/<id>/manifest.json`、`runs/<id>/`、`exports/`。上传正文先写临时对象，校验完成后原子提交；SQLite 不塞入所有源码。采集事件与正文分开持久化，记录引用而非复制多份代码。
 
 ### 开发入口约定
 
-创建工程时必须一并交付以下入口和锁文件；下面是待实现的命令约定，目前不能据此宣称可运行。
+当前安装/命令行与验证见[使用说明](usage.md)；下表的浏览器和 HTTP 命令仍是后续约定，不能据此宣称可运行。Python 依赖只在本工程根 pyproject 维护，不再创建另一套 service 工程。
 
 | 工程 | 开发/验证入口 | 产物 |
 | --- | --- | --- |
 | extension/ | npm ci、npm run build、npm test、npm run test:mv3 | dist/可加载插件、单元结果、真实MV3执行记录；test:mv3缺真实Chrome时标未验收 |
-| service/ | Python 3.12虚拟环境、pyproject.toml与uv.lock、uv sync --frozen、uv run pytest | 锁定服务依赖与服务测试；uv版本写入开发说明 |
-| service/ | uv run python -m website_js_extractor serve / doctor / import / analyze | 启动服务、自检、导入包、对固定snapshot离线分析；参数与退出码随S03提交 |
+| 工程根目录 | 当前 pyproject.toml；后续添加 HTTP 依赖和统一锁文件 | 复用同一 Python 包，锁文件与服务安装需单独验收 |
+| 工程根目录 | 当前 python -m website_js_extractor analyze；后续 serve / doctor / import | 启动服务、自检、导入包、对固定snapshot离线分析；参数与退出码随S03提交 |
 | contracts/ | 独立package/锁文件、npm run generate、npm test | JSON Schema生成TS/Pydantic类型及共享例子校验；生成器版本锁定 |
 | 核心fork | 对锁定Commit运行文档化基线/增强命令 | 上游原始输出、项目事实、版本/配置、时间和内存；命令由S2实测确定 |
 

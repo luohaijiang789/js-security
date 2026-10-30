@@ -1,6 +1,6 @@
 # 黑盒二结果与补取协议 0.4
 
-0.4 在并发采集与恢复基础上增加 Worker 上下文和经绑定验证的动态 script 引用；不等同于已完成全量 API 统计。进度只在[执行计划](../../docs/site-analysis-plan.md)维护。
+0.4 在并发采集与恢复基础上增加 Worker 上下文和经绑定验证的动态 script 引用；不等同于已完成全量 API 统计。进度只在[执行计划](plan.md)维护。
 
 ## 输入
 
@@ -65,7 +65,7 @@ HTML 为 0，直接外链为 1，后续确定引用加一；已取得的深层�
 
 collection checkpoint 原子保存正文相对路径/哈希/身份、图和导入缺口。恢复验证路径不逃出来源目录、正文哈希与资产身份；重新计算本轮引用状态，保留原始输入缺口，不保留上轮暂时性网络失败为已解决事实。新补取与旧 HAR 的版本关联未知，不因 URL 相同升级置信度。
 
-S3/S4 的精确位置和正式 Excel 尚未实现。不得默认联网或恢复已删除白盒后端。
+K3/K4 的精确位置和正式 Excel 尚未实现。不得默认联网或恢复已删除白盒后端。
 
 
 ## Worker 上下文与 script 插入
@@ -76,4 +76,4 @@ Worker 的相对请求和 importScripts 用主脚本最终 URL；模块导入用
 
 导入正文在原页面上下文中保留，可按明确引用复制到 Worker 推断上下文并记录 `associated_asset_id` 与 `acquisition=worker-association`；`associated_assets` 单列，不混入 `imported_assets` 或 `supplemented_assets`。同 URL 多版本不任选；保留原观察可能产生两套文件级候选，正式接口数仍为 null。推断关联也受输入资产数和累计正文字节预算，嵌套创建受获取深度约束。网络字节额度按采集开始时冻结的剩余预算计算，关联不扩大该额度；关联占用输入预算可能使后续完整响应在入库时被拒绝并记缺口。
 
-动态 script 仅把经 Babel 绑定和连续语句核验的创建/src/插入模式标 `structured`，其他 src 赋值继续候选；原生 API 被运行时替换、任意别名/DOM 封装不在本轮证明范围。source map 尚未实现，不能由 Worker 测试通过推断 S2.5 全项完成。
+动态 script 仅把经 Babel 绑定和连续语句核验的创建/src/插入模式标 `structured`，其他 src 赋值继续候选；原生 API 被运行时替换、任意别名/DOM 封装不在本轮证明范围。source map 尚未实现，不能由 Worker 测试通过推断 K2.5 全项完成。

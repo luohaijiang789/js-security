@@ -68,7 +68,7 @@ API 总表保留以上基础记录；插件请求组、API 组属于关联视图
 - `analysis.json`：机器可读底稿，保存资产、配置可用性、模型版本、表达式、代码依据、缺口和跨来源关联。
 - 插件原始 JSONL 包：按[插件规格](../browser-extension/docs/requirements.md)保留；导入时在底稿记录包/分片、请求 ID 和定位信息，确保可回查。
 
-黑盒二首版在三个明细 Sheet 之外增加统计概览、JS 资产和引用关系视图，见[详细设计](site-analysis-design.md)，状态见[黑盒二计划](site-analysis-plan.md)。
+黑盒二首版在三个明细 Sheet 之外增加统计概览、JS 资产和引用关系视图，见[详细设计](../website-js-extractor/docs/analysis-design.md)，状态见[黑盒二计划](../website-js-extractor/docs/plan.md)。
 
 Excel 不放敏感原值或超长源码，外部字符串按文本写入。长内容通过证据 ID 关联，不静默截断；超过工作表行数上限时按来源/分片拆分并提供清单，不丢弃记录。敏感值保护不破坏字段名、结构和缺失标记。
 
@@ -76,4 +76,4 @@ Excel 不放敏感原值或超长源码，外部字符串按文本写入。长�
 
 ## 当前状态
 
-黑盒一插件保留自己的现有导出。黑盒二已有 [CLI 原型协议 0.4](../site-js-analyzer/docs/protocol.md)的 JSON、原始底稿、正文快照、引用图与 CSV 候选预览；正式 Excel、精确位置、插件资产包和新 HTTP 服务协议尚未实现。产品状态在[产品计划](../website-js-extractor/docs/plan.md)，原型验证在[原型计划](site-analysis-plan.md)；白盒状态在[白盒计划](../frontend-api-extractor/docs/plan.md)，不互相替代。
+黑盒一插件保留自己的现有导出。黑盒二已有 [命令行结果协议 0.4](../website-js-extractor/docs/protocol.md)的 JSON、原始底稿、正文快照、引用图与 CSV 候选预览；正式 Excel、精确位置、插件资产包和新 HTTP 服务协议尚未实现。核心验证和产品状态统一在[黑盒二计划](../website-js-extractor/docs/plan.md)；白盒状态在[白盒计划](../frontend-api-extractor/docs/plan.md)，不互相替代。

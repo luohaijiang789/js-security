@@ -9,10 +9,10 @@ import threading
 import uuid
 from urllib.request import urlopen
 
-from site_js_analyzer.acquisition import StaticFetcher
-from site_js_analyzer.assets import Snapshot
-from site_js_analyzer.collection import ReferenceGraph, restore_snapshot
-from site_js_analyzer.engine import default_engine_root
+from website_js_extractor.acquisition import StaticFetcher
+from website_js_extractor.assets import Snapshot
+from website_js_extractor.collection import ReferenceGraph, restore_snapshot
+from website_js_extractor.engine import default_engine_root
 
 ROOT = Path(__file__).resolve().parents[2]
 

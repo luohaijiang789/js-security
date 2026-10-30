@@ -9,9 +9,9 @@ import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from site_js_analyzer.assets import Snapshot
-from site_js_analyzer.collection import ReferenceGraph
-from site_js_analyzer.engine import default_engine_root
+from website_js_extractor.assets import Snapshot
+from website_js_extractor.collection import ReferenceGraph
+from website_js_extractor.engine import default_engine_root
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -69,7 +69,7 @@ def main():
                         ('resume4',['--resume',str(target/'depth3'),'--fetch-js','--allow-origin',base,'--max-js-depth','4'])]
         for name,arguments in configurations:
             traffic.clear()
-            command=[sys.executable,'-m','site_js_analyzer','analyze',*arguments,'--out',str(target/name)]
+            command=[sys.executable,'-m','website_js_extractor','analyze',*arguments,'--out',str(target/name)]
             result=subprocess.run(command,capture_output=True,text=True,timeout=120)
             (target/(name+'.log')).write_text(result.stdout+result.stderr)
             report=json.loads((target/name/'analysis.json').read_text())
