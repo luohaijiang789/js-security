@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/mdn/dom-examples",
+  "commit": "03ae1ffb325a9202d3a64f26ab5b8361392a5368",
+  "files": [
+    {
+      "path": "web-workers/simple-web-worker/main.js",
+      "local": "main.js",
+      "bytes": 595,
+      "sha256": "953de6756753143e495bb2a691ced61a944f552ec40b40bf80b8da0a722090ff"
+    },
+    {
+      "path": "web-workers/simple-web-worker/worker.js",
+      "local": "worker.js",
+      "bytes": 350,
+      "sha256": "a8569750722c3d7d5f40af590092875f52f681055017cf66bd4d75fc94238b74"
+    }
+  ],
+  "license_url": "https://github.com/mdn/dom-examples/blob/03ae1ffb325a9202d3a64f26ab5b8361392a5368/LICENSE",
+  "expected_worker_target": "worker.js",
+  "limitations": "Public compatibility fixture, not an independent recall set. No page JS or Worker is executed.",
+  "license": "CC0-1.0"
+}

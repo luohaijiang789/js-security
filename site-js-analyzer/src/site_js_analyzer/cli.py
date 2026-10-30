@@ -71,7 +71,7 @@ def main(argv=None):
         print(f'Cannot create output: {error}', file=sys.stderr)
         return 2
     snapshot = Snapshot(output, args.max_files, args.max_asset_mib*1024*1024, args.max_total_mib*1024*1024)
-    task = dict(id=str(uuid.uuid4()), schema_version='0.3', tool_version=__version__, engine=LOCK,
+    task = dict(id=str(uuid.uuid4()), schema_version='0.4', tool_version=__version__, engine=LOCK,
                 input=str(source.resolve()), input_type='har' if args.har else 'resume' if args.resume else 'directory',
                 started_at=datetime.now(timezone.utc).isoformat(), phase='import', status='running',
                 settings=dict(timeout=args.timeout, max_files=args.max_files, max_asset_mib=args.max_asset_mib, max_total_mib=args.max_total_mib,
@@ -132,8 +132,8 @@ def main(argv=None):
                   fetch_statistics=getattr(snapshot, 'fetch_statistics', None),
                   collection_checkpoint='collection.json' if (output/'collection.json').exists() else None,
                   engine_record_file='engine-records.json', other_engine_record_ids=other, gaps=snapshot.gaps,
-                  statistics=dict(imported_assets=sum(a.get('acquisition') != 'static-supplement' for a in snapshot.assets),
-                                  total_assets=len(snapshot.assets), supplemented_assets=sum(a.get('acquisition') == 'static-supplement' for a in snapshot.assets),
+                  statistics=dict(imported_assets=sum(a.get('acquisition') not in {'static-supplement', 'worker-association'} for a in snapshot.assets),
+                                  total_assets=len(snapshot.assets), associated_assets=sum(a.get('acquisition') == 'worker-association' for a in snapshot.assets), supplemented_assets=sum(a.get('acquisition') == 'static-supplement' for a in snapshot.assets),
                                   reference_edges=len(edges), reference_statuses=dict(Counter(e['status'] for e in edges)),
                                   asset_depths=dict(Counter(str(a.get('js_depth')) for a in snapshot.assets)), engine_records=len(records),
                                   candidate_records_by_depth=dict(Counter(str(c.get('js_depth')) for c in candidates)),

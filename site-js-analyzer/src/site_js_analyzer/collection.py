@@ -146,6 +146,16 @@ class ReferenceGraph:
         return data
 
     def add_edge(self, parent, ref, inline=None):
+        ref = dict(ref)
+        worker = parent.get('execution_context')
+        if ref['kind'] == 'worker_import':
+            usable = worker and worker['worker_mode'] == 'classic' and ref.get('global_binding') and isinstance(ref['target'], str)
+            ref['confidence'] = 'structured' if usable else 'candidate'
+            ref['context_reason'] = 'classic_worker_global' if usable else 'worker_mode_or_binding_unverified'
+        if worker and worker['worker_mode'] == 'classic' and ref['kind'] in {'module_import', 'module_export'}:
+            ref.update(confidence='candidate', context_reason='module_syntax_in_classic_worker')
+        if ref['kind'] == 'script_assignment' and worker:
+            ref.update(confidence='candidate', context_reason='dom_unavailable_in_worker')
         value = dict(parent_asset_id=parent['id'], context_id=parent['context_id'],
                      parent_sha256=parent['sha256'], **ref)
         if inline is not None:
@@ -157,6 +167,8 @@ class ReferenceGraph:
             value['start'] = value['end'] = None
         value.update(id='edge-'+digest(value)[:20], child_asset_ids=[], status='pending',
                      target_url=None, target_location=None, child_depth=None, resolution_base=None, resolution_basis=None)
+        value['target_context_id'] = ('ctx-worker-'+digest([parent['context_id'], value['id']])[:20]
+                                      if ref['kind'] == 'worker' and ref['confidence'] == 'structured' else parent['context_id'])
         if not any(edge['id'] == value['id'] for edge in self.edges):
             self.edges.append(value)
 
@@ -221,7 +233,7 @@ class ReferenceGraph:
         edge['resolution_basis'] = 'document_base' if inline or not module_kind else 'module_url'
         local = None
         if module_kind:
-            mapping = self.maps.get(parent['context_id'], {})
+            mapping = {} if parent.get('execution_context') else self.maps.get(parent['context_id'], {})
             if mapping.get('invalid'):
                 return None, None, 'import_map_ambiguous'
             if PurePosixPath(parsed_specifier.path).suffix.lower() in {'.json', '.css', '.png', '.svg', '.wasm'}:
@@ -233,6 +245,14 @@ class ReferenceGraph:
             if specifier.startswith(('./', '../', '/')) and not parent['url'] and not mapping.get('imports') and not mapping.get('scopes') and reason in (None, 'base_unknown'):
                 local = posixpath.normpath(posixpath.join('' if specifier.startswith('/') else posixpath.dirname(parent['location']), specifier.lstrip('/') if specifier.startswith('/') else specifier))
                 edge['local_resolution_base'] = posixpath.dirname(parent['location'])
+        elif edge['kind'] == 'worker':
+            basis = edge.get('url_basis')
+            worker_base = (base if inline else module) if basis == 'module_url' else base
+            edge['resolution_base'] = worker_base
+            edge['resolution_basis'] = basis
+            # Explicit URL schemes such as blob/data/file must never become HTTP GETs.
+            target = urljoin(worker_base or '', specifier)
+            reason = None if http_url(target) else 'worker_url_unsupported_or_base_unknown'
         elif edge['kind'] == 'webpack_chunk':
             public = edge.get('public_path')
             if public is None:
@@ -277,9 +297,9 @@ class ReferenceGraph:
                 parent = by_id[edge['parent_asset_id']]
                 target, local, reason = self.targets(edge, parent)
                 edge.update(target_url=target, target_location=local, resolution_reason=reason)
-                children = list(urls.get((edge['context_id'], target), [])) if target else []
+                children = list(urls.get((edge.get('target_context_id', edge['context_id']), target), [])) if target else []
                 if local:
-                    for asset in locations.get((edge['context_id'], local), []):
+                    for asset in locations.get((edge.get('target_context_id', edge['context_id']), local), []):
                         if asset not in children:
                             children.append(asset)
                 edge['child_asset_ids'] = [child['id'] for child in children]
@@ -305,17 +325,74 @@ class ReferenceGraph:
             parent = by_id[edge['parent_asset_id']]
             edge['child_depth'] = parent['js_depth']+1 if parent['js_depth'] is not None else None
 
+    def execution_context(self, edge, parent, root_url):
+        if edge['kind'] != 'worker':
+            return parent.get('execution_context')
+        creator = parent.get('execution_context', {})
+        return dict(type=edge['worker_type'], worker_mode=edge['worker_mode'],
+                    page_url=None, request_base_url=root_url, root_url=root_url,
+                    creator_context_id=parent['context_id'], creation_edge_id=edge['id'],
+                    owner_page_url=creator.get('owner_page_url', parent['page_url']),
+                    owner_page_context_id=creator.get('owner_page_context_id', parent['context_id']),
+                    evidence='static_worker_constructor')
+
+    def reuse_worker_bodies(self):
+        # A HAR response isn't execution proof. Reuse bytes in a new inferred
+        # context, preserving the original observation; never pick a version.
+        grew = False
+        by_id = {a['id']: a for a in self.snapshot.assets}
+        for edge in self.edges:
+            parent = by_id[edge['parent_asset_id']]
+            if edge['status'] != 'pending' or edge['confidence'] not in {'certain', 'structured'}:
+                continue
+            if edge['kind'] != 'worker' and not parent.get('execution_context'):
+                continue
+            depth = edge['child_depth']
+            if depth is None or edge['kind'] == 'worker' and depth > self.max_depth:
+                continue
+            owner = parent.get('execution_context', {}).get('owner_page_context_id', parent['context_id'])
+            candidates = [a for a in self.snapshot.assets if a['kind'] == 'js' and
+                          a['context_id'] == owner and edge['target_url'] in
+                          [a.get('url'), a.get('reference_url'), *a.get('url_aliases', [])]]
+            if len(candidates) > 1:
+                self.snapshot.gap('worker_version_ambiguous', 'Multiple imported Worker versions; no version was selected.',
+                                  asset_id=parent['id'], source=edge['id'], incomplete=True)
+                self.failures[(edge['target_context_id'], edge['target_url'])] = ('ambiguous_version', 'Multiple imported Worker versions.')
+                continue
+            if len(candidates) != 1:
+                continue
+            source = candidates[0]
+            asset = self.snapshot.add((self.snapshot.output/source['body_file']).read_bytes(),
+                                      location=source['location'], url=source['url'], kind='js', page_url=None,
+                                      context_id=edge['target_context_id'], observation={'source':'worker-association', 'asset_id':source['id']})
+            if asset:
+                asset.update(execution_context=self.execution_context(edge, parent, source.get('url') or edge['target_url']),
+                             acquisition='worker-association', associated_asset_id=source['id'], js_depth=depth,
+                             url_aliases=sorted(set(source.get('url_aliases', [])) | {edge['target_url']}),
+                             reference_url=source.get('reference_url'))
+                self.snapshot.gap('worker_observation_context_inferred',
+                                  'Imported bytes were associated with a static Worker context; the original page observation is retained and is not execution proof.',
+                                  asset_id=source['id'], source=edge['id'])
+                grew = True
+            else:
+                self.failures[(edge['target_context_id'], edge['target_url'])] = ('body_rejected', 'Worker association exceeded input budget.')
+        return grew
+
     def _accept_future(self, future, edge, fetcher):
-        key = (edge['context_id'], edge['target_url'])
+        key = (edge.get('target_context_id', edge['context_id']), edge['target_url'])
         try:
             response = dict(future.result())
             parent = next(a for a in self.snapshot.assets if a['id'] == edge['parent_asset_id'])
             previous = {a['id'] for a in self.snapshot.assets}
             asset = self.snapshot.add(response.pop('data'), location=response['url'], url=response['url'], kind='js',
-                                      page_url=parent['page_url'], context_id=parent['context_id'],
+                                      page_url=None if edge['kind'] == 'worker' else parent['page_url'],
+                                      context_id=edge.get('target_context_id', parent['context_id']),
                                       observation={'source': 'static-supplement', 'time': response['fetched_at']})
             if asset is None:
                 raise FetchError('body_rejected', 'Fetched response failed snapshot validation; no partial script was imported.')
+            worker = self.execution_context(edge, parent, response['url'])
+            if worker:
+                asset['execution_context'] = worker
             asset['url_aliases'] = sorted(set(asset.get('url_aliases', [])) | set(response['aliases']))
             if asset['id'] not in previous:
                 asset.update(acquisition='static-supplement', fetched_at=response['fetched_at'])
@@ -336,7 +413,7 @@ class ReferenceGraph:
 
     def _wave(self, executor, fetcher, edges):
         futures = {executor.submit(fetcher.get, e['target_url'], self.snapshot.max_asset_bytes,
-                                   context_id=e['context_id']): e for e in edges}
+                                   context_id=e.get('target_context_id', e['context_id'])): e for e in edges}
         processed, grew = set(), False
         try:
             remaining = min(self.end, fetcher.end)-time.monotonic()
@@ -367,6 +444,8 @@ class ReferenceGraph:
                 self.snapshot.resolve_contexts()
                 self.discover()
                 self.refresh()
+                if self.reuse_worker_bodies():
+                    continue
                 self.checkpoint(fetcher)
                 pending = [e for e in self.edges if e['status'] == 'pending']
                 pending.sort(key=lambda e: (e['child_depth'] is None, e['child_depth'] or 0, e['id']))
@@ -378,12 +457,12 @@ class ReferenceGraph:
                     if edge['child_depth'] > self.max_depth:
                         edge['status'] = 'depth_limit'
                         continue
-                    if fetcher is None:
-                        edge['status'] = 'missing_offline'
-                        continue
-                    key = (edge['context_id'], edge['target_url'])
+                    key = (edge.get('target_context_id', edge['context_id']), edge['target_url'])
                     if key in self.failures:
                         edge['status'], edge['error'] = self.failures[key]
+                        continue
+                    if fetcher is None:
+                        edge['status'] = 'missing_offline'
                         continue
                     if key in keys:
                         continue
@@ -409,6 +488,7 @@ class ReferenceGraph:
                 incomplete = status not in {'unresolved', 'unknown_depth'}
                 self.snapshot.gap('reference_'+status, edge.get('error') or edge.get('resolution_reason') or 'Referenced script has not been obtained.',
                                   asset_id=edge['parent_asset_id'], source=edge['id'], incomplete=incomplete)
+            self.snapshot.resolve_contexts()
             self.snapshot.reference_edges = self.edges
             self.snapshot.fetch_events = fetcher.events if fetcher else []
             self.snapshot.fetch_statistics = fetcher.statistics() if fetcher else None
@@ -416,7 +496,7 @@ class ReferenceGraph:
         return self.edges
 
     def checkpoint(self, fetcher):
-        value = dict(schema_version='0.3', assets=self.snapshot.assets, contexts=self.snapshot.contexts,
+        value = dict(schema_version='0.4', assets=self.snapshot.assets, contexts=self.snapshot.contexts,
                      edges=self.edges, fetch_events=fetcher.events if fetcher else [], import_gaps=self.import_gaps,
                      fetch_statistics=fetcher.statistics() if fetcher else None)
         path = self.snapshot.output/'collection.json'
@@ -431,9 +511,25 @@ def restore_snapshot(snapshot, source):
     if checkpoint.stat().st_size > snapshot.max_total_bytes:
         raise ValueError('Collection checkpoint exceeds input budget.')
     data = json.loads(checkpoint.read_text())
-    if data.get('schema_version') not in {'0.2', '0.3'} or not isinstance(data.get('assets'), list):
+    if data.get('schema_version') not in {'0.2', '0.3', '0.4'} or not isinstance(data.get('assets'), list):
         raise ValueError('Unsupported collection checkpoint.')
+    context_metadata = {}
     for entry in data['assets']:
+        worker = entry.get('execution_context')
+        context_id = entry.get('context_id')
+        if worker is not None:
+            if not isinstance(worker, dict) or worker.get('type') not in {'dedicated_worker', 'shared_worker'} or worker.get('worker_mode') not in {'classic', 'module'}:
+                raise ValueError('Invalid Worker context metadata.')
+            if not http_url(worker.get('root_url')) or worker.get('root_url') != worker.get('request_base_url') or worker.get('page_url') is not None:
+                raise ValueError('Invalid Worker execution base.')
+            if not all(isinstance(worker.get(key), str) for key in ('creator_context_id', 'creation_edge_id', 'owner_page_context_id')):
+                raise ValueError('Invalid Worker provenance.')
+            expected = 'ctx-worker-'+digest([worker['creator_context_id'], worker['creation_edge_id']])[:20]
+            if context_id != expected or entry.get('page_url') is not None:
+                raise ValueError('Worker context identity mismatch.')
+        if context_id in context_metadata and context_metadata[context_id] != worker:
+            raise ValueError('Conflicting Worker context metadata.')
+        context_metadata[context_id] = worker
         relative = entry['body_file']
         if not isinstance(relative, str) or PurePosixPath(relative).is_absolute() or '..' in PurePosixPath(relative).parts:
             raise ValueError('Unsafe checkpoint body path.')
@@ -450,7 +546,7 @@ def restore_snapshot(snapshot, source):
         if asset:
             if asset['id'] != entry['id']:
                 raise ValueError('Checkpoint asset identity mismatch.')
-            for key in ('acquisition', 'fetched_at', 'url_aliases'):
+            for key in ('acquisition', 'fetched_at', 'url_aliases', 'execution_context', 'associated_asset_id', 'reference_url'):
                 if key in entry:
                     asset[key] = entry[key]
     for gap in data.get('import_gaps', []):

@@ -102,7 +102,13 @@ S0.4 的独立样本准备可与 S1/S2 的通用输入实现交错推进，但�
 
 本地采集记录（不是吞吐保证）：128 个脚本加共享循环子脚本共 129 次 GET、257 条引用边；串行/并发约 8.40/3.06 秒、并发峰值 1/4，图语义一致。文件上限 8 后保存 8 个脚本，恢复仅 GET 缺失的 121 个。16 个 URL 上重复的冻结 Swagger UI 派生正文，加共享子脚本共读取 26,948,279 字节；串行/并发图一致，预算无超支、退出时无在途请求或预留。没有业务 API 探测。重复正文命中 AST 缓存，不能外推不同大包分析成本；Python 与子进程 RSS 高水位分别约 91 MiB / 1.25 GiB，子进程计量是 Linux 已结束子进程最大值，不是完整进程树总量。内存限制与优化仍需 S5 验证。
 
-下一执行项：S2.5 Worker/importScripts、脚本插入和 source map 上下文，随后补独立样本与 S2.6 递归验收。S0.4、S3 精确发送点、S4 正式统计/Excel、S5 性能及浏览器产品集成继续未完成；API 仍为文件级候选。
+2026-10-30 继续推进 S2.5 第一部分：先在[实施约定](../site-js-analyzer/docs/collection.md#s25-扩展上下文实施顺序)写明步骤，再增加 Worker/SharedWorker、classic importScripts、module import、嵌套创建、重定向最终基址和上下文恢复；CLI/schema 为 0.4。每个静态创建位置形成独立上下文，不继承页面 import map；动态/遮蔽/未知模式、blob/data、Service Worker 注册不自动获取。动态 script 仅提升经绑定与连续语句验证的创建/src/插入模式，其他赋值继续候选。
+
+本轮验证：[70 项自动化测试](../site-js-analyzer/tests/test_worker_contexts.py)（含原有 62 项）、[冻结公开 Worker 检查](../site-js-analyzer/tests/check_workers.py)、原始/HAR/压缩和公开 Swagger UI、Webpack/Vite 及三层/四层恢复回归通过。0.4.0 wheel 安装后重跑 8 项 Worker 检查通过。MDN dom-examples 固定 Commit `03ae1ffb325a9202d3a64f26ab5b8361392a5368` 的 main/worker JS 完成离线缺失、离线关联、受控补取和恢复四种检查；仅请求 worker.js 一次，恢复不重复获取，不执行页面/Worker 或探测 API。文件哈希与 CC0-1.0 许可见[样本清单](../site-js-analyzer/tests/worker-manifest.json)，复现命令见[CLI 验证](../site-js-analyzer/README.md#验证)。日志在 `work/blackbox2-tools/logs/s25-*`，结果在 `work/site-worker-check-4fb5694157/`、`work/site-analyzer-check-c4d6353da0/`、`work/site-collection-check-ef190672ba/`。
+
+边界：Worker 上下文来自静态构造证据，不证明 CORS/CSP/同源条件允许执行，也不代表实际创建次数或 SharedWorker 运行合并。导入正文关联保留原页面观察，可能形成页面/Worker 两套候选，单列 associated_assets；不任选同 URL 历史版本。尚未支持任意 blob Worker、DOM 别名或注入 wrapper。source map 尚未适配，因此 S2.5 继续未勾选；公开 MDN 样本不是独立召回验证集。
+
+下一执行项：按已写步骤适配 source map 的独立源码证据及预算/恢复，再补独立样本与 S2.6 递归验收。S0.4、S3 精确发送点、S4 正式统计/Excel、S5 性能及浏览器产品集成继续未完成；API 仍为文件级候选。
 
 ## 必测矩阵
 

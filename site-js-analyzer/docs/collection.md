@@ -37,4 +37,13 @@
 
 实现入口：`ReferenceGraph` 按层选择不超过 `--fetch-concurrency` 个不同上下文/URL，`StaticFetcher` 在锁内预留文件尝试与读取额度。每线程使用独立 urllib opener，保留系统代理/TLS；相同上下文的重定向最终正文由 Future 共享。主线程接收完成结果并原子写 checkpoint；停止后回收线程，保留完成正文，不保存半截脚本。
 
-本轮统计由[协议 0.3](protocol.md)定义，恢复只复用正文，不累加上轮网络计数。自动化反例见[并发测试](../tests/test_concurrency.py)，冻结公开正文与较宽引用图的验证入口见[较大输入检查](../tests/check_collection_load.py)。这些验证不代替不同正文的大型网站、登录态或 Chrome 插件现场验收。
+本轮统计由[协议 0.4](protocol.md)定义，恢复只复用正文，不累加上轮网络计数。自动化反例见[并发测试](../tests/test_concurrency.py)，冻结公开正文与较宽引用图的验证入口见[较大输入检查](../tests/check_collection_load.py)。这些验证不代替不同正文的大型网站、登录态或 Chrome 插件现场验收。
+
+## S2.5 扩展上下文实施顺序
+
+1. 先适配 Worker/SharedWorker 的明确构造引用（字面量或 `new URL(..., import.meta.url)`），保留类型、构造位置和基址依据。绑定遮蔽、动态路径/类型、blob/data 均不作为可补取目标；不注册 Service Worker。
+2. 为每个创建位置建立独立静态推断上下文，保留创建者与原页面；Worker 主脚本最终 URL 作为请求基址。`importScripts` 仅在 classic Worker 中补取，使用 Worker 主脚本基址；模块 import 使用当前模块 URL，不继承页面 import map。嵌套 Worker、循环、深度与获取预算继续约束。
+3. 已导入正文可在版本无歧义时显式关联到 Worker 上下文，保留原始观察及关联证据，不将 HAR pageref 当真实执行证明；多个版本不任选。网络获取仍按上下文隔离，checkpoint 恢复必须保留上下文身份。
+4. 动态脚本只提升经过 AST 绑定验证的常见直线创建/设 src/插入模式；普通 `.src`、别名逃逸、重复写入、动态表达式保留候选。页面 DOM 引用不在 Worker 中冒充有效调用。
+5. source map 另建源码证据，不把 map/sourcesContent 直接作为执行脚本分析，也不沿任意 sources URL 下载；压缩 JS 保留主身份，源码位置由后续精确定位验收。本阶段分步交付，未完成 source map 与对应冻结样本前 S2.5 保持未勾选。
+6. 正常/反例核对页面/CDN/Worker 三种基址、经典/模块 Worker、同正文多上下文、重定向、循环、恢复与无业务 API 探测；冻结公开 Worker 样本用于兼容性运行，不声称全站召回。

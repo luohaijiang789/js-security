@@ -80,8 +80,8 @@ def stage_group(snapshot, assets, number):
         # Copy original bytes. Never edit input or execute its contents.
         shutil.copyfile(snapshot.output/asset['body_file'], target)
         mapping[str(target.resolve())] = asset
-        if asset['url'] and asset['page_url']:
-            origins.append({'f': relative.as_posix(), 'u': asset['url'], 'd': asset['page_url']})
+        if asset['url'] and asset.get('request_base_url'):
+            origins.append({'f': relative.as_posix(), 'u': asset['url'], 'd': asset['request_base_url']})
     (directory/'_origin.jsonl').write_text(''.join(json.dumps(x)+'\n' for x in origins), encoding='utf-8')
     return directory, mapping
 

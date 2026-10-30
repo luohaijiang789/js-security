@@ -2,7 +2,7 @@
 
 按[黑盒二执行计划](../docs/site-analysis-plan.md)实施的独立工程，目标先打通 HAR/已保存 JS → 原始引擎记录 → 参数与候选预览，再增加递归补取、精确发送点和正式 Excel。
 
-设计见[总方案](../docs/site-analysis-design.md)，输入/结果/退出状态见[协议 0.3](docs/protocol.md)。当前已完成离线链路与 S2 的引用发现、最短深度和受控并发补取：支持目录/HAR、引用关系 CSV、限定来源的 JS 下载与已保存正文恢复。API 精确位置/调用链、Worker 完整上下文、正式 Excel 和浏览器界面尚未完成。
+设计见[总方案](../docs/site-analysis-design.md)，输入/结果/退出状态见[协议 0.4](docs/protocol.md)。当前已完成离线链路与 S2 的引用发现、最短深度和受控并发补取：支持目录/HAR、引用关系 CSV、限定来源的 JS 下载与已保存正文恢复。已增加 Worker 静态推断上下文与常见动态 script 插入模式；source map、API 精确位置/调用链、正式 Excel 和浏览器界面尚未完成。
 
 固定复用 jshound，不将插件工程或已删除白盒旧服务作为依赖；实现进度只在根 docs 的执行计划更新，不在此复制 Checklist。
 
@@ -39,7 +39,7 @@ HTML 深度为 0，直接脚本与内联模块导入为 1，后续每条确定�
 
 复用固定引擎的 import 与 chunk 映射。import map 支持精确项、前缀、scopes 和 null 阻断；推测文件名、动态路径及缺少 publicPath/模块基址的表只留候选。Webpack 旧式 builder 的原始位置可能不由上游暴露，字段保留 null，不猜行列。引用位置不等于 API 发送位置。
 
-`--fetch-timeout` 默认 10 秒，`--fetch-deadline` 与 `--discovery-timeout` 默认各 60 秒；发现预算也覆盖本轮构图/补取过程，先到的预算会停止相应阶段。`--max-fetch-files` 默认 100（计尝试文件，含失败），`--fetch-retries` 默认 1（仅连接失败/429/5xx 等有限重试）。单个正文与累计下载字节同时受输入字节预算约束；超限或不完整响应不作为成功脚本。`--fetch-concurrency` 默认 4，可设 1–32；按最短已知层数分批下载，同上下文/URL 合并在途和完成结果，不同上下文不共用。总下载预算为输入总预算扣除本轮已导入正文，含失败读取成本；恢复时重新计算剩余额度。预算指应用读取的正文，不等于网卡流量；未知长度正文恰好到达限额且无法证明 EOF 时记缺口。
+`--fetch-timeout` 默认 10 秒，`--fetch-deadline` 与 `--discovery-timeout` 默认各 60 秒；发现预算也覆盖本轮构图/补取过程，先到的预算会停止相应阶段。`--max-fetch-files` 默认 100（计尝试文件，含失败），`--fetch-retries` 默认 1（仅连接失败/429/5xx 等有限重试）。单个正文与累计下载字节同时受输入字节预算约束；超限或不完整响应不作为成功脚本。`--fetch-concurrency` 默认 4，可设 1–32；按最短已知层数分批下载，同上下文/URL 合并在途和完成结果，不同上下文不共用。总下载预算为输入总预算扣除采集开始前已导入正文，含失败读取成本；恢复时重新计算剩余额度。预算指应用读取的正文，不等于网卡流量；未知长度正文恰好到达限额且无法证明 EOF 时记缺口。
 
 需要登录保护脚本时，`--session-file` 可指向本地 JSON：外层键为精确规范 origin，内层为显式请求头。配置不进入报告；不自动从 HAR 复制 Cookie/Authorization；每个重定向 origin 重新检查并使用其自己的配置。保留系统代理与 TLS 校验。配置说明和边界见[执行约定](docs/collection.md)。
 
@@ -49,7 +49,17 @@ HTML 深度为 0，直接脚本与内联模块导入为 1，后续每条确定�
 work/site-js-analyzer-venv/bin/site-js-analyzer analyze --resume work/site-recursive --fetch-js --allow-origin https://app.example.com --allow-origin https://cdn.example.com --max-js-depth 4 --out work/site-resumed
 ```
 
-恢复校验路径、正文哈希与资产身份，已有正文不会因恢复而重取；新预算和来源选项仍需明确提供。支持 0.2/0.3 collection checkpoint。旧 0.1 报告没有 collection checkpoint，应使用原输入重新运行。补取是新的资源观察，不证明与原 HAR 同版；缺失/截断/歧义都保留，不能声称全站已覆盖。
+恢复校验路径、正文哈希与资产身份，已有正文不会因恢复而重取；新预算和来源选项仍需明确提供。支持 0.2/0.3/0.4 collection checkpoint。旧 0.1 报告没有 collection checkpoint，应使用原输入重新运行。补取是新的资源观察，不证明与原 HAR 同版；缺失/截断/歧义都保留，不能声称全站已覆盖。
+
+## Worker 与动态脚本
+
+识别未被本地绑定遮蔽的 Worker/SharedWorker 字面量构造，以及 `new Worker(new URL('./worker.js', import.meta.url), {type:'module'})`。每个创建位置形成独立静态推断上下文；Worker 重定向后的主脚本 URL 作为请求基址，模块 import 则按当前模块 URL，页面 import map 不继承。classic Worker 的 `importScripts` 支持字面量；module Worker 的 `importScripts` 保留候选。动态路径、未知类型、blob/data URL、Service Worker 注册不转为补取。
+
+同一创建点的运行次数、SharedWorker 的实际复用、浏览器的 CORS/CSP/同源可执行性不由静态扫描证明；允许来源仅控制静态资源读取。已导入正文无版本歧义时可关联到 Worker 上下文，原观察不删除，关联资产另计 `associated_assets`；这可能同时保留页面与 Worker 文件级候选，不能用候选总数当接口总数。原输入存在多个版本时记歧义，不选一个也不通过新 GET 消除历史版本问题。嵌套 Worker 仍受层数预算；没有已知父链或超过上限时不无限创建推断上下文。
+
+动态 script 只对同一语句列表中连续的 `const s=document.createElement('script'); s.src='...'; document.head.appendChild(s);`（也支持 body/documentElement 的 append/appendChild）提升为结构化引用；要求唯一 src 写入、绑定未逃逸、全局 document 未被遮蔽。其余 `.src` 保留候选，不推断任意 DOM/wrapper 行为。验证的是静态引用，不证明浏览器曾执行插入。
+
+source map 适配尚未完成，不将源码内容混入执行脚本或接口候选。实现与后续顺序见[扩展上下文约定](docs/collection.md#s25-扩展上下文实施顺序)。
 
 ## 结果与含义
 
@@ -74,6 +84,7 @@ work/site-js-analyzer-venv/bin/python -m unittest discover -s site-js-analyzer/t
 work/site-js-analyzer-venv/bin/python site-js-analyzer/tests/check_baseline.py --public
 work/site-js-analyzer-venv/bin/python site-js-analyzer/tests/check_collection.py
 work/site-js-analyzer-venv/bin/python site-js-analyzer/tests/check_collection_load.py
+work/site-js-analyzer-venv/bin/python site-js-analyzer/tests/check_workers.py --prepare
 ```
 
 基线脚本需要已准备的开源实验资产，生成方法见[开源实测](../references/blackbox2-experiment/README.md)。它会检查原始、压缩及公开 bundle 哈希，再检查目录/HAR/压缩三种输入的 13 个预期请求、4 个 Query 和 8 个 Body 叶字段；公开 Swagger UI 仅作兼容性运行，不计算召回。生成的 HAR/报告/验证记录只放 work。
@@ -82,8 +93,10 @@ work/site-js-analyzer-venv/bin/python site-js-analyzer/tests/check_collection_lo
 
 较大输入检查使用 128 个脚本加共享循环引用，以及 16 个 URL 上的冻结 Swagger UI bundle 派生正文，核对串行/并发图一致、文件上限停止与恢复、应用字节计费及并发峰值。它只验证受控本地采集；相同正文命中 AST 缓存，不代表 16 个不同大包的分析成本，也不提供大站吞吐保证。输出只保存在 `work/site-collection-load-*/`。
 
+Worker 检查首次可用 `--prepare` 下载固定 MDN Commit 的两个 JS 并验证哈希，后续去掉该参数只用本地正文；没有执行示例。清单及许可见 [worker-manifest.json](tests/worker-manifest.json)，原始正文与报告分别在 `work/blackbox2-tools/public-workers/` 和 `work/site-worker-check-*/`。
+
 受控样例、自动化测试和公开 bundle 均不代替目标网站、登录态、Worker 或完整 Chrome 扩展现场验收。第三方版本与许可见[说明](THIRD_PARTY_NOTICES.md)。
 
 ## 与插件/服务产品的关系
 
-主干的 [website-js-extractor 产品架构](../website-js-extractor/docs/architecture.md)保留为后续集成目标。当前 CLI 是可独立复现的分析原型，协议 0.3 不是产品正式 v1；显式网络补取仅用于 CLI，产品采集由插件负责，不将此能力直接搬进本机服务。产品完成状态不由 CLI 的测试结果自动提升。
+主干的 [website-js-extractor 产品架构](../website-js-extractor/docs/architecture.md)保留为后续集成目标。当前 CLI 是可独立复现的分析原型，协议 0.4 不是产品正式 v1；显式网络补取仅用于 CLI，产品采集由插件负责，不将此能力直接搬进本机服务。产品完成状态不由 CLI 的测试结果自动提升。

@@ -134,5 +134,5 @@ def write_report(output, report, records):
     fields = [dict(request_id=candidate['id'], **field) for candidate in report['candidates'] for field in candidate['parameters']]
     write_csv(output/'parameters.csv', ['request_id', 'carrier', 'path', 'expression', 'evidence', 'value_status'], fields)
     write_csv(output/'assets.csv', ['id', 'url', 'location', 'sha256', 'context_id', 'page_url', 'body_file', 'analysis_status', 'js_depth', 'acquisition', 'fetched_at', 'reference_url'], report['assets'])
-    write_csv(output/'references.csv', ['id', 'parent_asset_id', 'kind', 'confidence', 'target', 'target_url', 'target_location', 'child_asset_ids', 'child_depth', 'status', 'line', 'column', 'resolution_base', 'resolution_basis', 'resolution_reason'], report.get('reference_edges', []))
+    write_csv(output/'references.csv', ['id', 'parent_asset_id', 'context_id', 'target_context_id', 'kind', 'confidence', 'target', 'target_url', 'target_location', 'child_asset_ids', 'child_depth', 'status', 'line', 'column', 'resolution_base', 'resolution_basis', 'resolution_reason'], report.get('reference_edges', []))
     write_csv(output/'gaps.csv', ['id', 'kind', 'asset_id', 'request_id', 'source', 'message', 'incomplete'], report['gaps'])

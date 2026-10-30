@@ -1,10 +1,10 @@
-# 黑盒二结果与补取协议 0.3
+# 黑盒二结果与补取协议 0.4
 
-0.3 在引用图、深度、补取观察与恢复基础上增加并发采集及预算统计；不等同于已完成全量 API 统计。进度只在[执行计划](../../docs/site-analysis-plan.md)维护。
+0.4 在并发采集与恢复基础上增加 Worker 上下文和经绑定验证的动态 script 引用；不等同于已完成全量 API 统计。进度只在[执行计划](../../docs/site-analysis-plan.md)维护。
 
 ## 输入
 
-CLI 接收已保存目录、含正文 HAR 或已验证的 0.2/0.3 collection checkpoint，输出新目录。默认不联网；只有显式 `--fetch-js` 加精确 origin 才补取确定脚本引用，不执行输入 JS，不从 API 候选生成探测请求。目录只读取普通 JS/HTML 文件，不跟随符号链接；URL/页面上下文缺失时保持未知。HAR 只接收成功的脚本/页面正文，支持明确 Base64；记录缺正文、无效编码、错误状态及未知执行上下文。HAR 中业务 API 请求次数不参与静态接口统计。
+CLI 接收已保存目录、含正文 HAR 或已验证的 0.2/0.3/0.4 collection checkpoint，输出新目录。默认不联网；只有显式 `--fetch-js` 加精确 origin 才补取确定脚本引用，不执行输入 JS，不从 API 候选生成探测请求。目录只读取普通 JS/HTML 文件，不跟随符号链接；URL/页面上下文缺失时保持未知。HAR 只接收成功的脚本/页面正文，支持明确 Base64；记录缺正文、无效编码、错误状态及未知执行上下文。HAR 中业务 API 请求次数不参与静态接口统计。
 
 目录可读取 `_origin.jsonl` 的 f/u/d 映射，禁止以它读取输入根外文件。`.cjs` 暂未被固定引擎枚举，单列不支持；文本仅无损支持 UTF-8/BOM。查询串脚本、本地 URL 路径无法安全映射等情况分别保留正文，但模块身份关联记部分，不能声称跨模块链已完整恢复。
 
@@ -56,7 +56,7 @@ HTML 为 0，直接外链为 1，后续确定引用加一；已取得的深层�
 | complete_response_bodies | 传输层已完整取得且通过 MIME 检查的正文数；后续快照仍可能因 HTML/编码等拒收 |
 | body_bytes_observed | 应用成功读取的正文总字节，含未入库的部分响应 |
 | body_bytes_charged | 已读取字节加无法观测失败读取的保守预留计费 |
-| body_byte_limit | 输入总字节预算扣除本轮已导入正文后的额度 |
+| body_byte_limit | 输入总字节预算扣除采集开始前已导入正文后的额度 |
 | reserved_bytes / peak_charged_and_reserved | 在途读取预留 / 累计计费加预留的峰值，峰值不超过额度 |
 | active_requests / peak_active_requests | 正在连接或读取正文的请求数 / 峰值；不含等待共享 Future 的线程 |
 | cancelled | 是否触发采集取消；超时可能通过单请求错误返回，不必为 true |
@@ -66,3 +66,14 @@ HTML 为 0，直接外链为 1，后续确定引用加一；已取得的深层�
 collection checkpoint 原子保存正文相对路径/哈希/身份、图和导入缺口。恢复验证路径不逃出来源目录、正文哈希与资产身份；重新计算本轮引用状态，保留原始输入缺口，不保留上轮暂时性网络失败为已解决事实。新补取与旧 HAR 的版本关联未知，不因 URL 相同升级置信度。
 
 S3/S4 的精确位置和正式 Excel 尚未实现。不得默认联网或恢复已删除白盒后端。
+
+
+## Worker 上下文与 script 插入
+
+`AssetEdge.context_id` 是父执行上下文，`target_context_id` 是子上下文；Worker 构造建立新上下文，普通引用沿用父上下文。Worker 的类型、classic/module、创建边、创建者上下文、原页面和最终主脚本 URL 保存在资产的 `execution_context`，恢复时验证类型/基址/身份和同上下文元数据一致。Context 的 `evidence=static_worker_constructor` 表示静态推断，不是运行观察；一个创建位置不代表一个运行实例，SharedWorker 也未做浏览器运行时合并。
+
+Worker 的相对请求和 importScripts 用主脚本最终 URL；模块导入用当前模块 URL。不同创建位置分开分析，不继承页面 import map；未知构造/类型、遮蔽绑定及 Worker 模式不适用的语法保留候选。Worker URL 的 blob/data 不转为 HTTP 请求，不执行 Service Worker 注册，也不证明 CORS/CSP/同源条件已满足。
+
+导入正文在原页面上下文中保留，可按明确引用复制到 Worker 推断上下文并记录 `associated_asset_id` 与 `acquisition=worker-association`；`associated_assets` 单列，不混入 `imported_assets` 或 `supplemented_assets`。同 URL 多版本不任选；保留原观察可能产生两套文件级候选，正式接口数仍为 null。推断关联也受输入资产数和累计正文字节预算，嵌套创建受获取深度约束。网络字节额度按采集开始时冻结的剩余预算计算，关联不扩大该额度；关联占用输入预算可能使后续完整响应在入库时被拒绝并记缺口。
+
+动态 script 仅把经 Babel 绑定和连续语句核验的创建/src/插入模式标 `structured`，其他 src 赋值继续候选；原生 API 被运行时替换、任意别名/DOM 封装不在本轮证明范围。source map 尚未实现，不能由 Worker 测试通过推断 S2.5 全项完成。

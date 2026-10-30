@@ -244,6 +244,13 @@ class Snapshot:
         for asset in self.assets:
             groups.setdefault(asset['context_id'], []).append(asset)
         for context_id, assets in groups.items():
+            worker = assets[0].get('execution_context')
+            if worker:
+                base = worker['request_base_url']
+                self.contexts.append(dict(id=context_id, **worker, status='known' if base else 'unknown'))
+                for asset in assets:
+                    asset['request_base_url'] = base
+                continue
             page = assets[0]['page_url']
             bases = set()
             for asset in assets:
