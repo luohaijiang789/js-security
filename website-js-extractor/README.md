@@ -1,10 +1,12 @@
 # Website JS Extractor
 
-黑盒二采用 **独立 Chrome MV3 插件 + 本地分析服务**：用户正常访问已登录网站，插件收集部署 JS、嵌套引用和页面上下文，以 jshound 为基线静态提取 **URL、请求参数、Host、对应 JS 文件**。
+黑盒二交付 **Chrome MV3 插件 + 本地分析服务，后续直接集成到黑盒一插件**：用户正常访问已登录网站，插件收集部署 JS、嵌套引用和页面上下文，以 jshound 为基线静态提取 **URL、请求参数、Host、对应 JS 文件**。
 
 本工程已实现 0.4 命令行分析入口及分析核心：支持 HAR/目录导入、引用图、受控并发补取、Worker 上下文、JSON/CSV 和快照恢复。源码、Python 依赖、测试与产品设计统一维护在此目录。[安装与运行](docs/usage.md)提供当前可执行命令，[实施计划](docs/plan.md)是唯一进度入口。
 
 独立 MV3 插件与 HTTP 服务尚未实现；source map、精确请求绑定、正式 API 统计、Excel 和 MV3 现场验收继续待完成。后续 HTTP 服务复用本工程核心，命令行保留为离线运行与验证入口。
+
+当前优先交付“插件采集 JS → 冻结快照 → 静态分析 → 插件查看/导出”的最小闭环，再集成到 `browser-extension/`。命令行仅作核心调试与验证；source map 和更深语义增强不作为启动插件工作的前置条件。
 
 ## 工程结构
 
@@ -48,7 +50,7 @@ flowchart LR
 
 工程基线为 **TypeScript/Vue 3 独立插件 + Python 3.12 本机服务 + Node.js 22.12+ / Babel / jshound fork 分析核心**；元数据采用 IndexedDB/SQLite，正文按哈希保存。首发目标为 Windows 11 x64 桌面 Chrome，实际支持版本需现场验收。
 
-插件未来放在本工程的 `extension/`，HTTP 服务在现有 `src/website_js_extractor/` 内扩展，协议在 `contracts/`；核心增强位于锁定的 jshound fork。依赖不放到根目录或黑盒一工程；不预建空实现。目录、进程、技术决策见[工程架构](docs/architecture.md)，各模块输入输出和完成条件见[模块规格](docs/modules.md)。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
+插件未来放在本工程的 `extension/`，HTTP 服务在现有 `src/website_js_extractor/` 内扩展，协议在 `contracts/`；核心增强位于锁定的 jshound fork。开发验证期间依赖不散落到仓库根目录；后续按集成计划接入黑盒一，不预建空实现。目录、进程、技术决策见[工程架构](docs/architecture.md)，各模块输入输出和完成条件见[模块规格](docs/modules.md)。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
 
 ## 文档
 
