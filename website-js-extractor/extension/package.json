@@ -1,0 +1,32 @@
+{
+  "name": "website-js-extractor-extension",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vue-tsc --noEmit && vite build",
+    "test": "vitest run --exclude tests/cdp.test.ts",
+    "test:mv3": "node tests/mv3.mjs",
+    "test:ui": "node tests/ui.mjs",
+    "format": "prettier --write src tests *.ts *.json index.html",
+    "test:cdp": "vitest run tests/cdp.test.ts"
+  },
+  "dependencies": {
+    "vue": "3.5.22"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.1.24",
+    "@types/node": "24.0.0",
+    "@vitejs/plugin-vue": "6.0.1",
+    "fake-indexeddb": "6.2.4",
+    "playwright": "1.56.0",
+    "prettier": "3.6.2",
+    "typescript": "5.9.3",
+    "vite": "7.1.12",
+    "vitest": "3.2.4",
+    "vue-tsc": "3.1.1"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
+  }
+}

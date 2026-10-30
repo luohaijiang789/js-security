@@ -244,6 +244,12 @@ class Snapshot:
         for asset in self.assets:
             groups.setdefault(asset['context_id'], []).append(asset)
         for context_id, assets in groups.items():
+            captured = assets[0].get('capture_context')
+            if captured:
+                self.contexts.append(dict(id=context_id, **captured, status='known' if captured['request_base_url'] else 'unknown'))
+                for asset in assets:
+                    asset['request_base_url'] = captured['request_base_url']
+                continue
             worker = assets[0].get('execution_context')
             if worker:
                 base = worker['request_base_url']

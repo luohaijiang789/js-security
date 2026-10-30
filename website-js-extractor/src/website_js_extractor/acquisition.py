@@ -239,7 +239,7 @@ class StaticFetcher:
 
     def _request_resource(self, current, requested, hop, max_bytes):
         headers = {'Accept': 'application/javascript, text/javascript, */*;q=0.1',
-                   'User-Agent': 'website-js-extractor/0.4'}
+                   'User-Agent': 'website-js-extractor/0.5'}
         headers.update(self.session.get(origin(current), {}))
         for attempt in range(self.retries+1):
             self.check_url(current)

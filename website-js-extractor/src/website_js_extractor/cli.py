@@ -3,6 +3,8 @@ from collections import Counter
 from datetime import datetime, timezone
 import json
 import math
+import os
+import signal
 from pathlib import Path
 import sys
 import uuid
@@ -19,9 +21,15 @@ def parser():
     root = argparse.ArgumentParser(description='Website JS candidates and reference graph; only explicitly enabled static-resource GETs.')
     root.add_argument('--version', action='version', version=__version__)
     commands = root.add_subparsers(dest='command', required=True)
+    service = commands.add_parser('serve', help='Serve the paired browser prototype on 127.0.0.1 only.')
+    service.add_argument('--port', type=int, default=8378)
+    service.add_argument('--extension-id', required=True)
+    service.add_argument('--data-dir', type=Path, required=True)
+    service.add_argument('--engine-root', type=Path, default=default_engine_root())
     run = commands.add_parser('analyze')
     inputs = run.add_mutually_exclusive_group(required=True)
     inputs.add_argument('--har', type=Path)
+    inputs.add_argument('--capture', type=Path, help='Frozen capture-0.1 browser snapshot (offline).')
     inputs.add_argument('--directory', type=Path)
     inputs.add_argument('--resume', type=Path, help='Restore verified bodies from a previous output directory.')
     run.add_argument('--out', type=Path, required=True)
@@ -45,11 +53,20 @@ def parser():
     return root
 
 
+def _interrupt(signum, frame):
+    raise KeyboardInterrupt
+
+
 def main(argv=None):
     args = parser().parse_args(argv)
-    source = args.har or args.directory or args.resume
+    if args.command == 'serve':
+        from .service import serve
+        return serve(args)
+    if os.environ.get('WEBSITE_JS_MANAGED_JOB') == '1':
+        signal.signal(signal.SIGTERM, _interrupt)
+    source = args.har or args.capture or args.directory or args.resume
     output = args.out.resolve()
-    if source.is_symlink() or not source.exists() or (args.har and not source.is_file()) or ((args.directory or args.resume) and not source.is_dir()):
+    if source.is_symlink() or not source.exists() or ((args.har or args.capture) and not source.is_file()) or ((args.directory or args.resume) and not source.is_dir()):
         print('Invalid input path or symbolic link.', file=sys.stderr)
         return 2
     durations = [args.timeout, args.discovery_timeout, args.fetch_timeout, args.fetch_deadline]
@@ -71,8 +88,8 @@ def main(argv=None):
         print(f'Cannot create output: {error}', file=sys.stderr)
         return 2
     snapshot = Snapshot(output, args.max_files, args.max_asset_mib*1024*1024, args.max_total_mib*1024*1024)
-    task = dict(id=str(uuid.uuid4()), schema_version='0.4', tool_version=__version__, engine=LOCK,
-                input=str(source.resolve()), input_type='har' if args.har else 'resume' if args.resume else 'directory',
+    task = dict(id=str(uuid.uuid4()), schema_version='0.5', tool_version=__version__, engine=LOCK,
+                input=str(source.resolve()), input_type='capture' if args.capture else 'har' if args.har else 'resume' if args.resume else 'directory',
                 started_at=datetime.now(timezone.utc).isoformat(), phase='import', status='running',
                 settings=dict(timeout=args.timeout, max_files=args.max_files, max_asset_mib=args.max_asset_mib, max_total_mib=args.max_total_mib,
                               max_js_depth=args.max_js_depth, seed_js=args.seed_js, discovery_timeout=args.discovery_timeout,
@@ -83,7 +100,10 @@ def main(argv=None):
     code = 0
     try:
         print('Importing local snapshot...', file=sys.stderr)
-        if args.har:
+        if args.capture:
+            from .capture import import_capture
+            import_capture(snapshot, source)
+        elif args.har:
             snapshot.import_har(source)
         elif args.resume:
             restore_snapshot(snapshot, source)

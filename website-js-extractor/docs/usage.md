@@ -2,7 +2,7 @@
 
 本工程的命令行入口按[统一执行计划](plan.md)实施，目标先打通 HAR/已保存 JS → 原始引擎记录 → 参数与候选预览，再增加递归补取、精确发送点和正式 Excel。
 
-设计见[总方案](analysis-design.md)，输入/结果/退出状态见[协议 0.4](protocol.md)。当前已完成离线链路与 K2 的引用发现、最短深度和受控并发补取：支持目录/HAR、引用关系 CSV、限定来源的 JS 下载与已保存正文恢复。已增加 Worker 静态推断上下文与常见动态 script 插入模式；source map、API 精确位置/调用链、正式 Excel 和浏览器界面尚未完成。
+设计见[总方案](analysis-design.md)，输入/结果/退出状态见[协议 0.5](protocol.md)。当前已完成离线链路与 K2 的引用发现、最短深度和受控并发补取：支持目录/HAR、引用关系 CSV、限定来源的 JS 下载与已保存正文恢复。已增加 Worker 静态推断上下文与常见动态 script 插入模式；source map、API 精确位置/调用链、正式 Excel 和浏览器界面尚未完成。
 
 固定复用 jshound；命令行、分析核心和后续 HTTP 服务使用同一 Python 包。实现进度只在本工程 docs/plan.md 更新，不在此复制 Checklist。
 
@@ -49,7 +49,7 @@ HTML 深度为 0，直接脚本与内联模块导入为 1，后续每条确定�
 work/website-js-extractor-venv/bin/website-js-extractor analyze --resume work/site-recursive --fetch-js --allow-origin https://app.example.com --allow-origin https://cdn.example.com --max-js-depth 4 --out work/site-resumed
 ```
 
-恢复校验路径、正文哈希与资产身份，已有正文不会因恢复而重取；新预算和来源选项仍需明确提供。支持 0.2/0.3/0.4 collection checkpoint。旧 0.1 报告没有 collection checkpoint，应使用原输入重新运行。补取是新的资源观察，不证明与原 HAR 同版；缺失/截断/歧义都保留，不能声称全站已覆盖。
+恢复校验路径、正文哈希与资产身份，已有正文不会因恢复而重取；新预算和来源选项仍需明确提供。支持 0.2/0.3/0.4/0.5 collection checkpoint。旧 0.1 报告没有 collection checkpoint，应使用原输入重新运行。补取是新的资源观察，不证明与原 HAR 同版；缺失/截断/歧义都保留，不能声称全站已覆盖。
 
 ## Worker 与动态脚本
 
@@ -99,4 +99,6 @@ Worker 检查首次可用 `--prepare` 下载固定 MDN Commit 的两个 JS 并�
 
 ## 实现与验收边界
 
-命令行是 Website JS Extractor 的现有运行入口，后续 HTTP 服务继续复用同一核心。当前结果协议 0.4 还不是正式 v1；显式 HTTP 补取仅由命令行启用，产品采集仍由插件负责，服务不接管补抓。插件/HTTP、精确绑定、正式统计、Excel 和现场验收按同一[计划](plan.md)继续推进。
+命令行是 Website JS Extractor 的现有运行入口，后续 HTTP 服务继续复用同一核心。当前结果协议 0.5 还不是正式 v1；显式 HTTP 补取仅由命令行启用，产品采集仍由插件负责，服务不接管补抓。插件/HTTP、精确绑定、正式统计、Excel 和现场验收按同一[计划](plan.md)继续推进。
+
+插件原型及本机 serve 入口见[插件使用说明](plugin.md)。新增 `--capture` 接收冻结浏览器快照；默认仍不联网，原型 HTTP 服务只以此离线入口调用核心。

@@ -496,7 +496,7 @@ class ReferenceGraph:
         return self.edges
 
     def checkpoint(self, fetcher):
-        value = dict(schema_version='0.4', assets=self.snapshot.assets, contexts=self.snapshot.contexts,
+        value = dict(schema_version='0.5', assets=self.snapshot.assets, contexts=self.snapshot.contexts,
                      edges=self.edges, fetch_events=fetcher.events if fetcher else [], import_gaps=self.import_gaps,
                      fetch_statistics=fetcher.statistics() if fetcher else None)
         path = self.snapshot.output/'collection.json'
@@ -511,10 +511,14 @@ def restore_snapshot(snapshot, source):
     if checkpoint.stat().st_size > snapshot.max_total_bytes:
         raise ValueError('Collection checkpoint exceeds input budget.')
     data = json.loads(checkpoint.read_text())
-    if data.get('schema_version') not in {'0.2', '0.3', '0.4'} or not isinstance(data.get('assets'), list):
+    if data.get('schema_version') not in {'0.2', '0.3', '0.4', '0.5'} or not isinstance(data.get('assets'), list):
         raise ValueError('Unsupported collection checkpoint.')
     context_metadata = {}
     for entry in data['assets']:
+        captured = entry.get('capture_context')
+        if captured is not None:
+            from .capture import capture_context
+            captured = capture_context(captured)
         worker = entry.get('execution_context')
         context_id = entry.get('context_id')
         if worker is not None:
@@ -527,9 +531,9 @@ def restore_snapshot(snapshot, source):
             expected = 'ctx-worker-'+digest([worker['creator_context_id'], worker['creation_edge_id']])[:20]
             if context_id != expected or entry.get('page_url') is not None:
                 raise ValueError('Worker context identity mismatch.')
-        if context_id in context_metadata and context_metadata[context_id] != worker:
+        if context_id in context_metadata and context_metadata[context_id] != (worker, captured):
             raise ValueError('Conflicting Worker context metadata.')
-        context_metadata[context_id] = worker
+        context_metadata[context_id] = (worker, captured)
         relative = entry['body_file']
         if not isinstance(relative, str) or PurePosixPath(relative).is_absolute() or '..' in PurePosixPath(relative).parts:
             raise ValueError('Unsafe checkpoint body path.')
@@ -546,6 +550,8 @@ def restore_snapshot(snapshot, source):
         if asset:
             if asset['id'] != entry['id']:
                 raise ValueError('Checkpoint asset identity mismatch.')
+            if captured is not None:
+                asset['capture_context'] = captured
             for key in ('acquisition', 'fetched_at', 'url_aliases', 'execution_context', 'associated_asset_id', 'reference_url'):
                 if key in entry:
                     asset[key] = entry[key]

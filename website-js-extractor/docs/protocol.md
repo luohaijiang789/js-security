@@ -1,10 +1,10 @@
-# 黑盒二结果与补取协议 0.4
+# 黑盒二结果与补取协议 0.5
 
-0.4 在并发采集与恢复基础上增加 Worker 上下文和经绑定验证的动态 script 引用；不等同于已完成全量 API 统计。进度只在[执行计划](plan.md)维护。
+0.5 增加浏览器 capture-0.1 输入及 capture_context，继续保留并发预算、Worker 上下文与动态 script 引用；不等同于已完成全量 API 统计。进度只在[执行计划](plan.md)维护。
 
 ## 输入
 
-CLI 接收已保存目录、含正文 HAR 或已验证的 0.2/0.3/0.4 collection checkpoint，输出新目录。默认不联网；只有显式 `--fetch-js` 加精确 origin 才补取确定脚本引用，不执行输入 JS，不从 API 候选生成探测请求。目录只读取普通 JS/HTML 文件，不跟随符号链接；URL/页面上下文缺失时保持未知。HAR 只接收成功的脚本/页面正文，支持明确 Base64；记录缺正文、无效编码、错误状态及未知执行上下文。HAR 中业务 API 请求次数不参与静态接口统计。
+CLI 接收已保存目录、含正文 HAR 或已验证的 0.2/0.3/0.4/0.5 collection checkpoint，输出新目录。默认不联网；只有显式 `--fetch-js` 加精确 origin 才补取确定脚本引用，不执行输入 JS，不从 API 候选生成探测请求。目录只读取普通 JS/HTML 文件，不跟随符号链接；URL/页面上下文缺失时保持未知。HAR 只接收成功的脚本/页面正文，支持明确 Base64；记录缺正文、无效编码、错误状态及未知执行上下文。HAR 中业务 API 请求次数不参与静态接口统计。
 
 目录可读取 `_origin.jsonl` 的 f/u/d 映射，禁止以它读取输入根外文件。`.cjs` 暂未被固定引擎枚举，单列不支持；文本仅无损支持 UTF-8/BOM。查询串脚本、本地 URL 路径无法安全映射等情况分别保留正文，但模块身份关联记部分，不能声称跨模块链已完整恢复。
 
@@ -77,3 +77,10 @@ Worker 的相对请求和 importScripts 用主脚本最终 URL；模块导入用
 导入正文在原页面上下文中保留，可按明确引用复制到 Worker 推断上下文并记录 `associated_asset_id` 与 `acquisition=worker-association`；`associated_assets` 单列，不混入 `imported_assets` 或 `supplemented_assets`。同 URL 多版本不任选；保留原观察可能产生两套文件级候选，正式接口数仍为 null。推断关联也受输入资产数和累计正文字节预算，嵌套创建受获取深度约束。网络字节额度按采集开始时冻结的剩余预算计算，关联不扩大该额度；关联占用输入预算可能使后续完整响应在入库时被拒绝并记缺口。
 
 动态 script 仅把经 Babel 绑定和连续语句核验的创建/src/插入模式标 `structured`，其他 src 赋值继续候选；原生 API 被运行时替换、任意别名/DOM 封装不在本轮证明范围。source map 尚未实现，不能由 Worker 测试通过推断 K2.5 全项完成。
+
+
+## 浏览器原型输入与服务
+
+`--capture` 接收 capture-0.1 的完整 JS 正文、SHA256、上下文和采集缺口；先验证大小、哈希及同 context_key 的基址一致性，再导入。未知上下文禁止附带猜测基址。Asset.capture_context 为浏览器静态观察，request_base_url 由此保留（包括 null），不能回退到页面或 CDN 地址猜 Host。0.5 checkpoint 保留此字段，旧 0.4 读取器必须拒绝新版本，避免丢失基址语义；本版本仍可恢复 0.2–0.4。
+
+HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由仅接收 loopback + 精确扩展 Origin + 随机密钥。capabilities.protocol=capture-0.1、result_schema=0.5、offline_only=true。不是正式 /v1，也不替代持久任务、分块上传或完整配对协议。只接收有界正文，不接受待下载 URL 或命令。详见[插件说明](plugin.md)。

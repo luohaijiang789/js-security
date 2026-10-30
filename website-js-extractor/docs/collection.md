@@ -37,7 +37,7 @@
 
 实现入口：`ReferenceGraph` 按层选择不超过 `--fetch-concurrency` 个不同上下文/URL，`StaticFetcher` 在锁内预留文件尝试与读取额度。每线程使用独立 urllib opener，保留系统代理/TLS；相同上下文的重定向最终正文由 Future 共享。主线程接收完成结果并原子写 checkpoint；停止后回收线程，保留完成正文，不保存半截脚本。
 
-本轮统计由[协议 0.4](protocol.md)定义，恢复只复用正文，不累加上轮网络计数。自动化反例见[并发测试](../tests/test_concurrency.py)，冻结公开正文与较宽引用图的验证入口见[较大输入检查](../tests/check_collection_load.py)。这些验证不代替不同正文的大型网站、登录态或 Chrome 插件现场验收。
+本轮统计由[协议 0.5](protocol.md)定义，恢复只复用正文，不累加上轮网络计数。自动化反例见[并发测试](../tests/test_concurrency.py)，冻结公开正文与较宽引用图的验证入口见[较大输入检查](../tests/check_collection_load.py)。这些验证不代替不同正文的大型网站、登录态或 Chrome 插件现场验收。
 
 ## K2.5 扩展上下文实施顺序
 

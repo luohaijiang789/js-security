@@ -76,4 +76,4 @@ Excel 不放敏感原值或超长源码，外部字符串按文本写入。长�
 
 ## 当前状态
 
-黑盒一插件保留自己的现有导出。黑盒二已有 [命令行结果协议 0.4](../website-js-extractor/docs/protocol.md)的 JSON、原始底稿、正文快照、引用图与 CSV 候选预览；正式 Excel、精确位置、插件资产包和新 HTTP 服务协议尚未实现。核心验证和产品状态统一在[黑盒二计划](../website-js-extractor/docs/plan.md)；白盒状态在[白盒计划](../frontend-api-extractor/docs/plan.md)，不互相替代。
+黑盒一插件保留自己的现有导出。黑盒二已有 [命令行结果协议 0.5](../website-js-extractor/docs/protocol.md)的 JSON、原始底稿、正文快照、引用图与 CSV 候选预览；正式 Excel、精确位置、正式插件资产包和 v1 HTTP 协议尚未实现；原型 capture-0.1 与 /v0 仅用于当前闭环。核心验证和产品状态统一在[黑盒二计划](../website-js-extractor/docs/plan.md)；白盒状态在[白盒计划](../frontend-api-extractor/docs/plan.md)，不互相替代。

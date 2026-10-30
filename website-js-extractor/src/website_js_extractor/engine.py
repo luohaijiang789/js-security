@@ -123,6 +123,17 @@ def analyze(snapshot, engine_root, timeout):
                 process.wait()
                 snapshot.gap('engine_timeout', 'Engine process group terminated at the total deadline.', incomplete=True, source=f'group-{number}')
                 break
+            except BaseException:
+                if process.poll() is None:
+                    if os.name == 'posix':
+                        try:
+                            os.killpg(process.pid, signal.SIGKILL)
+                        except ProcessLookupError:
+                            pass
+                    else:
+                        subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], capture_output=True)
+                    process.wait()
+                raise
         if process.returncode != 0 or not output.exists():
             snapshot.gap('engine_failed', 'Engine did not produce usable records; see engine log.', incomplete=True, source=f'group-{number}')
             for asset in assets:

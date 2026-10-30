@@ -2,16 +2,17 @@
 
 黑盒二交付 **Chrome MV3 插件 + 本地分析服务，后续直接集成到黑盒一插件**：用户正常访问已登录网站，插件收集部署 JS、嵌套引用和页面上下文，以 jshound 为基线静态提取 **URL、请求参数、Host、对应 JS 文件**。
 
-本工程已实现 0.4 命令行分析入口及分析核心：支持 HAR/目录导入、引用图、受控并发补取、Worker 上下文、JSON/CSV 和快照恢复。源码、Python 依赖、测试与产品设计统一维护在此目录。[安装与运行](docs/usage.md)提供当前可执行命令，[实施计划](docs/plan.md)是唯一进度入口。
+本工程已实现 0.5 分析核心、命令行、MV3 插件原型和本机 HTTP 原型：支持 HAR/目录导入、引用图、受控并发补取、Worker 上下文、JSON/CSV 和快照恢复。源码、Python 依赖、测试与产品设计统一维护在此目录。[安装与运行](docs/usage.md)提供当前可执行命令，[实施计划](docs/plan.md)是唯一进度入口。
 
-独立 MV3 插件与 HTTP 服务尚未实现；source map、精确请求绑定、正式 API 统计、Excel 和 MV3 现场验收继续待完成。后续 HTTP 服务复用本工程核心，命令行保留为离线运行与验证入口。
+插件构建、本机真实核心链路、采集模型和界面检查已通过；真实 MV3 加载因当前企业策略受限，尚未现场验收。静态未加载补抓、source map、精确绑定、正式 API 统计和 Excel 仍待完成。后续 HTTP 服务复用本工程核心，命令行保留为离线运行与验证入口。
 
-当前优先交付“插件采集 JS → 冻结快照 → 静态分析 → 插件查看/导出”的最小闭环，再集成到 `browser-extension/`。命令行仅作核心调试与验证；source map 和更深语义增强不作为启动插件工作的前置条件。
+插件原型的构建、加载、配对和使用见[插件使用说明](docs/plugin.md)。当前已实现“已解析 JS → 固定快照 → 本机静态分析 → 插件候选/缺口与 JSON”的原型，下一步完成真实 MV3 现场核验、补抓和黑盒一集成。命令行仅作核心调试与验证；source map 和更深语义增强不作为启动插件工作的前置条件。
 
 ## 工程结构
 
 ```text
 website-js-extractor/
+  extension/                  # 已有 MV3 源码、锁文件、构建与测试
   pyproject.toml               # Python 包与 website-js-extractor 命令
   src/website_js_extractor/    # 已实现的分析核心和命令行
   tests/                      # 自动化与冻结样本验证
@@ -19,7 +20,7 @@ website-js-extractor/
   THIRD_PARTY_NOTICES.md
 ```
 
-后续插件放在 `extension/`；HTTP 路由、任务和存储在现有 Python 包内扩展，协议按需放在 `contracts/`。尚未实现的目录不预建空框架。
+插件位于 `extension/`，本机原型在现有 Python 包的 `service.py`；正式路由/存储/契约按需扩展。尚未实现的目录不预建空框架。
 
 ## 目标产品流程（尚未实现）
 
@@ -50,7 +51,7 @@ flowchart LR
 
 工程基线为 **TypeScript/Vue 3 独立插件 + Python 3.12 本机服务 + Node.js 22.12+ / Babel / jshound fork 分析核心**；元数据采用 IndexedDB/SQLite，正文按哈希保存。首发目标为 Windows 11 x64 桌面 Chrome，实际支持版本需现场验收。
 
-插件未来放在本工程的 `extension/`，HTTP 服务在现有 `src/website_js_extractor/` 内扩展，协议在 `contracts/`；核心增强位于锁定的 jshound fork。开发验证期间依赖不散落到仓库根目录；后续按集成计划接入黑盒一，不预建空实现。目录、进程、技术决策见[工程架构](docs/architecture.md)，各模块输入输出和完成条件见[模块规格](docs/modules.md)。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
+插件和本机原型已位于本工程 `extension/` 和 `src/website_js_extractor/`，协议在 `contracts/`；核心增强位于锁定的 jshound fork。开发验证期间依赖不散落到仓库根目录；后续按集成计划接入黑盒一，不预建空实现。目录、进程、技术决策见[工程架构](docs/architecture.md)，各模块输入输出和完成条件见[模块规格](docs/modules.md)。旧黑盒一 JS 探索服务已删除，不作为兼容后端。两插件调试连接可能冲突，需明确报告并现场验证。
 
 ## 文档
 
@@ -62,9 +63,10 @@ flowchart LR
 | [模块规格](docs/modules.md) | 模块工作包、输入输出、分析算法、接口与完成条件 |
 | [共享提取范围](../docs/js-analysis-scope.md) | 请求场景、JS 分层、发现起点与路由位置 |
 | [测试与验收](docs/testing.md) | 冻结输入、验证矩阵、效果与性能门槛 |
+| [插件构建与使用](docs/plugin.md) | 可构建原型、配对、快照与现场限制 |
 | [安装与运行](docs/usage.md) | 当前命令行、输入、结果与复现检查 |
 | [分析核心设计](docs/analysis-design.md) | 资产图、定位、统计的实现目标与边界 |
-| [当前结果协议](docs/protocol.md) | 已实现的 0.4 结果、上下文与恢复规则 |
+| [当前结果协议](docs/protocol.md) | 已实现的 0.5 结果、上下文与恢复规则 |
 | [实施计划](docs/plan.md) | 核心与产品的唯一进度清单 |
 
 三路关系和共享交付见[总览](../docs/overview.md)、[交付约定](../docs/delivery.md)。不主动调用提取 API，不自动提交业务表单，不执行下载脚本，不默认发送代码到 AI。外部脚本、站点快照和完整报告放在主仓库 `work/`。
