@@ -28,23 +28,26 @@
 
 ## 启动增量接收 API
 
-从仓库根目录执行（Python 3.10+，仅标准库）：
+Python 3.10+，无需安装依赖。在仓库根目录运行：
 
 ```bash
-export BLACKBOX_RECEIVER_TOKEN="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-PYTHONPATH=website-js-extractor/src python3 -m website_js_extractor.receiver \
-  --data-dir work/capture-receiver --port 8379 --project default \
-  --allow-origin chrome-extension://实际插件ID
+python3 website-js-extractor/server.py
 ```
 
-将同一令牌和项目填入黑盒一新任务，地址为`http://127.0.0.1:8379`。默认只监听本机，当前用户未提供真实远端地址；实际远端可显式配置`--host`，经HTTPS入口转发，插件填HTTPS源地址。令牌不内置插件、不写任务配置。服务数据仅写接收端`--data-dir/capture.sqlite3`及SQLite WAL文件。
+或者进入本目录运行`python3 server.py`。默认监听`0.0.0.0:8379`，数据保存在本目录`data/capture/`。插件勾选远端采集后，只填`http://服务器IP:8379`即可；无需扩展ID、项目、令牌环境变量或HTTPS反向代理。固定code和默认项目已内置前后端。
 
-正文分块/完整SHA-256/幂等事件/持久ACK与查询路由见[协议](docs/protocol.md#统一插件增量接收协议-v1capture-stream-1)。接收器不执行站点JS或调用API，本轮没有自动分析调度。测试命令：
+检查启动状态：
+
+```bash
+curl http://127.0.0.1:8379/health
+```
+
+返回`"status":"ok"`即已启动。需要换端口或目录时可用`--port 9000 --data-dir /你的目录`。公网连接须确保服务器8379端口可达。固定code是接收协议的匹配值，不是秘密凭证；不提供按扩展ID隔离。
+
+服务端仍校验分块/完整SHA-256、幂等事件和持久ACK，协议见[协议](docs/protocol.md#统一插件增量接收协议-v1capture-stream-1)。本轮不自动执行站点JS或触发静态分析。测试：
 
 ```bash
 PYTHONPATH=website-js-extractor/src python3 -m unittest discover -s website-js-extractor/tests -p test_receiver.py -v
 cd browser-extension
 npm test
 ```
-
-HTTP接收测试、真实Chromium CDP→HTTP回读和模拟Chrome API的UI测试分开记录，不把它们称为真实扩展安装验收。

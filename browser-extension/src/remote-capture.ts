@@ -16,27 +16,20 @@ export type CaptureEvent = {
 export type RemoteSettings = { url: string; project: string };
 export const CAPTURE_LIMITS = { file: 64 * 1048576, chunk: 256 * 1024 };
 export const digest = (bytes: Uint8Array) => bytesToHex(sha256(bytes));
-export const tokenKey = (s: RemoteSettings) =>
-  `capture-token:${new URL(s.url).origin}:${s.project}`;
+export const RECEIVER_CODE = "blackbox-capture-v1";
 export function validateRemote(s: RemoteSettings | undefined) {
   if (!s || !/^[A-Za-z0-9_-]{1,64}$/.test(s.project))
     throw Error("请填写远端地址和项目");
   const url = new URL(s.url);
   if (
-    (url.protocol !== "https:" &&
-      !(
-        url.protocol === "http:" &&
-        ["127.0.0.1", "localhost"].includes(url.hostname)
-      )) ||
+    !["http:", "https:"].includes(url.protocol) ||
     url.username ||
     url.password ||
     url.search ||
     url.hash ||
     !["", "/"].includes(url.pathname)
   )
-    throw Error(
-      "远端地址须为HTTPS源地址；本机联调允许HTTP localhost/127.0.0.1",
-    );
+    throw Error("请填写HTTP或HTTPS服务器源地址，例如http://服务器IP:8379");
 }
 export class RemoteCapture {
   private tail: Promise<unknown> = Promise.resolve();
@@ -52,17 +45,15 @@ export class RemoteCapture {
   }
   constructor(
     private settings: () => RemoteSettings | undefined,
-    private token: (s: RemoteSettings) => Promise<string> = async (s) =>
-      String(
-        (await chrome.storage.session.get(tokenKey(s)))[tokenKey(s)] ?? "",
-      ),
+    private token: (s: RemoteSettings) => Promise<string> = async () =>
+      RECEIVER_CODE,
     private fetcher: typeof fetch = (...args) => fetch(...args),
   ) {}
   async request(path: string, init: RequestInit = {}): Promise<Response> {
     const settings = this.settings();
     validateRemote(settings);
     const token = await this.token(settings!);
-    if (!token) throw Error("未设置远端会话令牌");
+    if (!token) throw Error("未设置接收code");
     let error: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
       const controller = new AbortController();

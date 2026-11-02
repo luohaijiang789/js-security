@@ -2,7 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve, join } from "node:path";
-export const receiverToken = "end-to-end-receiver-token-123456789";
+export const receiverToken = "blackbox-capture-v1";
 export async function receiverFixture() {
   const directory = await mkdtemp(join(tmpdir(), "capture-receiver-"));
   let child: ChildProcess;
@@ -10,8 +10,9 @@ export async function receiverFixture() {
     child = spawn(
       process.env.PYTHON ?? "python3",
       [
-        "-m",
-        "website_js_extractor.receiver",
+        resolve("../website-js-extractor/server.py"),
+        "--host",
+        "127.0.0.1",
         "--data-dir",
         directory,
         "--port",
@@ -20,8 +21,6 @@ export async function receiverFixture() {
       {
         env: {
           ...process.env,
-          PYTHONPATH: resolve("../website-js-extractor/src"),
-          BLACKBOX_RECEIVER_TOKEN: receiverToken,
         },
         stdio: ["ignore", "pipe", "pipe"],
       },

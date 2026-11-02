@@ -2,7 +2,6 @@
 import { ref, watch } from "vue";
 import {
   RemoteCapture,
-  tokenKey,
   type CaptureEvent,
   type RemoteSettings,
 } from "./remote-capture";
@@ -20,15 +19,6 @@ const rows = ref<CaptureEvent[]>([]),
 const error = ref(""),
   preview = ref("");
 const client = new RemoteCapture(() => props.remote);
-const sessionToken = ref("");
-async function saveToken() {
-  if (!props.remote) return;
-  await chrome.storage.session.set({
-    [tokenKey(props.remote)]: sessionToken.value,
-  });
-  sessionToken.value = "";
-  await refresh(true);
-}
 let generation = 0;
 async function refresh(reset = false) {
   const own = ++generation;
@@ -95,14 +85,6 @@ watch(
       JS、加载证据和请求内容不写浏览器本地盘；此处从远端查询已持久确认的数据。断网时只保留有界内存，失败会暂停。
     </p>
     <p v-if="enabled && !remote">此旧任务没有远端配置，请新建远端任务。</p>
-    <template v-if="remote"
-      ><label
-        >更新远端会话令牌<input
-          v-model="sessionToken"
-          type="password"
-          autocomplete="off" /></label
-      ><button @click="saveToken">保存会话令牌并刷新</button></template
-    >
     <p>
       Debugger 源码不是 HTTP 原始字节；加载栈不是 API 发送栈。Network
       与源码的精确关联仍为未知。

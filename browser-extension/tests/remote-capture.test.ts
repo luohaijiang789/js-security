@@ -212,3 +212,35 @@ it("failed delivery pauses the recorder, cannot be marked ended, and memory retr
   expect(scripts).toHaveLength(1);
   expect(await remote.source(scripts[0].hash!)).toBe("// exact after retry");
 });
+
+it("default code works with no setup, any extension ID and an ordinary HTTP address", async () => {
+  const origin = "chrome-extension://new-extension-without-pairing";
+  const health = await fetch(receiver.settings.url + "/health");
+  expect((await health.json()).status).toBe("ok");
+  const preflight = await fetch(
+    receiver.settings.url + "/v1/projects/default/events",
+    {
+      method: "OPTIONS",
+      headers: {
+        Origin: origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization,content-type",
+      },
+    },
+  );
+  expect(preflight.status).toBe(204);
+  expect(preflight.headers.get("Access-Control-Allow-Origin")).toBe("*");
+  const remote = new RemoteCapture(
+    () => receiver.settings,
+    undefined,
+    (input, init) =>
+      fetch(input, { ...init, headers: { ...init?.headers, Origin: origin } }),
+  );
+  const event = sample("built-in-code-no-pairing", {
+    complete: "default setup",
+  });
+  await remote.send(event);
+  expect(
+    (await remote.page(event.scan_id)).events.find((e) => e.id === event.id),
+  ).toEqual(event);
+});

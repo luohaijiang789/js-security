@@ -38,7 +38,7 @@ function cloneSls(config: SlsConfig): SlsConfig {
   return JSON.parse(JSON.stringify(config));
 }
 const name = ref("业务请求采集");
-const remoteURL = ref(""), remoteProject = ref("default"), remoteToken = ref("");
+const remoteURL = ref("");
 const current = ref<Scan | null>(null),
   history = ref<Scan[]>([]),
   scanId = ref(""),
@@ -620,7 +620,7 @@ async function start() {
   const c = JSON.parse(JSON.stringify(draftConfig.value));
   c.filter = JSON.parse(draftFilterText.value);
   if (c.collect_js) {
-    c.remote_capture = {url: remoteURL.value.trim().replace(/\/$/, ''), project: remoteProject.value.trim()};
+    c.remote_capture = {url: remoteURL.value.trim().replace(/\/$/, ''), project: "default"};
     c.archive.enabled = false; c.service.enabled = false;
     if (c.sls) c.sls.enabled = false;
   } else delete c.remote_capture;
@@ -642,9 +642,7 @@ async function start() {
     tab_scope: "all",
     tabs: [],
     config: c,
-    remote_token: c.remote_capture ? remoteToken.value : undefined,
   });
-  remoteToken.value = "";
   current.value = s;
   history.value = [s, ...history.value.filter((x) => x.id !== s.id)];
   await choose(s.id);
@@ -2623,9 +2621,7 @@ onUnmounted(() => {
           </div>
           <label><input v-model="draftConfig.collect_js" type="checkbox" /> 远端采集 JS 和请求（内容不落浏览器本地盘）</label>
           <div v-if="draftConfig.collect_js" class="form-grid">
-            <label>远端接收地址<input v-model="remoteURL" placeholder="https://receiver.example.com" /></label>
-            <label>远端项目<input v-model="remoteProject" /></label>
-            <label>远端会话令牌<input v-model="remoteToken" type="password" autocomplete="off" /></label>
+            <label>远端接收地址<input v-model="remoteURL" placeholder="http://服务器IP:8379" /></label>
             <p>正文和证据只经内存直传；本地仅保留任务配置与计数。失败会暂停，未确认数据在浏览器退出后无法恢复。</p>
           </div>
           <div class="new-task-filter">

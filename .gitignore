@@ -2,3 +2,4 @@ node_modules/
 dist/
 work/
 *.tsbuildinfo
+website-js-extractor/data/

@@ -147,9 +147,9 @@ Job原型不支持相同快照新建多个独立run；要重跑需新snapshot_id
 
 ## 统一插件增量接收协议 v1（capture-stream-1）
 
-新链路是`browser-extension/src/remote-capture.ts`→`website_js_extractor.receiver`；不复用/v0/SLS。远端模式的新JS、加载证据、ObservedRequest均不落浏览器本地数据库，旧JS库只保留删除兼容；本地仅配置/计数/缺口，令牌在chrome.storage.session。没有磁盘待传或崩溃恢复保证。
+新链路是`browser-extension/src/remote-capture.ts`→`website_js_extractor.receiver`；不复用/v0/SLS。远端模式的新JS、加载证据、ObservedRequest均不落浏览器本地数据库，旧JS库只保留删除兼容；本地仅配置/计数/缺口，接收code固定内置，不写入任务配置。没有磁盘待传或崩溃恢复保证。
 
-所有路由前缀`/v1/projects/{project}`，Bearer认证；单进程明确授权一个项目，其他项目404。配置外Origin拒绝，配置的扩展Origin按精确值返回CORS；CLI联调无Origin也须令牌。插件允许HTTPS源地址，localhost/127.0.0.1可用HTTP；服务默认仅监听127.0.0.1，真实远端需由HTTPS入口转发。请求和响应均no-store，禁止重定向转发凭证。
+所有数据路由前缀`/v1/projects/{project}`，默认项目default和固定code `blackbox-capture-v1`已内置；客户端自动发送`Authorization: Bearer blackbox-capture-v1`。不需要用户提供令牌、环境变量或扩展ID。默认允许各Origin预检，不使用Cookie；固定code只是协议匹配值，不宣称为秘密认证。服务支持HTTP/HTTPS客户端源地址，`server.py`默认监听0.0.0.0:8379；GET / 或 /health无需code即可检查status。默认启动不提供配对步骤。请求和响应均no-store，禁止重定向转发。
 
 | 方法/路径 | 输入与确认 |
 | --- | --- |

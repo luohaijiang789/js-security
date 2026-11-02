@@ -1141,7 +1141,6 @@ it('远端任务只查询远端证据和源码，不创建本地JS库', async ()
   });
   await page.reload();
   await page.evaluate(async()=>{
-   await chrome.storage.session.set({'capture-token:https://receiver.test:default':'ui-session-token-123456789'});
    const original=window.fetch.bind(window);
    window.fetch=async(input,init)=>{
     if(String(input).startsWith('https://receiver.test/')) {
@@ -1161,24 +1160,25 @@ it('远端任务只查询远端证据和源码，不创建本地JS库', async ()
  }finally{await context.close();}
 },15000);
 
-it('新任务显式配置远端，令牌不进入持久配置，关闭旧本地转存',async()=>{
+it('新任务只填写HTTP服务器地址，内置code并关闭旧本地转存',async()=>{
  const {context,page,errors}=await openWorkspace();
  try {
   await page.getByRole('button',{name:'新建采集任务',exact:true}).first().click();
   const dialog=page.getByRole('dialog',{name:'新建采集任务',exact:true});
   await dialog.getByLabel(/远端采集 JS 和请求/).check();
-  await dialog.getByLabel('远端接收地址',{exact:true}).fill('https://receiver.test');
-  await dialog.getByLabel('远端项目',{exact:true}).fill('project-1');
-  await dialog.getByLabel('远端会话令牌',{exact:true}).fill('ui-session-token-123456789');
+  await dialog.getByLabel('远端接收地址',{exact:true}).fill('http://192.0.2.1:8379');
+  expect(await dialog.getByLabel('远端项目',{exact:true}).count()).toBe(0);
+  expect(await dialog.getByLabel('远端会话令牌',{exact:true}).count()).toBe(0);
+  await page.evaluate(()=>{const original=window.fetch.bind(window);window.fetch=async(input,init)=>String(input).startsWith('http://192.0.2.1:8379/')?Response.json({events:[],count:0,next:0,has_more:false}):original(input,init);});
   await dialog.getByRole('button',{name:'开始采集',exact:true}).click();
   await dialog.waitFor({state:'hidden'});
   const message=await page.evaluate(()=> (window as any).messages.find((m:any)=>m.type==='start'));
-  expect(message.config.remote_capture).toEqual({url:'https://receiver.test',project:'project-1'});
+  expect(message.config.remote_capture).toEqual({url:'http://192.0.2.1:8379',project:'default'});
   expect(message.config.archive.enabled).toBe(false);
   expect(message.config.service.enabled).toBe(false);
   expect(message.config.sls.enabled).toBe(false);
   expect(JSON.stringify(message.config)).not.toContain('ui-session-token');
-  expect(message.remote_token).toBe('ui-session-token-123456789');
+  expect(message.remote_token).toBeUndefined();
   expect(errors).toEqual([]);
  }finally{await context.close();}
 },15000);

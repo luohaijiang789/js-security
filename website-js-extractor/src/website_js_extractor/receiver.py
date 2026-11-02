@@ -1,4 +1,4 @@
-"""Authenticated incremental receiver. No browser-local outbox is required.
+"""Incremental receiver with a built-in matching code. No browser-local outbox.
 
 SQLite FULL synchronous commits precede acknowledgements. Bodies remain chunked
 on the server; an object becomes visible only after total length/hash validation.
@@ -9,7 +9,6 @@ import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
-import os
 from pathlib import Path
 import re
 import sqlite3
@@ -17,6 +16,7 @@ import threading
 from urllib.parse import urlsplit, parse_qs, unquote
 
 SCHEMA = 'capture-stream-1'
+DEFAULT_CODE = 'blackbox-capture-v1'
 CHUNK_BYTES = 256 * 1024
 OBJECT_BYTES = 128 * 1024 * 1024
 EVENT_BYTES = 128 * 1024 * 1024
@@ -198,7 +198,7 @@ class Receiver:
             yield row[0]
 
 
-def make_server(directory, token, project='default', host='127.0.0.1', port=0, origins=()):
+def make_server(directory, token=DEFAULT_CODE, project='default', host='127.0.0.1', port=0, origins=None):
     if len(token) < 16 or not PROJECT.fullmatch(project):
         raise ValueError('Use a token of at least 16 characters and a valid project ID.')
     store = Receiver(directory)
@@ -215,8 +215,8 @@ def make_server(directory, token, project='default', host='127.0.0.1', port=0, o
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
             origin = self.headers.get('Origin')
-            if origin in origins:
-                self.send_header('Access-Control-Allow-Origin', origin)
+            if origins is None or origin in origins:
+                self.send_header('Access-Control-Allow-Origin', '*' if origins is None else origin)
                 self.send_header('Vary', 'Origin')
             self.end_headers()
             self.wfile.write(data)
@@ -236,11 +236,11 @@ def make_server(directory, token, project='default', host='127.0.0.1', port=0, o
             return data
 
         def do_OPTIONS(self):
-            if self.headers.get('Origin') not in origins:
+            if origins is not None and self.headers.get('Origin') not in origins:
                 self.reply(403, dict(error='Origin denied.'))
                 return
             self.send_response(204)
-            self.send_header('Access-Control-Allow-Origin', self.headers['Origin'])
+            self.send_header('Access-Control-Allow-Origin', '*' if origins is None else self.headers['Origin'])
             self.send_header('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS')
             self.send_header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Object-Bytes,X-Chunk-SHA256')
             self.send_header('Content-Length', '0')
@@ -250,7 +250,9 @@ def make_server(directory, token, project='default', host='127.0.0.1', port=0, o
             self.connection.settimeout(15)
             try:
                 origin = self.headers.get('Origin')
-                if origin and origin not in origins:
+                if self.command == 'GET' and self.path in {'/', '/health'}:
+                    return self.reply(200, dict(status='ok', service='blackbox-receiver', project=project))
+                if origins is not None and origin and origin not in origins:
                     raise Invalid('Origin denied.', 403)
                 if not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + token):
                     raise Invalid('Invalid token.', 401)
@@ -279,7 +281,7 @@ def make_server(directory, token, project='default', host='127.0.0.1', port=0, o
                     self.send_header('Content-Type', 'application/javascript; charset=utf-8')
                     self.send_header('Content-Length', str(info['bytes']))
                     self.send_header('Cache-Control', 'no-store')
-                    if origin in origins: self.send_header('Access-Control-Allow-Origin', origin)
+                    if origins is None or origin in origins: self.send_header('Access-Control-Allow-Origin', '*' if origins is None else origin)
                     self.end_headers()
                     for data in store.source_chunks(project, identity): self.wfile.write(data)
                     return
@@ -300,16 +302,13 @@ def make_server(directory, token, project='default', host='127.0.0.1', port=0, o
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description='Incremental capture receiver; place behind HTTPS for remote use.')
-    parser.add_argument('--data-dir', type=Path, required=True)
-    parser.add_argument('--host', default='127.0.0.1')
+    parser = argparse.ArgumentParser(description='Blackbox receiver: run without arguments; plugin only needs this server address.')
+    parser.add_argument('--data-dir', type=Path, default=Path(__file__).resolve().parents[2] / 'data' / 'capture')
+    parser.add_argument('--host', default='0.0.0.0')
     parser.add_argument('--port', type=int, default=8379)
-    parser.add_argument('--project', default='default')
-    parser.add_argument('--token-env', default='BLACKBOX_RECEIVER_TOKEN')
-    parser.add_argument('--allow-origin', action='append', default=[])
     args = parser.parse_args(argv)
-    server = make_server(args.data_dir, os.environ.get(args.token_env, ''), args.project, args.host, args.port, args.allow_origin)
-    print(json.dumps(dict(url=f'http://{args.host}:{server.server_port}', project=args.project)), flush=True)
+    server = make_server(args.data_dir, host=args.host, port=args.port)
+    print(json.dumps(dict(url=f'http://{args.host}:{server.server_port}', project='default')), flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

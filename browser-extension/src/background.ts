@@ -1,4 +1,3 @@
-import { tokenKey } from "./remote-capture";
 import { removeJSScan } from "./legacy-js-cleanup";
 import {captureLoadedScripts} from "./capture-scripts";
 import { Recorder } from "./recorder";
@@ -550,11 +549,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           );
         }
         await requireTransferPermissions(message.config);
-        if (message.config.remote_capture) {
-          const token = message.remote_token;
-          if (typeof token !== "string" || token.length < 16) throw Error("请填写至少16字符的远端会话令牌");
-          await chrome.storage.session.set({[tokenKey(message.config.remote_capture)]: token});
-        }
+
         const s = await recorder.create(
           message.name,
           tabs,
