@@ -4,7 +4,7 @@
 
 ## 输入
 
-CLI 接收已保存目录、含正文 HAR 或已验证的 0.2/0.3/0.4/0.5 collection checkpoint，输出新目录。默认不联网；只有显式 `--fetch-js` 加精确 origin 才补取确定脚本引用，不执行输入 JS，不从 API 候选生成探测请求。目录只读取普通 JS/HTML 文件，不跟随符号链接；URL/页面上下文缺失时保持未知。HAR 只接收成功的脚本/页面正文，支持明确 Base64；记录缺正文、无效编码、错误状态及未知执行上下文。HAR 中业务 API 请求次数不参与静态接口统计。
+插件提交冻结的 capture-0.1 快照给 /v0，服务离线调用同一核心。CLI 调试/重放另接收 capture、已保存目录、含正文 HAR 或已验证的 0.2/0.3/0.4/0.5 collection checkpoint，输出新目录。默认不联网；只有显式 `--fetch-js` 加精确 origin 才补取确定脚本引用，不执行输入 JS，不从 API 候选生成探测请求。目录只读取普通 JS/HTML 文件，不跟随符号链接；URL/页面上下文缺失时保持未知。HAR 只接收成功的脚本/页面正文，支持明确 Base64；记录缺正文、无效编码、错误状态及未知执行上下文。HAR 中业务 API 请求次数不参与静态接口统计。
 
 目录可读取 `_origin.jsonl` 的 f/u/d 映射，禁止以它读取输入根外文件。`.cjs` 暂未被固定引擎枚举，单列不支持；文本仅无损支持 UTF-8/BOM。查询串脚本、本地 URL 路径无法安全映射等情况分别保留正文，但模块身份关联记部分，不能声称跨模块链已完整恢复。
 
@@ -46,7 +46,7 @@ CLI 接收已保存目录、含正文 HAR 或已验证的 0.2/0.3/0.4/0.5 collec
 
 HTML 为 0，直接外链为 1，后续确定引用加一；已取得的深层资产照常分析。候选不建立确定层级；未知父链保持 null。短路径晚到时重新计算，循环/多父复用资产但不删除边。裸目录可保留 reference_url 的推导依据，与原始观察 URL 分开；import map 阻断不能回退到同名本地文件。
 
-补取记录保留请求 URL、GET、状态、重试与时间，不保存 session 请求头值。重定向逐跳校验 origin，认证不跨域继承。只接受完整 JS 正文；错误 MIME/HTML/短响应不能当脚本成功。字节与文件预算包含失败尝试的成本，精确说明见[执行约定](collection.md)。默认并发为 4（可设 1–32），同上下文/URL 合并请求与结果；不同上下文分开。停止调度后回收在途线程，保存已完成正文；连接/头部读取由剩余 socket 超时约束，不承诺中断任意系统 DNS 阻塞。
+补取记录保留请求 URL、GET、状态、重试与时间，不保存 session 请求头值。重定向逐跳校验 origin，认证不跨域继承。只接受完整 JS 正文；错误 MIME/HTML/短响应不能当脚本成功。字节与文件预算包含失败尝试的成本，精确说明见[执行约定](analysis-design.md)。默认并发为 4（可设 1–32），同上下文/URL 合并请求与结果；不同上下文分开。停止调度后回收在途线程，保存已完成正文；连接/头部读取由剩余 socket 超时约束，不承诺中断任意系统 DNS 阻塞。
 
 `analysis.json` 与 `collection.json` 的 `fetch_statistics` 为本轮采集计数，离线时为 null，恢复不累加上轮网络成本：
 
@@ -65,7 +65,7 @@ HTML 为 0，直接外链为 1，后续确定引用加一；已取得的深层�
 
 collection checkpoint 原子保存正文相对路径/哈希/身份、图和导入缺口。恢复验证路径不逃出来源目录、正文哈希与资产身份；重新计算本轮引用状态，保留原始输入缺口，不保留上轮暂时性网络失败为已解决事实。新补取与旧 HAR 的版本关联未知，不因 URL 相同升级置信度。
 
-K3/K4 的精确位置和正式 Excel 尚未实现。不得默认联网或恢复已删除白盒后端。
+精确位置、正式统计与 Excel 尚未实现。不得默认联网或恢复已删除白盒后端。
 
 
 ## Worker 上下文与 script 插入
@@ -76,7 +76,7 @@ Worker 的相对请求和 importScripts 用主脚本最终 URL；模块导入用
 
 导入正文在原页面上下文中保留，可按明确引用复制到 Worker 推断上下文并记录 `associated_asset_id` 与 `acquisition=worker-association`；`associated_assets` 单列，不混入 `imported_assets` 或 `supplemented_assets`。同 URL 多版本不任选；保留原观察可能产生两套文件级候选，正式接口数仍为 null。推断关联也受输入资产数和累计正文字节预算，嵌套创建受获取深度约束。网络字节额度按采集开始时冻结的剩余预算计算，关联不扩大该额度；关联占用输入预算可能使后续完整响应在入库时被拒绝并记缺口。
 
-动态 script 仅把经 Babel 绑定和连续语句核验的创建/src/插入模式标 `structured`，其他 src 赋值继续候选；原生 API 被运行时替换、任意别名/DOM 封装不在本轮证明范围。source map 尚未实现，不能由 Worker 测试通过推断 K2.5 全项完成。
+动态 script 仅把经 Babel 绑定和连续语句核验的创建/src/插入模式标 `structured`，其他 src 赋值继续候选；原生 API 被运行时替换、任意别名/DOM 封装不在本轮证明范围。source map 尚未实现，Worker 测试通过不能代替 source map 或浏览器子目标现场验收。
 
 
 ## 浏览器原型输入与服务
@@ -84,3 +84,56 @@ Worker 的相对请求和 importScripts 用主脚本最终 URL；模块导入用
 `--capture` 接收 capture-0.1 的完整 JS 正文、SHA256、上下文和采集缺口；先验证大小、哈希及同 context_key 的基址一致性，再导入。未知上下文禁止附带猜测基址。Asset.capture_context 为浏览器静态观察，request_base_url 由此保留（包括 null），不能回退到页面或 CDN 地址猜 Host。0.5 checkpoint 保留此字段，旧 0.4 读取器必须拒绝新版本，避免丢失基址语义；本版本仍可恢复 0.2–0.4。
 
 HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由仅接收 loopback + 精确扩展 Origin + 随机密钥。capabilities.protocol=capture-0.1、result_schema=0.5、offline_only=true。不是正式 /v1，也不替代持久任务、分块上传或完整配对协议。只接收有界正文，不接受待下载 URL 或命令。详见[插件说明](plugin.md)。
+
+## capture-0.1 最小输入例子
+
+以下是校验结构示例，不表示源码已执行；实际 content/sha256 必须匹配。完整前端类型见 [model.ts](../extension/src/model.ts)，接收端约束见 [capture.py](../src/website_js_extractor/capture.py)。
+
+```json
+{
+  "schema_version": "capture-0.1",
+  "snapshot_id": "example-snapshot",
+  "task_id": "example-task",
+  "frozen_at": "2026-11-02T00:00:00Z",
+  "assets": [{
+    "id": "example-observation", "task_id": "example-task",
+    "url": "https://cdn.example.test/empty.js",
+    "location": "capture/1.js", "content": "",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0, "context_key": "tab-session-document-generation",
+    "context": {"type": "page", "page_url": "https://app.example.test/", "request_base_url": "https://app.example.test/", "evidence": "cdp_document_base"},
+    "capture_url": "https://cdn.example.test/empty.js", "script_id": "1",
+    "captured_at": "2026-11-02T00:00:00Z"
+  }],
+  "gaps": []
+}
+```
+
+插件实际序列化的观察字段如上；接收器强制检查 schema/任务与快照标识、正文/哈希、上下文、数量/大小和缺口结构，不能把未校验字段称为完整事实证明。未知上下文用 type=unknown、page_url=null、request_base_url=null；匿名/blob/sourceURL 无可靠外部URL时 asset.url=null，原来源单独保留。相同 context_key 的规范化基址冲突必须拒绝。
+
+## 当前 /v0 路由
+
+所有路由要求精确扩展 Origin、对应 loopback Host 和 `Authorization: Bearer <本次密钥>`；OPTIONS仅校验Origin/Host并返回限定的预检许可，不返回任务。密钥生成/填写方式见[使用说明](plugin.md)。
+
+| 方法/路径 | 成功结果 | 错误/状态语义 |
+| --- | --- | --- |
+| GET /v0/capabilities | 200，protocol、result_schema、max_upload_bytes、offline_only | 版本不匹配客户端拒绝继续 |
+| POST /v0/jobs | 202，id、snapshot_id、input_sha256、status、error、exit_code | 有界application/json+Content-Length；同snapshot_id同内容返回原作业，改内容拒绝 |
+| GET /v0/jobs/{id} | 200，作业状态 | queued/running/completed/partial/failed/cancelled/interrupted |
+| GET /v0/jobs/{id}/result | 200，analysis.json | 只对completed/partial返回；未就绪400，未知作业404 |
+| POST /v0/jobs/{id}/cancel | 202，作业记录 | 请求取消，不保证响应时已排空；后续查询终态，不删除输入 |
+
+鉴权/Origin/Host失败403；输入、哈希、幂等冲突400；上传字节超限413；未知路由/作业404；本地存储失败500。当前错误是 `{ "error": "..." }`，尚无正式 code/retryable 协议。退出码0/4分别映射completed/partial；其他失败不冒充无API。部分运行还会有结果范围缺口，不能从completed推断全站成功。
+
+## 原型预算来源
+
+下表只描述当前代码，不是生产性能承诺；CLI实验的参数和默认值见[命令行用法](plugin.md#命令行调试与重放)。插件/服务/CLI额度不是同一计数器，不能混用。
+
+| 层/来源 | 当前上限或行为 |
+| --- | --- |
+| [插件model](../extension/src/model.ts) | 单任务300个源码观察、单正文2 MiB、累计12 MiB、60个目标、500个会话源码排队标识、200条逐项缺口（额外数量保留） |
+| [Collector](../extension/src/capture.ts) | 读取并发2；单命令默认5秒；停止读取等待7秒，超时记缺口，仍需分离/持久化，不等于全动作7秒内完成 |
+| [捕获输入校验](../src/website_js_extractor/capture.py) | 1–300个完整源码、单正文2 MiB、累计12 MiB；最多201条输入缺口含汇总 |
+| [本机服务](../src/website_js_extractor/service.py) | JSON上传20 MiB；最多保存20个作业，单作业执行；发现40秒、引擎120秒、作业总180秒；HTTP结果读取64 MiB |
+
+Job原型不支持相同快照新建多个独立run；要重跑需新snapshot_id。这是原型限制，不是未来AnalysisRun身份规则。服务重启对queued/running标interrupted，不自动重跑；意外崩溃的孤立进程回收尚待正式恢复验收。历史任务/快照清理和分块续传未实现。

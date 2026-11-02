@@ -1,162 +1,151 @@
-# 工程架构与技术决策
+# 工程架构与后续集成设计
 
-本文规定黑盒二怎样组织和运行；模块实现见[模块规格](modules.md)，采集与分析流程见[整体设计](design.md)，唯一完成状态见[实施计划](plan.md)。现有命令行和分析核心已落在同一 Python 包；以下区分当前代码与后续插件/HTTP 服务目标，不代表全部能力已有实测支持。
+本文维护当前实现、组件边界和后续集成接口，不维护进度勾选。当前状态及实施批次只见[计划](plan.md)。本次只整理设计，**不改黑盒一代码、不迁移任务、不合并插件**。
 
-## 1. 要交付的产品
-
-先交付可运行的黑盒二 Chrome MV3 插件与本机分析服务，后续将黑盒二直接集成到黑盒一插件。用户启动服务、安装插件，正常操作已登录网页，冻结取得的 JS，在本机生成 URL、参数、Host、对应 JS 文件及证据。服务不可用时，插件仍可采集并导出任务包；恢复服务后导入同一包分析，不重新下载替换正文。
-
-| 交付物 | 内容 | 完成标准 |
-| --- | --- | --- |
-| 插件 ZIP | manifest、后台、管理页、图标与构建版本 | 解压加载后可采集、冻结、上传、查看和导出；关闭管理页任务仍存在 |
-| 本机服务发行包 | Python 服务、锁定 Node 分析核心、依赖锁和启动/自检入口 | 按安装说明可启动、自检和处理离线包，无需修改源码 |
-| 任务资产包 | 版本化 manifest、上下文、完整正文、引用和缺口 | 可校验、导入并重复分析；不含配对凭证 |
-| 分析交付 | analysis.json、api_assets.xlsx、证据资产包 | 每个确定字段可关联固定正文和位置；失败、候选和未知可区分 |
-| 使用与验收材料 | 安装、启动、恢复、升级、边界和样本配置 | 另一台目标机器可按步骤复现限定范围结果 |
-
-首发运行组合暂定 Windows 11 x64 桌面 Chrome 125+；最低 API 基线不等于所有 Chrome 版本已验收，发布注明实际测试版本。Linux 用于开发和自动化，不能替代 Windows MV3 现场验收。跨平台安装器、云端部署和自动更新不进入首版承诺。若试点机器不符合此组合，应在 S0 更新本决策及对应验收矩阵。
-
-集成目标是一个插件内提供真实请求采集和 JS 静态分析，任务/采集组件按需复用，来源与统计仍分开。集成时由共同 CDP 会话层附加目标并分发事件，避免两个分析功能争用同一 target；任务暂停、恢复、快照和结果视图须同时回归。当前命令行是同一核心的调试入口，不作为插件交付的替代品。
-
-当前原型使用本工程标准库 `service.py` 的 loopback /v0 单作业接口；构建和自动化链路已验证，真实 MV3 受策略阻止。下表 FastAPI、SQLite、正式 /v1、分块传输和发行依赖仍是产品目标，不能由原型通过推断完成。
-
-## 2. 技术栈与职责
-
-| 层 | 实施选型 | 负责 | 选择原因 |
-| --- | --- | --- | --- |
-| 插件后台与采集 | TypeScript、Chrome MV3、chrome.debugger | 目标接入、CDP 事件、采集、补抓调度 | 与浏览器 API 类型对应，可参考黑盒一已使用的技术 |
-| 管理页 | Vue 3、TypeScript、Vite 7 | 任务、资产、结果和右侧证据详情 | 与黑盒一一致，独立入口、构建和依赖，不直接挂载旧面板 |
-| 插件持久化 | IndexedDB；chrome.storage 只放小配置 | 正文分块、观察记录、快照、待上传块 | 大正文不挤入 chrome.storage；管理页不是状态唯一持有者 |
-| 本机 HTTP | Python 3.12、FastAPI、Uvicorn、Pydantic 2 | 配对、协议校验、任务、排队、恢复与查询 | Python 处理编排与导出，类型模型承接协议 |
-| 服务存储 | SQLite + 内容寻址文件目录 | 元数据事务、正文、结果和运行记录 | 首版单机运行，不引入独立数据库服务 |
-| 分析核心 | Node.js 22.12+ LTS、JavaScript/Babel、锁定 jshound fork | 引用解析、模块索引、绑定与请求定向追踪 | 在现有 AST 核心增强，避免另写 Python JS 分析器 |
-| Excel / 资产包 | Python openpyxl、标准 ZIP | 三张表、JSON 和可复核证据包 | 统一结果语义，集中处理长内容及外部字符串 |
-| 验证 | Vitest、pytest、真实 Chrome MV3 | 插件逻辑、服务/核心集成与现场能力 | 三层证据分开，不把模拟 Chrome API 当现场验收 |
-
-以上是技术决策；具体依赖版本在对应模块创建时写入锁文件。fork 基于 `f34f9c5dcfa0f30816a66881ea9a8d8573c24f05`，首次执行先保存未经增强的基线。fork 地址、补丁 Commit 和可再分发许可证材料必须在 S2 落定；未完成不得宣称核心可交付。
-
-## 3. 运行架构
+## 1. 当前运行结构
 
 ```mermaid
 flowchart LR
-    B[网页 / frame / Worker] --> C[TS 后台：目标接入与正文采集]
-    C --> I[IndexedDB：正文与观察记录]
-    U[Vue 管理页] <--> C
-    I --> F[冻结快照 / 离线资产包]
-    F --> H[Python HTTP：配对、上传与任务]
-    H --> D[SQLite + 内容寻址文件]
-    H --> Q[Python 分析作业调度]
-    Q --> N[Node / jshound fork]
-    N --> R[引用线索 / 事实与证据 / 缺口]
-    R --> D
-    R --> G[插件补抓队列]
-    G --> I
-    D --> E[Python JSON / Excel / 证据导出]
-    D --> U
+    P[网页已解析 JS] --> C[独立插件 Collector / CDP]
+    C --> D[IndexedDB：任务与完整正文]
+    D --> F[暂停或停止后冻结快照]
+    U[Vue 管理页] --> F
+    F --> H[loopback /v0：Origin与密钥校验]
+    H --> J[单作业队列 / JSON文件]
+    J --> A[Python CLI子进程 / Node与锁定jshound]
+    A --> R[文件级候选 / 引用边 / 缺口]
+    R --> U
 ```
 
-首版一个 Python HTTP 进程，分析任务默认单作业执行；作业由 Python 启动受限时长的 Node 子进程。取消和超时必须回收整个作业进程树，保留已提交产物与未完成清单。并发扩展须依据 S2 资源实测，不先使用 Celery、Redis 或独立消息队列。
+实际实现不是 FastAPI/SQLite：HTTP 使用 Python 标准库；作业在显式 data-dir 的 `<job-id>/input.json`、`job.json`、`analysis.log`、`result/` 保存。分析子进程受预算与取消约束，服务不启用 HTTP 补取，不执行输入 JS。原型重启将未完成作业标 interrupted，不保证服务崩溃后的完整进程恢复。
 
-Node 只读已校验快照和显式上下文，写入本次运行目录；不启动浏览器、不下载 URL、不执行输入业务脚本。引用发现也是静态任务。上游联网收集入口不得由服务分析路径隐式调用。
+管理页通过后台消息控制采集；当前也会直接读取同扩展 IndexedDB 的脚本和快照。未来持久化抽象可以收口读取，但不把尚不存在的分页/数据库层当当前实现。
 
-Python负责调度/校验/持久化，Node负责JS语义；即使上游Python分析入口可调用，也必须经S03适配器记录其启动的全部子进程、预算和版本，不能把一个不透明CLI的“成功退出”当作四项结果正确。
-
-管理页与后台用带版本和 requestId 的扩展消息通信；管理页通过服务适配器读取分析分页，不直接操作数据库。HTTP 服务不调用浏览器 API，不绕过插件范围检查补抓。
-
-## 4. 工程目录
-
-当前 Python 工程已包含 pyproject、src、tests 和 docs；插件、HTTP 路由、契约等未实现部分按阶段创建，不建立空实现。
+## 2. 当前目录与入口
 
 ```text
 website-js-extractor/
-  extension/                         # 独立 npm 工程与锁文件
-    src/background/                  # 启动、任务状态与消息路由
-    src/capture/                     # CDP、目标/上下文、正文采集
-    src/discovery/                   # 引用队列、范围/深度、补抓
-    src/storage/                     # IndexedDB、分块与快照
-    src/service-client/              # 配对、续传、状态和结果查询
-    src/ui/                          # Vue 工作台及证据侧栏
-    tests/                           # 单元、组合、真实 MV3 入口
-  pyproject.toml                     # 已有统一 Python 包和命令入口
-  src/website_js_extractor/           # 已有分析核心、CLI、引用与结果适配
-    cli.py / assets.py / engine.py    # 当前实现
-    api/                             # 后续：HTTP 路由、鉴权、错误映射
-    tasks/                           # 后续：任务/作业状态、取消和恢复
-    storage/                         # 后续：SQLite、正文与 manifest 校验
-    export/                          # 后续：Excel、证据资产包
-  contracts/
-    schemas/                         # JSON Schema 2020-12，协议唯一来源
-    examples/                        # 最小正例、反例与期望错误
-    generated/                       # TS/Python生成类型，不手工维护第二套协议
+  extension/                         # npm工程、锁文件、构建与浏览器检查
+    src/background.ts                # 消息、目标事件与采集生命周期
+    src/capture.ts                   # Collector：独占attach、读取、预算与排空
+    src/store.ts                     # IndexedDB任务、正文和快照
+    src/client.ts                    # 本机请求与JSON下载
+    src/model.ts                     # 原型TS对象与采集上限
+    src/App.vue                      # 任务、源码、候选和详情
+    tests/
+  pyproject.toml                     # 唯一Python包与命令入口
+  src/website_js_extractor/
+    cli.py / capture.py              # CLI与浏览器冻结输入校验
+    service.py                       # /v0、配对校验、持久作业与取消
+    assets.py / collection.py        # 资产/上下文与引用图
+    engine.py / worker.py            # 固定引擎子进程与原始记录
+    references.js / results.py       # AST引用发现、候选与预览导出
   tests/
-    fixtures/                        # 主仓自有受控JS、上下文与人工预期
-    integration/                     # 跨插件/服务/核心的固定包用例
-    manifests/                       # 外部开发集/盲测集版本、哈希、配置
   docs/
 ```
 
-第三方分析器继续放在根 `references/repos/jshound/` 子模块的可访问 fork，不复制进本工程源码或 `extension/`。Python 适配器通过配置的锁定核心路径启动；发行时将该 Commit 的核心及所需依赖打入服务包，保留许可证与版本清单。
+可执行入口：`website-js-extractor analyze`、`python -m website_js_extractor serve`，以及 extension 的 build/test/test:cdp/test:ui/test:mv3。准确参数、依赖安装和运行目录只在[使用说明](plugin.md)维护，不发布不存在的 doctor/import/config 命令。
 
-运行数据放用户显式选择的任务根目录，布局为 `metadata.sqlite`、`objects/<sha256>`、`snapshots/<id>/manifest.json`、`runs/<id>/`、`exports/`。上传正文先写临时对象，校验完成后原子提交；SQLite 不塞入所有源码。采集事件与正文分开持久化，记录引用而非复制多份代码。
+Python 当前最低 3.10；核心要求 Node 18+，插件构建要求 Node 20.19 或 22.12+ 的受支持版本，版本范围以 pyproject/package 为准。Node/Babel 从锁定 jshound 使用，固定 Commit `f34f9c5dcfa0f30816a66881ea9a8d8573c24f05`。增强 fork 尚未接入，不将上游固定版称为已增强 fork。
 
-### 开发入口约定
+## 3. 职责和预算来源
 
-当前安装/命令行与验证见[使用说明](usage.md)；下表的浏览器和 HTTP 命令仍是后续约定，不能据此宣称可运行。Python 依赖只在本工程根 pyproject 维护，不再创建另一套 service 工程。
-
-| 工程 | 开发/验证入口 | 产物 |
+| 组件 | 负责 | 不承担 |
 | --- | --- | --- |
-| extension/ | npm ci、npm run build、npm test、npm run test:mv3 | dist/可加载插件、单元结果、真实MV3执行记录；test:mv3缺真实Chrome时标未验收 |
-| 工程根目录 | 当前 pyproject.toml；后续添加 HTTP 依赖和统一锁文件 | 复用同一 Python 包，锁文件与服务安装需单独验收 |
-| 工程根目录 | 当前 python -m website_js_extractor analyze；后续 serve / doctor / import | 启动服务、自检、导入包、对固定snapshot离线分析；参数与退出码随S03提交 |
-| contracts/ | 独立package/锁文件、npm run generate、npm test | JSON Schema生成TS/Pydantic类型及共享例子校验；生成器版本锁定 |
-| 核心fork | 对锁定Commit运行文档化基线/增强命令 | 上游原始输出、项目事实、版本/配置、时间和内存；命令由S2实测确定 |
+| 浏览器插件 | 目标、执行上下文、完整源码、持久快照、后续资源补抓及结果视图 | 执行下载 JS、探测 API、在浏览器重写另一套 Babel 核心 |
+| 本机服务 | 输入校验、配对、作业隔离/取消、结果与未来导出 | 登录接管、替插件联网补抓、将候选确认为发送事实 |
+| Python/Node分析核心 | 对固定正文构图、离线分析、保留原始记录和缺口 | 借浏览器流量次数填静态统计、跨版本猜关联 |
+| CLI | 核心调试、固定快照重放、显式受控补取实验 | 取代插件主交付或成为服务隐式联网入口 |
 
-CI按协议→插件/服务→受控集成运行；真实MV3现场检查另存实际版本和证据。任何下载外部公开样本的步骤都与离线核心测试分离，不用浮动网页响应充当固定回归输入。
+预算有不同口径，不能把某层上限当作全链性能承诺：原型插件/服务的实际值只在[协议](protocol.md#原型预算来源)登记；CLI 参数见[使用说明](plugin.md#命令行调试与重放)；扩大预算需目标机器实测。未落地的容量设想不作为默认配置。
 
-## 5. 模块依赖与边界
+## 4. 后续产品增强边界
 
-| 模块组 | 依赖 | 必须输出 | 禁止代替的职责 |
-| --- | --- | --- | --- |
-| 协议 C01 | 共享交付语义 | schema、例子、兼容规则 | 不描述浏览器或分析算法内部对象 |
-| 插件 E01–E04 | C01、Chrome、IndexedDB | 上下文、资产、引用、快照与缺口 | 不将启发式线索直接确认为 API |
-| 服务 S01–S03 | C01、SQLite、文件存储 | 已校验输入、作业、结果查询 | 不接管登录、不自行联网补抓 |
-| 核心 A01–A04 | 冻结输入、jshound fork | 引用线索、绑定、请求变体、字段证据 | 不合并不同实例为一次请求，不用 AI 替代证据 |
-| 展示/导出 E05、S04 | 项目事实层 | 相同语义的主表、详情、JSON/Excel | 不从原始候选自行提升确认状态 |
+以下均为目标，未作为当前事实：统一机器校验 schema、正式 /v1、分块幂等续传、分页、SQLite/内容对象存储、正式 Excel、位置和绑定事实层、增强 fork 与 Windows 发行。只有出现明确容量/兼容需求时才决定是否引入 FastAPI/Pydantic/SQLite；不为换框架重建第二套分析核心。
 
-模块 ID、目录、输入输出、实现动作和完成条件统一在[模块规格](modules.md)定义。阶段计划引用模块 ID，避免每份文档重复维护完成状态。
+冻结发现快照 R0→核心返回确定引用→插件验证范围/重定向/深度/预算并补抓→新快照 R1，是后续引用闭环；服务始终离线。分析和补抓不得修改正在分析的快照。source map 仅附加源码证据，规则见[分析设计](analysis-design.md)。
 
-## 6. 三条执行链
+## 5. 黑盒一集成方案（仅设计）
 
-### 采集与引用闭包
+### 5.1 落点与保留边界
 
-1. E01 建立任务和上下文代次，E02 将正文与来源观察写入 E04。
-2. E04 冻结发现快照 R0；S01/S02 校验并提交，S03 调用 A01 输出引用线索。
-3. E03 对线索重新核对来源、允许范围、最短已知路径、D3 和预算，取得正文后形成新快照 R1；不修改 R0。
-4. 新一轮没有合格新引用、达到预算或用户结束时停止，形成最终快照 F；每轮保留 parentSnapshotId 和停止原因。
-5. 对 F 运行 A01–A04；后续发现新资产进入下一快照，不偷偷改变正在分析的 F。
+集成目标是在 `browser-extension/` 的同一插件中提供“真实请求”“JS 静态分析”功能。现有 Recorder、请求库和导出保持语义；Node/Python 仍在本工程，不打包进扩展。旧 StaticExplorer 的历史结果只读兼容，不复活删除的后端或复用旧 URL 协议冒充新功能。
 
-服务离线时 E02 继续观察，E03 仅处理 DOM 声明及已确认的字面量引用；复杂 bundler 静态发现标为等待服务。插件不再带另一套 Babel 分析器。恢复后从已冻结输入补做发现轮次。
+| 现有位置 | 后续改造 | 必须保留 |
+| --- | --- | --- |
+| 黑盒一 `background.ts` 的目标附加、事件队列与控制 | 抽取 `session-broker.ts`，先只供 Recorder 使用 | 当前标签页范围、故障隔离、请求排空、正常/意外分离区分 |
+| 黑盒一 `recorder.ts` / `stack.ts` | 注入共享会话命令与事件适配器 | 请求/重定向/调用栈关联、Filter、字段选项、保存和导出 |
+| 黑盒一 `capture-scripts.ts` / 旧 capture_scripts 消息 | 新功能不再走旧独占取源路径；需要保留的运行按钮改走 Broker，历史导入只读 | 不通过 Runtime 探测或另一条 attach 路径绕过租约 |
+| 本工程 `capture.ts` | 改造成脚本消费者，通过租约订阅，不直接 attach/detach | 完整正文、上下文、哈希、预算、中断和快照语义 |
+| 黑盒一 `App.vue` | 新增 `StaticAnalysis.vue` 及客户端适配，替换旧功能入口的运行路径 | 真实请求列表/右侧详情与历史数据可用 |
+| 本工程 `store.ts` / `client.ts` | 在宿主新增静态数据仓与 `static-client.ts` | 两类证据分开、快照不变、令牌不进任务/导出 |
 
-### 分析与事实落库
+以上新文件名均为建议落点，不是已有代码或要求立即创建的目录。
 
-S03 创建带输入哈希和核心版本的 run → A01 建资产/模块索引 → A02 建绑定和发送点 → A03 计算调用摘要与变体 → A04 合成字段及未知 → S03 校验事实与证据引用 → S02 提交结果 → E05/S04 展示和导出。
+### 5.2 共享会话接口与唯一所有者
 
-上游原始 JSON 单独保存。只有通过绑定、位置及上下文核验的记录进入 confirmed；仅按 URL 或方法名推断的保留 candidate。发现线索、上游输出和项目事实层分别落盘。
+未来只允许 SessionBroker 调用 chrome.debugger.attach/detach、配置自动附加和注册底层 debugger 监听器。Recorder 与脚本消费者只能通过适配器申请能力；每个根 tab 同时最多一次附加。子 session 继承根连接的所有权，但单独维护能力、代次与订阅。
 
-### 离线、恢复与升级
+建议接口语义如下，正式类型在实施时与测试一起落地，**当前并无此接口**：
 
-离线包导入必须校验版本、路径、大小、完整清单及正文哈希，不执行包内文件。服务重启将运行中作业标为 interrupted，新建 run 重试同一 snapshot。插件重启产生新采集代次并保留中断区间。
+```ts
+type Consumer = 'traffic' | 'scripts';
+interface Lease { id: string; consumer: Consumer; featureTaskId: string;
+  tabId: number; connectionEpoch: string; }
+interface SessionRef { tabId: number; sessionId?: string; sessionEpoch: string; }
+interface DrainResult { brokerEpoch: string; cutoffSeq: number; drained: boolean; }
+interface SessionBroker {
+  acquire(consumer: Consumer, featureTaskId: string, tabId: number,
+          profile: CapabilityProfile): Promise<Lease>;
+  subscribe(lease: Lease, listener: (event: SessionEvent) => Promise<void>): () => void;
+  command(lease: Lease, source: SessionRef, method: string, params: object): Promise<unknown>;
+  release(lease: Lease, options: { drainMs: number }): Promise<DrainResult>;
+}
+```
 
-协议兼容通过 `/v1/capabilities` 返回 schemaVersion、核心版本和支持项。首版只保证当前 schema 的读写；不兼容明确拒绝并保留原包，不能丢字段继续分析。数据库迁移前备份，升级失败保留原数据和可恢复说明。
+`CapabilityProfile` 声明事件白名单、Network/Runtime/Debugger、异步栈深度、正文读取与子目标需求；SessionEvent 携带 brokerEpoch、connectionEpoch、sessionEpoch、seq、tab/session、上下文/导航关联、method 和原参数。子目标命令显式传 SessionRef，不能只凭 scriptId/requestId 猜会话；Broker验证它属于租约的根连接及当前子会话代次。命令需校验租约、当前会话代次及允许方法；普通消费者不得调用 attach/detach、重新设置自动附加或覆盖其他消费者的 domain 配置。只开放所需的只读取源/取正文/取栈等命令；Runtime.evaluate、业务导航/请求重放不在白名单内。
 
-## 7. 实施门槛与待实测决策
+| 情形 | Broker 规则 |
+| --- | --- |
+| 两种功能同时运行 | 合并所需能力，只有首次申请时附加；第二次申请复用连接并得到独立租约 |
+| Debugger/异步栈能力交集 | Debugger启用前确保跳过暂停，不设断点、不暂停业务；栈深度取有界最大需求，不因停止另一消费者重置已有 debuggerId |
+| 某功能不需要 Network/Debugger | 不擅自 disable 其他消费者所需 domain；不兼容配置返回明确能力冲突，不能后申请覆盖前申请 |
+| DevTools/其他扩展占用 | 返回连接缺口，不分离或夺取对方连接 |
+| 最后一个租约释放 | 等受限在途读取排空后才 detach；重复 release 幂等；过期租约不能操作新连接 |
 
-| 决策 | 当前基线 | 冻结前需要的证据 | 阻塞范围 |
-| --- | --- | --- | --- |
-| 工程、语言与部署形态 | 本文第 1–4 节 | S0 核对目标机器与依赖可安装性 | 正式工程初始化 |
-| 浏览器采集可行性 | Chrome 125+、独立 debugger 会话 | S1 真实 MV3 的正文/上下文/冲突记录 | 宣称浏览器覆盖能力 |
-| jshound 复用范围 | 固定上游 + 增强 fork | S2 原始基线、逐案例差距与改造验证 | 确定核心工期和公开效果门槛 |
-| 发行依赖 | 首版显式安装 Python/Node，发行包锁定应用依赖 | Windows 干净环境安装与自检 | S5 默认发布 |
-| 性能上限 | 整体设计的原型预算 | S1 测采集，S2 测分析，冻结目标机和上限 | 宣称大站可用 |
+release 将该租约置为 closing，固定 cutoffSeq，停止新事件并有界等待此前事件处理/已登记读取；结果返回是否排空。冻结方还必须等待自身 IndexedDB 提交屏障，超时保存缺口，并用租约/截止点阻止晚到结果写入旧快照。剩余消费者的事件继续分发；只有最后一个租约完成释放才物理分离。
 
-S0 先冻结足够支持原型的最小协议和人工预期；基线试验允许扩充草案，但变更必须更新 schema、例子和测试。S2 完成后冻结正式 v1，才能进入完整产品联调。不以写完本文代替任何实现完成项。
+订阅之间不能互相阻塞：按消费者使用有界队列；某队列满只降级/暂停该消费者并记缺口，不丢弃另一队列事件或静默截断正文。若共享进程/存储本身失败，则向所有受影响租约报告同一中断。
+
+### 5.3 生命周期、代次和失败
+
+| 操作 | 请求消费者 | 脚本消费者 / 共享会话 |
+| --- | --- | --- |
+| 暂停/停止真实请求 | 停止接收该功能的新记录，有界排空原在途请求并释放自身租约 | 脚本仍运行则保持连接；不能被 Recorder 的原 detach 路径关闭 |
+| 暂停/停止脚本收集 | 真实请求照常继续，未结束请求不受影响 | 截止订阅、有界排空已接收源码；若请求冻结则保存该截止点快照，再释放自身租约 |
+| 取消静态分析 | 无影响 | 只取消指定服务作业，不停止浏览器采集、不删除快照 |
+| 导航、子目标创建/关闭 | 保留原请求/hop归属；新文档获得新上下文 | 每个目标/执行上下文带代次；父子事件先路由后分发，不把新页面配置套到旧源码 |
+| 意外分离、标签关闭、后台重启 | 按现有规则保留未完成请求与中断区间 | 影响到的两类任务分别记缺口；旧租约失效，不自动把旧任务标为已恢复 |
+
+Broker 分别维护根连接 connectionEpoch、子会话 sessionEpoch 与事件序号，快照截止点为 `(brokerEpoch, seq)`；重启生成新 epoch，不能复用旧租约。导航后仍到达的已知 requestId/scriptId 事件按已记录的关联路由到原观察代次，不能仅按“收到事件时最新导航”重写归属；无法关联则记未知。source ID 包含根 tab、子 session 与连接代次，避免跨目标 ID 撞车。
+
+### 5.4 任务、数据、界面与权限
+
+宿主入口可启动“真实请求”“JS 静态分析”或两者；功能任务分别有 ID/状态，通过宿主任务关联，不把一个暂停布尔值共享给两条链。旧 Scan 缺少模式字段时维持原模式与范围，不自动启用静态分析、不扩采集页范围。新静态消息使用独立命名空间（如 static:start/static:freeze），携带版本、requestId 和 featureTaskId；校验发送者与当前功能任务，不能把旧 start/pause/stop 消息误发给另一条链。状态查询不等待长时间附加/排空；共享串行队列只协调连接/能力变更，不让一个功能控制队列堵住另一个。
+
+静态数据建议先使用宿主扩展内独立 IndexedDB 数据库，保持现有请求库 `js-security-recorder` 版本 2 不变；不做破坏性 schema 迁移。正文内容可按哈希去重，但观察、上下文和版本不可合并。原独立插件的 IndexedDB 隔离于另一个扩展 Origin，**不能假定直接读取**：只提供用户主动导出、校验后导入的迁移路径，原数据不删除。
+
+管理页保留两个明确视图，右侧分别展示请求实测或静态候选证据。按 URL/Host 搜索可以关联展示，但实测次数、静态候选数和正式接口组数不相加。静态分析的服务不可用时，请求采集照常运行，静态正文仍可保存和导出。原请求 Filter/字段选择只作用于实测留存，不能裁剪静态依赖；补抓来源范围与候选 API Host 过滤分开。旧请求导出保持原格式，未来组合包通过独立清单关联两类结果，不把静态记录塞进实测次数。
+
+新分析服务配置与真实请求转存/SLS配置分开，不能复用转存URL或凭证把源码发往错误接收端。集成后需使用黑盒一的扩展 ID 重新配置服务 Origin/配对；旧插件密钥和旧服务配置不自动移植。核对宿主现有 optional_host_permissions，以用户操作触发所需 loopback 授权，不扩大无关站点权限。权限拒绝只影响该服务功能，不停止实测采集。
+
+### 5.5 工作包、验收和回退
+
+| 包 | 前置与实施动作（以后执行） | 必须提供的证据 |
+| --- | --- | --- |
+| I1 会话层抽取 | 建 Broker 适配器，先只迁移 Recorder；默认功能行为不变 | 黑盒一现有构建/请求/保存/恢复/导出/调用栈回归，且没有第二条 attach 路径 |
+| I2 双消费者 | 脚本消费者迁入，独立租约/排空/代次；默认关闭新功能 | 单独/同时运行，分别暂停/停止、导航、队列满、子目标失败、意外分离的状态和调用次数 |
+| I3 数据与 UI | 静态仓、导入校验、新服务客户端和工作台接入 | 旧任务/原范围不变，导入损坏/版本冲突拒绝，服务重启/断线及权限拒绝不损坏请求数据 |
+| I4 现场与启用 | 允许加载扩展的 Chrome 上跑完整组合矩阵 | 实际 OS/Chrome/扩展版本、快照/日志/导出；声明支持范围后才默认启用 |
+
+组合矩阵见[测试规则](testing.md#3-后续集成验收)。失败时先关闭新功能，保留静态快照和请求数据；不能通过卸载扩展、删库或重置旧任务回退。涉及数据库结构变更时另行设计可恢复迁移；代码回退前验证旧版本能读现有数据。**本轮不进行 I1–I4 的代码改动或开关上线。**
