@@ -1,8 +1,8 @@
 # 网站 JS 收集与静态分析
 
-黑盒二的独立插件与本地服务产品设计放在 [website-js-extractor](../website-js-extractor/README.md)，先交付可运行浏览器插件，后续直接集成到黑盒一；当前优先插件采集、分析与展示的最小闭环。
+黑盒二调整为[远端后端](../website-js-extractor/README.md)，接收增强后的黑盒一提供的真实接口、JS正文和加载证据，存储/去重/关联并持续静态分析。生产插件只有browser-extension，不再先建设独立黑盒二插件；当前仍处于方案更新，实际统一链路未迁移。
 
-- [需求与操作](../website-js-extractor/docs/requirements.md)：独立插件与本地服务的用户流程。
+- [需求与操作](../website-js-extractor/docs/requirements.md)：统一插件与远端后端的用户流程。
 - [测试与验收](../website-js-extractor/docs/testing.md)：冻结样本、效果指标与目标 Chrome 现场门槛。
 - [设计](../website-js-extractor/docs/design.md)：脚本收集、三层获取边界、页面上下文和静态分析。
 - [实施计划](../website-js-extractor/docs/plan.md)：设计冻结、基线验证、实现及验收。
