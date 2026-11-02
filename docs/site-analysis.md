@@ -10,3 +10,5 @@
 本工程的[命令行与分析核心](../website-js-extractor/docs/plugin.md)已实现 HAR/目录导入、引用图、受控补取和 Worker 上下文；源码、测试、依赖、[分析设计](../website-js-extractor/docs/analysis-design.md)及[唯一计划](../website-js-extractor/docs/plan.md)均在同一目录。插件/HTTP 服务与精确绑定仍按实际证据验收。
 
 三路关系见[总览](overview.md)，共享输出见[交付约定](delivery.md)。
+
+目标调整为插件轻量持续采集、向授权远端增量上传正文及加载证据，远端去重存储与持续跨文件分析；当前原型仍是本机整包快照。设计与待实现边界见[架构](../website-js-extractor/docs/architecture.md#6-持续采集与远端处理目标未实现)。

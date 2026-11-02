@@ -137,3 +137,8 @@ HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由�
 | [本机服务](../src/website_js_extractor/service.py) | JSON上传20 MiB；最多保存20个作业，单作业执行；发现40秒、引擎120秒、作业总180秒；HTTP结果读取64 MiB |
 
 Job原型不支持相同快照新建多个独立run；要重跑需新snapshot_id。这是原型限制，不是未来AnalysisRun身份规则。服务重启对queued/running标interrupted，不自动重跑；意外崩溃的孤立进程回收尚待正式恢复验收。历史任务/快照清理和分块续传未实现。
+
+
+## 下一版远端增量协议目标（未实现）
+
+本页上述capture-0.1、结果0.5、/v0和限制均为当前原型契约，不静默增加远端或流式语义。后续需另行冻结Content存在性/分块完整提交、加载观察/请求/栈/引用幂等提交、持久ACK和版本水位、增量分析查询等协议；缓存确认、乱序关联与证据层数见[架构目标](architecture.md#6-持续采集与远端处理目标未实现)。当前客户端和服务均不支持这些接口，不应照此向任意远端发送代码。

@@ -8,7 +8,7 @@
 | --- | --- | --- | --- |
 | 白盒：前端代码仓 | 固定 Commit、锁文件、构建配置和构建 JS | URL、参数、Host、对应 JS 文件及静态证据 | [Frontend API Extractor](../frontend-api-extractor/README.md) |
 | 黑盒一：浏览器实测 | 测试人员操作页面时的可观测网络活动 | 实际请求、载荷、页面上下文和可取得调用栈 | [浏览器插件](../browser-extension/README.md) |
-| 黑盒二：网站 JS | 独立插件取得的网站上下文与部署脚本 | 本地服务分析出的请求候选、脚本引用链和缺口 | [网站 JS 提取器](../website-js-extractor/README.md) |
+| 黑盒二：网站 JS | 独立插件取得的网站上下文与部署脚本 | 分析服务产出的请求候选、脚本引用链和缺口 | [网站 JS 提取器](../website-js-extractor/README.md) |
 
 三路独立运行，有多路输入时再关联：
 
@@ -42,3 +42,5 @@ flowchart LR
 - 外部源码、依赖、构建产物和完整报告只放 `work/`，Git 中保留配置、预期、哈希和链接。
 
 统一记录和工作簿语义见[交付协议](delivery.md)，三路对照和现场门槛见[联合验证](validation.md)。工程内部用法与历史资料由各自目录维护，根 `docs/` 不再重复版本报告或实现清单。
+
+黑盒二长期目标更新为[持续采集与远端增量处理](../website-js-extractor/docs/architecture.md#6-持续采集与远端处理目标未实现)：正文按哈希存储，页面/请求/加载栈观察分别保留，浏览器仅作有界待传缓存，处理不等待停止采集。当前loopback原型并未实现远端和持续分析，黑盒一集成暂缓。
