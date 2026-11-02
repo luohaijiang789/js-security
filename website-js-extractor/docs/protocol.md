@@ -144,3 +144,13 @@ Job原型不支持相同快照新建多个独立run；要重跑需新snapshot_id
 本页上述capture-0.1、结果0.5、/v0和限制均为当前原型契约，不静默增加远端或流式语义。后续需另行冻结Content存在性/分块完整提交、加载观察/请求/栈/引用幂等提交、持久ACK和版本水位、增量分析查询等协议；缓存确认、乱序关联与证据层数见[架构目标](architecture.md#6-持续采集与远端处理目标未实现)。当前客户端和服务均不支持这些接口，不应照此向任意远端发送代码。
 
 当前/v0仅处理旧捕获快照，尚不接收统一插件的ObservedRequest增量。下一版由黑盒一上传实测记录、JS与加载证据，黑盒二作为远端接收/存储/关联/分析后端；按原字段选择与独立来源模型设计，不静默把现有/v0或SLS转存当成完整新协议。
+
+## 黑盒一本地待传记录（首段实现，非远端协议）
+
+唯一插件新增独立IndexedDB `js-security-js-outbox` v1，不改变实测请求库。`objects`以UTF-8解析源码的SHA-256为键保存正文；`object_meta`保存字节数与引用数；`events`保存独立观察，按`[scan_id,id]`索引分页；`usage`维护原子预算。正文、引用、事件和预算在同一事务提交。
+
+事件字段：`id`（目标连接代次+本消费者递增序号）、`scan_id`、`kind`（原CDP事件名）、`time`、`tab_id`、`session_id`、`epoch`、`data`、可选`hash`、`status`。`bytes`为元数据预算估计。`pending_remote`只表示已保存且待传，不表示服务器已收到；`source_unavailable/source_over_budget/source_session_changed`表示观察存在但源码缺失。没有远端ACK与可回收确认水位。
+
+`Debugger.scriptParsed`保存CDP脚本身份、执行上下文、URL/起止位置和可得创建栈，正文表示为`debugger-parsed-source`；`network_match=unknown`，没有只凭URL绑定请求。Script网络证据保留requestId、redirect_hop、frameId、loaderId、documentURL、URL/方法/状态、重定向摘要与可得initiator/loading_stack；不复制请求头和请求体，实测请求的原字段仍由原采集配置决定。执行上下文创建/销毁/清空事件独立保存。`observed_tab_url`是任务已知标签页地址，不作为iframe/Worker精确document基址；target_id无法取得时为null。epoch是CDP连接代次，导航身份由loaderId/执行上下文保留，不能混同。
+
+单文件上限16 MiB（源码UTF-8字节）；持久缓存全库正文256 MiB、元数据32 MiB，不是每任务额度。JS工作队列64事件/4 MiB元数据、单次读源超时2秒，在途加载4096。预算是应用数据预算，不是浏览器RSS/磁盘实际占用承诺；CDP整串返回及编码/哈希会产生临时副本。单文件超限保存缺正文观察；缓存/队列/写盘失败登记任务缺口并停收新JS，原请求流程继续。无自动未确认清理，删除任务是显式用户数据删除。此本地结构尚不被`/v0`服务接受。

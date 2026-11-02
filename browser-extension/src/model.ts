@@ -55,6 +55,8 @@ export type SlsCredentials = {
   security_token?: string;
 };
 export type Config = {
+  /** Opt-in; legacy tasks never collect JS implicitly. */
+  collect_js?: boolean;
   filter: Filter;
   retention: "matching" | "all";
   /** Missing on legacy tasks means truncate. */
@@ -89,6 +91,7 @@ export type Config = {
   retention_days: number;
 };
 export const defaults = (): Config => ({
+  collect_js: false,
   filter: {},
   retention: "matching",
   value_storage: "truncate",

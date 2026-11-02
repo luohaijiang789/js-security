@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
+import JSCapturePanel from "./JSCapturePanel.vue";
 import StaticExplorer from "./StaticExplorer.vue";
 import SimpleFilter from "./SimpleFilter.vue";
 import FieldSelector from "./FieldSelector.vue";
@@ -2540,7 +2541,10 @@ onUnmounted(() => {
           </div>
         </section>
         <UsageGuide v-else-if="section === '使用说明'" />
-        <KeepAlive><StaticExplorer v-if="section === 'JS探索'" :capture-disabled="!!current && current.state !== 'ended'" @capturing="jsCapturing=$event" /></KeepAlive>
+        <template v-if="section === 'JS探索'">
+          <JSCapturePanel :enabled="scan?.config.collect_js" :scan-id="scanId" :issue="scan?.gaps.filter(g => g.type.startsWith('js_')).map(g => g.reason).join('；')" />
+          <KeepAlive><StaticExplorer :capture-disabled="!!current && current.state !== 'ended'" @capturing="jsCapturing=$event" /></KeepAlive>
+        </template>
       </main>
     </div>
     <div
@@ -2608,6 +2612,7 @@ onUnmounted(() => {
               </select></label
             >
           </div>
+          <label><input v-model="draftConfig.collect_js" type="checkbox" /> 同时持续收集 JS 正文与加载证据（本地待传，远端尚未接通）</label>
           <div class="new-task-filter">
             <div class="section-heading">
               <div>

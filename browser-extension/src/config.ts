@@ -56,6 +56,8 @@ export function validateSlsConfig(sls: SlsConfig | undefined) {
 }
 export function validateConfig(c: Config) {
   validateFilter(c.filter);
+  if (c.collect_js !== undefined && typeof c.collect_js !== "boolean")
+    throw Error("JS采集开关必须是布尔值");
   if (
     !["matching", "all"].includes(c.retention) ||
     (c.value_storage !== undefined &&

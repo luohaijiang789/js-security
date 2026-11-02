@@ -20,6 +20,7 @@ import {
 } from "./privacy";
 import { fingerprint } from "./group";
 import * as db from "./store";
+import { JSCapture } from "./js-capture";
 import { StackCapture } from "./stack";
 import { savedFieldSet, selectRecordFields } from "./field-selection";
 type Source = chrome.debugger.DebuggerSession;
@@ -75,11 +76,13 @@ export class Recorder {
   bodyReads = 0;
   finalizers = 0;
   stacks: StackCapture;
+  js: JSCapture;
   observedByURL = new Map<string, Map<string, string[]>>();
   observedByCdpId = new Map<string, Map<string, string>>();
   initiatorNodes: InitiatorNode[] = [];
   constructor(public send: (s: Source, m: string, p?: object) => Promise<any>) {
     this.stacks = new StackCapture(send);
+    this.js = new JSCapture(send, this.stacks);
   }
   async create(
     name: string,
@@ -89,6 +92,7 @@ export class Recorder {
   ) {
     if (this.scan && this.scan.state !== "ended")
       throw Error("请先停止当前任务");
+    this.js = new JSCapture(this.send, this.stacks);
     const time = now();
     this.scan = {
       id: uid(),
@@ -144,6 +148,7 @@ export class Recorder {
     this.unavailableTabs.delete(tab.id);
   }
   async interruptTab(tabId: number, reason: string) {
+    this.js.forgetTab(tabId);
     this.unavailableTabs.add(tabId);
     for (const c of this.channels.values())
       if (c.source.tabId === tabId)
@@ -225,6 +230,7 @@ export class Recorder {
     urls.set(event.request.url, matches);
   }
   async configure(source: Source) {
+    this.js.session(source);
     await this.send(source, "Network.enable", {
       maxPostDataSize: this.scan?.config.body_limit ?? 1048576,
     });
@@ -255,6 +261,7 @@ export class Recorder {
       return;
     }
     if (method === "Target.detachedFromTarget") {
+      this.js.forget({ tabId: source.tabId, sessionId: p.sessionId });
       this.stacks.forget({ tabId: source.tabId, sessionId: p.sessionId });
       for (const c of this.channels.values())
         if (
@@ -270,9 +277,10 @@ export class Recorder {
       gap(scan, "child_target_detached", "子目标断开，相关在途请求可能不完整");
       return;
     }
-    if (!method.startsWith("Network.")) return;
     if (source.tabId !== undefined && this.unavailableTabs.has(source.tabId))
       return;
+    this.js.enqueue(scan, source, method, p, this.targets.get(`${source.tabId}:${source.sessionId}`));
+    if (!method.startsWith("Network.")) return;
     const key = this.key(source, p.requestId);
     let channel = this.channels.get(key);
     if (method === "Network.requestWillBeSent") {
@@ -1011,6 +1019,7 @@ export class Recorder {
       throw Error("只有采集中的任务可以暂停");
     this.scan.state = "paused";
     gap(this.scan, "pause", "用户暂停：新请求不纳入；在途关联继续处理");
+    await this.js.drain();
     await this.flush();
   }
   async resume() {
@@ -1057,6 +1066,7 @@ export class Recorder {
           this.finish(h);
         }
     await this.tail;
+    await this.js.drain();
     await this.flush();
     if (this.failure) throw Error(this.failure);
     this.scan.state = "ended";

@@ -1,3 +1,4 @@
+import { removeJSScan } from "./js-store";
 import {captureLoadedScripts} from "./capture-scripts";
 import { Recorder } from "./recorder";
 import * as db from "./store";
@@ -209,6 +210,10 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 chrome.debugger.onEvent.addListener((source, method, params) => {
   if (
     ![
+      "Debugger.scriptParsed",
+      "Runtime.executionContextCreated",
+      "Runtime.executionContextDestroyed",
+      "Runtime.executionContextsCleared",
       "Network.requestWillBeSent",
       "Network.requestWillBeSentExtraInfo",
       "Network.responseReceived",
@@ -232,6 +237,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     unavailableTabs.get(source.tabId) === current?.id
   )
     return;
+  if ((method.startsWith("Debugger.") || method.startsWith("Runtime.")) && !current.config.collect_js) return;
   const config = current?.config;
   const bytes = new TextEncoder().encode(JSON.stringify(params ?? {})).length;
   if (
@@ -688,6 +694,7 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           recorder.scan.state !== "ended"
         )
           throw Error("请先停止任务");
+        await removeJSScan(message.id);
         await db.removeScan(message.id);
         if (recorder.scan?.id === message.id) recorder.scan = null;
         return true;

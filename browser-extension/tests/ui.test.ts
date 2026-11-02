@@ -592,6 +592,8 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       path: "work/redesign/new-task-sls.png",
       fullPage: false,
     });
+    expect(await dialog.getByLabel(/同时持续收集 JS/).isChecked()).toBe(false);
+    await dialog.getByLabel(/同时持续收集 JS/).check();
     await dialog.getByRole("button", { name: "开始采集", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
     const message = await page.evaluate(() =>
@@ -602,6 +604,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect((message.config.filter.include as any).field).toBe("resource_type");
     expect((message.config.filter.exclude as any).operator).toBe("regex");
     expect(message.config.retention).toBe("matching");
+    expect(message.config.collect_js).toBe(true);
     expect(message.config.value_storage).toBe("complete");
     expect(message.config.saved_fields).toHaveLength(8);
     expect(message.config.saved_fields).not.toContain("request_body");
@@ -1129,3 +1132,30 @@ it('JS探索导入静态交付并独立显示字段、证据和缺口，不改�
   const explorer=page.getByRole('region',{name:'JS探索工作台'});await explorer.getByText('api.example.test',{exact:true}).waitFor();expect(await explorer.textContent()).toContain('body.account.id');expect(await explorer.textContent()).toContain('函数候选（未连通入口）');await explorer.getByText('api.example.test',{exact:true}).click();await page.getByRole('complementary',{name:'JS请求证据'}).waitFor();expect(await page.getByRole('complementary',{name:'JS请求证据'}).textContent()).toContain('运行配置未知');await page.getByRole('button',{name:'请求工作台',exact:true}).click();expect(await page.locator('[data-request-id="ui-request-100"]').count()).toBe(1);expect(errors).toEqual([]);
  }finally{await context.close();}
 },20000);
+
+it('同一工作台按任务查看持续JS证据和按需源码，不将证据数混入接口数', async () => {
+  const {context, page, errors} = await openWorkspace();
+  try {
+    await page.getByRole('button', {name: 'JS 探索', exact: true}).click();
+    await page.getByRole('heading', {name: '持续 JS 采集', exact: true}).waitFor();
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const r = indexedDB.open('js-security-js-outbox', 1);
+        r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
+      });
+      const tx = db.transaction(['events', 'objects'], 'readwrite');
+      tx.objectStore('objects').put({hash: 'ui-js-hash', source: "fetch('/ui-api')", refs: 1, bytes: 16});
+      tx.objectStore('events').put({id: 'ui-js-event', scan_id: 'ui-latest', kind: 'Debugger.scriptParsed', time: '', session_id: 'root', epoch: 'ui-epoch', hash: 'ui-js-hash', status: 'pending_remote', data: {url: 'https://fixture.test/app.js', network_match: 'unknown'}});
+      await new Promise<void>((resolve, reject) => {tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);});
+      db.close();
+    });
+    await page.getByRole('region', {name: '持续JS采集证据'}).getByRole('button', {name: '刷新', exact: true}).click();
+    await page.getByText('ui-js-hash', {exact: false}).waitFor();
+    await page.getByRole('button', {name: '源码预览', exact: true}).click();
+    await page.getByText("fetch('/ui-api')", {exact: true}).waitFor();
+    expect(await page.getByText('已保存 1 条证据', {exact: false}).count()).toBe(1);
+    await page.getByRole('button', {name: '请求工作台', exact: true}).click();
+    expect(await page.locator('[data-request-id="ui-request-100"]').count()).toBe(1);
+    expect(errors).toEqual([]);
+  } finally { await context.close(); }
+}, 15000);
