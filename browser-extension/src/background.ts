@@ -1,4 +1,5 @@
-import { removeJSScan } from "./js-store";
+import { tokenKey } from "./remote-capture";
+import { removeJSScan } from "./legacy-js-cleanup";
 import {captureLoadedScripts} from "./capture-scripts";
 import { Recorder } from "./recorder";
 import * as db from "./store";
@@ -124,6 +125,8 @@ function requireCurrent(id: unknown, states: Scan["state"][]) {
   return scan;
 }
 async function requireTransferPermissions(config: Config) {
+  if (config.remote_capture && !(await chrome.permissions.contains({origins: [new URL(config.remote_capture.url).origin + "/*"]})))
+    throw Error("请先授权远端接收服务");
   if (
     config.service.enabled &&
     !(await chrome.permissions.contains({
@@ -547,6 +550,11 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           );
         }
         await requireTransferPermissions(message.config);
+        if (message.config.remote_capture) {
+          const token = message.remote_token;
+          if (typeof token !== "string" || token.length < 16) throw Error("请填写至少16字符的远端会话令牌");
+          await chrome.storage.session.set({[tokenKey(message.config.remote_capture)]: token});
+        }
         const s = await recorder.create(
           message.name,
           tabs,

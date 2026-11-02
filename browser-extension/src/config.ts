@@ -1,3 +1,4 @@
+import { validateRemote } from "./remote-capture";
 import { SLS_FIELDS } from "./sls-fields";
 import type { Config, SlsConfig } from "./model";
 import { validateFilter } from "./filter";
@@ -56,6 +57,9 @@ export function validateSlsConfig(sls: SlsConfig | undefined) {
 }
 export function validateConfig(c: Config) {
   validateFilter(c.filter);
+  if (c.collect_js || c.remote_capture) validateRemote(c.remote_capture);
+  if (c.remote_capture && (c.service.enabled || c.sls?.enabled || c.archive.enabled))
+    throw Error("远端直传任务请关闭本地归档及旧转存渠道");
   if (c.collect_js !== undefined && typeof c.collect_js !== "boolean")
     throw Error("JS采集开关必须是布尔值");
   if (

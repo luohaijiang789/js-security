@@ -38,6 +38,7 @@ function cloneSls(config: SlsConfig): SlsConfig {
   return JSON.parse(JSON.stringify(config));
 }
 const name = ref("业务请求采集");
+const remoteURL = ref(""), remoteProject = ref("default"), remoteToken = ref("");
 const current = ref<Scan | null>(null),
   history = ref<Scan[]>([]),
   scanId = ref(""),
@@ -618,6 +619,11 @@ async function choose(id: string) {
 async function start() {
   const c = JSON.parse(JSON.stringify(draftConfig.value));
   c.filter = JSON.parse(draftFilterText.value);
+  if (c.collect_js) {
+    c.remote_capture = {url: remoteURL.value.trim().replace(/\/$/, ''), project: remoteProject.value.trim()};
+    c.archive.enabled = false; c.service.enabled = false;
+    if (c.sls) c.sls.enabled = false;
+  } else delete c.remote_capture;
   validateConfig(c);
   if (
     c.merge === "representative" &&
@@ -626,6 +632,7 @@ async function start() {
     )
   )
     return;
+  if (c.remote_capture && !(await chrome.permissions.request({origins: [new URL(c.remote_capture.url).origin + "/*"]}))) throw Error("远端接收服务权限未授权");
   const credentials = c.sls?.enabled
     ? await authorizeSlsTarget(c.sls, true)
     : undefined;
@@ -635,14 +642,16 @@ async function start() {
     tab_scope: "all",
     tabs: [],
     config: c,
+    remote_token: c.remote_capture ? remoteToken.value : undefined,
   });
+  remoteToken.value = "";
   current.value = s;
   history.value = [s, ...history.value.filter((x) => x.id !== s.id)];
   await choose(s.id);
   if (c.sls?.enabled) await saveSlsProfile(c.sls);
   await clearSlsCredentialInputs();
   newTaskOpen.value = false;
-  section.value = "请求";
+  section.value = c.remote_capture ? "JS探索" : "请求";
   if (s.state === "recording")
     notice.value =
       "浏览器全局采集已开始，新打开的网页自动接入；请求按 Filter 留存。";
@@ -2542,7 +2551,7 @@ onUnmounted(() => {
         </section>
         <UsageGuide v-else-if="section === '使用说明'" />
         <template v-if="section === 'JS探索'">
-          <JSCapturePanel :enabled="scan?.config.collect_js" :scan-id="scanId" :issue="scan?.gaps.filter(g => g.type.startsWith('js_')).map(g => g.reason).join('；')" />
+          <JSCapturePanel :remote="scan?.config.remote_capture" :enabled="scan?.config.collect_js" :scan-id="scanId" :issue="scan?.gaps.filter(g => (g.type.startsWith('js_') || g.type.startsWith('remote_'))).map(g => g.reason).join('；')" />
           <KeepAlive><StaticExplorer :capture-disabled="!!current && current.state !== 'ended'" @capturing="jsCapturing=$event" /></KeepAlive>
         </template>
       </main>
@@ -2612,7 +2621,13 @@ onUnmounted(() => {
               </select></label
             >
           </div>
-          <label><input v-model="draftConfig.collect_js" type="checkbox" /> 同时持续收集 JS 正文与加载证据（本地待传，远端尚未接通）</label>
+          <label><input v-model="draftConfig.collect_js" type="checkbox" /> 远端采集 JS 和请求（内容不落浏览器本地盘）</label>
+          <div v-if="draftConfig.collect_js" class="form-grid">
+            <label>远端接收地址<input v-model="remoteURL" placeholder="https://receiver.example.com" /></label>
+            <label>远端项目<input v-model="remoteProject" /></label>
+            <label>远端会话令牌<input v-model="remoteToken" type="password" autocomplete="off" /></label>
+            <p>正文和证据只经内存直传；本地仅保留任务配置与计数。失败会暂停，未确认数据在浏览器退出后无法恢复。</p>
+          </div>
           <div class="new-task-filter">
             <div class="section-heading">
               <div>
@@ -2626,7 +2641,7 @@ onUnmounted(() => {
             />
           </div>
           <FieldSelector v-model="draftConfig.saved_fields" />
-          <div class="new-task-transfer">
+          <div v-if="!draftConfig.collect_js" class="new-task-transfer">
             <div class="section-heading">
               <div>
                 <h3>自动保存与转存</h3>

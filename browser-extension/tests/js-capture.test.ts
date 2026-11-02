@@ -2,24 +2,40 @@ import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
 import { Recorder } from "../src/recorder";
 import { defaults } from "../src/model";
-import {
-  appendJS,
-  jsPage,
-  jsSource,
-  removeJSScan,
-  type JSEvent,
-} from "../src/js-store";
+import { RemoteCapture, type CaptureEvent } from "../src/remote-capture";
+import * as db from "../src/store";
+class MemoryReceiver extends RemoteCapture {
+  events: CaptureEvent[] = [];
+  sources = new Map<string, string>();
+  constructor() {
+    super(() => undefined);
+  }
+  override requestCount(scan: string) {
+    return this.events.filter(
+      (e) => e.scan_id === scan && e.kind === "ObservedRequest",
+    ).length;
+  }
+  override async send(event: CaptureEvent, source?: string) {
+    this.events.push(JSON.parse(JSON.stringify(event)));
+    if (event.hash && source !== undefined)
+      this.sources.set(event.hash, source);
+  }
+}
 const setup = async (enabled = true, source = "fetch('/orders?id=1')") => {
   const send = vi.fn(async (_s: any, method: string) =>
     method === "Debugger.getScriptSource" ? { scriptSource: source } : {},
   );
-  const recorder = new Recorder(send);
+  const receiver = new MemoryReceiver();
+  const recorder = new Recorder(send, receiver);
   const scan = await recorder.create(
     "JS test",
     [{ id: 1, url: "https://fixture.test" }],
     {
       ...defaults(),
       collect_js: enabled,
+      remote_capture: enabled
+        ? { url: "http://127.0.0.1:8379", project: "default" }
+        : undefined,
       filter: {
         include: {
           field: "url",
@@ -30,28 +46,28 @@ const setup = async (enabled = true, source = "fetch('/orders?id=1')") => {
     },
   );
   await recorder.configure({ tabId: 1 });
-  return { recorder, scan, send };
+  return { recorder, scan, send, receiver };
 };
-const parsed = (id: string, url = "https://fixture.test/app.js") => ({
+const parsed = (id: string) => ({
   scriptId: id,
-  url,
+  url: "https://fixture.test/app.js",
   executionContextId: 1,
   length: 30,
   startLine: 0,
   startColumn: 0,
 });
-it("old/default tasks do not fetch or persist JS", async () => {
-  const { recorder, scan, send } = await setup(false);
+it("old/default tasks do not collect JS", async () => {
+  const { recorder, send, receiver } = await setup(false);
   await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("1"));
   await recorder.js.drain();
-  expect((await jsPage(scan.id)).count).toBe(0);
+  expect(receiver.events).toEqual([]);
   expect(send.mock.calls.some((c) => c[1] === "Debugger.getScriptSource")).toBe(
     false,
   );
 });
-it("deduplicates multi-MiB sources while retaining page/session observations independently of Filter", async () => {
+it("multi-MiB identical bodies retain independent observations and do not create any local JS database", async () => {
   const source = "/*" + "字".repeat(1048576) + "*/";
-  const { recorder, scan, send } = await setup(true, source);
+  const { recorder, receiver } = await setup(true, source);
   await recorder.configure({ tabId: 1, sessionId: "worker" });
   await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("1"));
   await recorder.event(
@@ -60,34 +76,40 @@ it("deduplicates multi-MiB sources while retaining page/session observations ind
     parsed("1"),
   );
   await recorder.js.drain();
-  const page = await jsPage(scan.id);
-  expect(page.count).toBe(2);
-  expect(new Set(page.events.map((e) => e.hash)).size).toBe(1);
-  expect(new Set(page.events.map((e) => e.epoch)).size).toBe(2);
-  expect(await jsSource(page.events[0].hash!)).toBe(source);
-  expect(page.events.every((e) => e.data.network_match === "unknown")).toBe(
-    true,
-  );
-  expect(send.mock.calls.some((c) => c[1].includes("attach"))).toBe(false);
-  await removeJSScan(scan.id);
-  expect(await jsSource(page.events[0].hash!)).toBeUndefined();
+  expect(
+    receiver.events.filter((e) => e.kind === "Debugger.scriptParsed"),
+  ).toHaveLength(2);
+  expect(receiver.sources.size).toBe(1);
+  expect([...receiver.sources.values()].every(s=>s===source)).toBe(true);
+  expect(
+    new Set(
+      receiver.events
+        .filter((e) => e.kind === "Debugger.scriptParsed")
+        .map((e) => e.epoch),
+    ).size,
+  ).toBe(2);
+  expect(
+    (await indexedDB.databases()).some(
+      (d) => d.name === "js-security-js-outbox",
+    ),
+  ).toBe(false);
 });
-it("retains redirect/loader/context/load stack evidence without inventing a source binding", async () => {
-  const { recorder, scan } = await setup();
+it("retains original loading CDP fields, context, redirect and resolved loading stack", async () => {
+  const { recorder, receiver } = await setup();
   await recorder.event({ tabId: 1 }, "Runtime.executionContextCreated", {
-    context: {
-      id: 1,
-      origin: "https://fixture.test",
-      auxData: { frameId: "frame" },
-    },
+    context: { id: 1, auxData: { frameId: "f" } },
   });
-  const request = {
-    requestId: "load",
+  const p = {
+    requestId: "r",
     type: "Script",
-    frameId: "frame",
-    loaderId: "nav",
-    timestamp: 1,
-    request: { url: "https://fixture.test/a.js", method: "GET" },
+    frameId: "f",
+    loaderId: "navigation",
+    documentURL: "https://fixture.test/",
+    request: {
+      url: "https://fixture.test/a.js",
+      method: "GET",
+      headers: { "x-original": "value" },
+    },
     initiator: {
       type: "script",
       stack: {
@@ -96,120 +118,57 @@ it("retains redirect/loader/context/load stack evidence without inventing a sour
             functionName: "load",
             scriptId: "0",
             url: "https://fixture.test/",
-            lineNumber: 1,
+            lineNumber: 0,
             columnNumber: 0,
           },
         ],
       },
     },
   };
-  await recorder.event({ tabId: 1 }, "Network.requestWillBeSent", request);
+  await recorder.event({ tabId: 1 }, "Network.requestWillBeSent", p);
   await recorder.event({ tabId: 1 }, "Network.requestWillBeSent", {
-    ...request,
-    redirectResponse: { url: request.request.url, status: 302 },
-    request: { ...request.request, url: "https://fixture.test/b.js" },
+    ...p,
+    redirectResponse: { url: p.request.url, status: 302 },
   });
   await recorder.event({ tabId: 1 }, "Network.loadingFailed", {
-    requestId: "load",
+    requestId: "r",
     errorText: "cancelled",
   });
   await recorder.js.drain();
-  const page = await jsPage(scan.id);
-  expect(page.count).toBe(4);
-  const loads = page.events.filter(
-    (e) => e.kind === "Network.requestWillBeSent",
-  );
-  expect(loads.map((e) => e.data.redirect_hop)).toEqual([0, 1]);
-  expect(loads[0].data.loader_id).toBe("nav");
-  expect(loads[0].data.loading_stack.stack.callFrames[0].functionName).toBe(
+  const events = receiver.events.filter((e) => e.kind !== "TaskStarted");
+  expect(events).toHaveLength(4);
+  expect(events[1].data.cdp).toEqual(p);
+  expect(events[1].data.loading_stack.stack.callFrames[0].functionName).toBe(
     "load",
   );
-  expect(page.events.at(-1)?.data.error).toBe("cancelled");
+  expect(events[2].data.redirect_hop).toBe(1);
+  expect(events[3].data.error).toBe("cancelled");
 });
-it("read failure and oversized source are explicit gaps in observations, never truncated source", async () => {
-  const { recorder, scan, send } = await setup();
+it("source failure and size budget produce explicit missing-source observations", async () => {
+  const { recorder, send, receiver } = await setup();
   send.mockImplementation(async (_s, method) => {
-    if (method === "Debugger.getScriptSource") throw Error("source gone");
+    if (method === "Debugger.getScriptSource") throw Error("gone");
     return {};
   });
   await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("1"));
   await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", {
     ...parsed("2"),
-    length: 20 * 1048576,
+    length: 65 * 1048576,
   });
   await recorder.js.drain();
-  const events = (await jsPage(scan.id)).events;
-  expect(events.map((e) => e.status)).toEqual([
-    "source_unavailable",
-    "source_over_budget",
-  ]);
-  expect(events.every((e) => !e.hash)).toBe(true);
+  expect(
+    receiver.events
+      .filter((e) => e.kind === "Debugger.scriptParsed")
+      .map((e) => e.status),
+  ).toEqual(["source_unavailable", "source_over_budget"]);
+  expect(
+    receiver.events
+      .filter((e) => e.kind === "Debugger.scriptParsed")
+      .every((e) => !e.hash),
+  ).toBe(true);
 });
-it("outbox append is atomic/idempotent; budget never evicts unacknowledged bodies; deleting one task preserves shared objects", async () => {
-  const event: JSEvent = {
-    id: crypto.randomUUID(),
-    scan_id: "quota-a",
-    kind: "source",
-    time: "",
-    session_id: "root",
-    epoch: "epoch",
-    data: {},
-    hash: "unique-test-hash",
-    status: "pending_remote",
-  };
-  await appendJS(event, "full source");
-  await appendJS(event, "full source");
-  await appendJS(
-    { ...event, id: crypto.randomUUID(), scan_id: "quota-b" },
-    "full source",
-  );
-  await expect(
-    appendJS(
-      { ...event, id: crypto.randomUUID(), hash: "too-big" },
-      "unmodified",
-      { file: 2, content: 1000, metadata: 1000 },
-    ),
-  ).rejects.toThrow("预算");
-  expect((await jsPage("quota-a")).count).toBe(1);
-  await removeJSScan("quota-a");
-  expect(await jsSource(event.hash!)).toBe("full source");
-  await removeJSScan("quota-b");
-  expect(await jsSource(event.hash!)).toBeUndefined();
-});
-it("JS reads do not block recorder event processing; pause drains accepted reads and admits no new sources", async () => {
-  const { recorder, scan, send } = await setup();
-  let finish!: (v: any) => void;
-  send.mockImplementation(async (_s, method) =>
-    method === "Debugger.getScriptSource"
-      ? new Promise((resolve) => {
-          finish = resolve;
-        })
-      : {},
-  );
-  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("1"));
-  await new Promise((r) => setTimeout(r, 0));
-  const paused = recorder.pause();
-  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("2"));
-  finish({ scriptSource: "complete source" });
-  await paused;
-  expect((await jsPage(scan.id)).count).toBe(1);
-});
-it("queue is bounded and records backpressure without pausing request collection", async () => {
-  const { recorder, scan } = await setup();
-  for (let i = 0; i < 70; i++)
-    await recorder.event(
-      { tabId: 1 },
-      "Debugger.scriptParsed",
-      parsed(String(i)),
-    );
-  await recorder.js.drain();
-  expect(scan.state).toBe("recording");
-  expect(scan.gaps.some((g) => g.type === "js_backpressure")).toBe(true);
-  expect((await jsPage(scan.id)).count).toBeLessThanOrEqual(64);
-});
-it("a replaced session never reads a queued scriptId from the new connection", async () => {
-  const { recorder, scan, send } = await setup();
-  // Hold the first read so the second script remains queued while session changes.
+it("pause drains accepted reads; a new connection never reuses queued script IDs", async () => {
+  const { recorder, send, receiver } = await setup();
   let finish!: (v: any) => void;
   send.mockImplementation(async (_s, method) =>
     method === "Debugger.getScriptSource"
@@ -222,53 +181,59 @@ it("a replaced session never reads a queued scriptId from the new connection", a
   await new Promise((r) => setTimeout(r, 0));
   await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("2"));
   recorder.js.session({ tabId: 1 });
+  const paused = recorder.pause();
+  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("3"));
   finish({ scriptSource: "old source" });
-  await recorder.js.drain();
-  const events = (await jsPage(scan.id)).events;
-  expect(events.map((e) => e.status)).toEqual([
-    "source_unavailable",
-    "source_session_changed",
-  ]);
-  expect(events.every((e) => !e.hash)).toBe(true);
+  await paused;
+  expect(
+    receiver.events
+      .filter((e) => e.kind === "Debugger.scriptParsed")
+      .map((e) => e.status),
+  ).toEqual(["source_unavailable", "source_session_changed"]);
   expect(
     send.mock.calls.filter((c) => c[1] === "Debugger.getScriptSource"),
   ).toHaveLength(1);
 });
-it("pages are bounded and exclusive, metadata/content quota failures leave the store unchanged", async () => {
-  const base: JSEvent = {
-    id: "",
-    scan_id: "paging-test",
-    kind: "context",
-    time: "",
-    session_id: "root",
-    epoch: "epoch",
-    data: {},
-    status: "pending_remote",
-  };
-  for (let i = 0; i < 55; i++)
-    await appendJS({ ...base, id: `paging-${String(i).padStart(3, "0")}` });
-  const first = await jsPage(base.scan_id);
-  const next = await jsPage(base.scan_id, first.next);
-  expect(first.events).toHaveLength(50);
-  expect(next.events).toHaveLength(5);
-  expect(new Set([...first.events, ...next.events].map((e) => e.id)).size).toBe(
-    55,
-  );
-  await expect(
-    appendJS({ ...base, id: "metadata-full" }, undefined, {
-      file: 1000,
-      content: 1e9,
-      metadata: 1,
-    }),
-  ).rejects.toThrow("预算");
-  await expect(
-    appendJS({ ...base, id: "body-full", hash: "body-full" }, "body", {
-      file: 1000,
-      content: 0,
-      metadata: 1e9,
-    }),
-  ).rejects.toThrow("预算");
-  expect((await jsPage(base.scan_id)).count).toBe(55);
-  expect(await jsSource("body-full")).toBeUndefined();
-  await removeJSScan(base.scan_id);
+it("JS queue is bounded with an explicit gap", async () => {
+  const { recorder, scan, receiver } = await setup();
+  for (let i = 0; i < 70; i++)
+    void recorder.event(
+      { tabId: 1 },
+      "Debugger.scriptParsed",
+      parsed(String(i)),
+    );
+  await recorder.js.drain();
+  expect(scan.gaps.some((g) => g.type === "js_backpressure")).toBe(true);
+  expect(
+    receiver.events.filter((e) => e.kind === "Debugger.scriptParsed").length,
+  ).toBeLessThanOrEqual(64);
+});
+it("remote request payloads and active snapshots never reach local request/initiator stores", async () => {
+  const { recorder, scan, receiver } = await setup();
+  scan.config.filter = {};
+  scan.versions[0].config.filter = {};
+  await recorder.event({ tabId: 1 }, "Network.requestWillBeSent", {
+    requestId: "api",
+    type: "Fetch",
+    request: {
+      url: "https://fixture.test/api?x=1",
+      method: "GET",
+      headers: {},
+    },
+    timestamp: 1,
+    wallTime: 1,
+  });
+  await recorder.flush();
+  expect(await db.all("active", scan.id)).toEqual([]);
+  await recorder.event({ tabId: 1 }, "Network.loadingFailed", {
+    requestId: "api",
+    errorText: "fixture",
+  });
+  await recorder.stop();
+  expect(
+    receiver.events.filter((e) => e.kind === "ObservedRequest"),
+  ).toHaveLength(1);
+  expect(await db.all("requests", scan.id)).toEqual([]);
+  expect(await db.all("initiator_nodes", scan.id)).toEqual([]);
+  expect(await db.all("groups", scan.id)).toEqual([]);
 });

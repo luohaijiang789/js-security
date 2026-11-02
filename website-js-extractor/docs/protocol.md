@@ -145,12 +145,25 @@ Job原型不支持相同快照新建多个独立run；要重跑需新snapshot_id
 
 当前/v0仅处理旧捕获快照，尚不接收统一插件的ObservedRequest增量。下一版由黑盒一上传实测记录、JS与加载证据，黑盒二作为远端接收/存储/关联/分析后端；按原字段选择与独立来源模型设计，不静默把现有/v0或SLS转存当成完整新协议。
 
-## 黑盒一本地待传记录（首段实现，非远端协议）
+## 统一插件增量接收协议 v1（capture-stream-1）
 
-唯一插件新增独立IndexedDB `js-security-js-outbox` v1，不改变实测请求库。`objects`以UTF-8解析源码的SHA-256为键保存正文；`object_meta`保存字节数与引用数；`events`保存独立观察，按`[scan_id,id]`索引分页；`usage`维护原子预算。正文、引用、事件和预算在同一事务提交。
+新链路是`browser-extension/src/remote-capture.ts`→`website_js_extractor.receiver`；不复用/v0/SLS。远端模式的新JS、加载证据、ObservedRequest均不落浏览器本地数据库，旧JS库只保留删除兼容；本地仅配置/计数/缺口，令牌在chrome.storage.session。没有磁盘待传或崩溃恢复保证。
 
-事件字段：`id`（目标连接代次+本消费者递增序号）、`scan_id`、`kind`（原CDP事件名）、`time`、`tab_id`、`session_id`、`epoch`、`data`、可选`hash`、`status`。`bytes`为元数据预算估计。`pending_remote`只表示已保存且待传，不表示服务器已收到；`source_unavailable/source_over_budget/source_session_changed`表示观察存在但源码缺失。没有远端ACK与可回收确认水位。
+所有路由前缀`/v1/projects/{project}`，Bearer认证；单进程明确授权一个项目，其他项目404。配置外Origin拒绝，配置的扩展Origin按精确值返回CORS；CLI联调无Origin也须令牌。插件允许HTTPS源地址，localhost/127.0.0.1可用HTTP；服务默认仅监听127.0.0.1，真实远端需由HTTPS入口转发。请求和响应均no-store，禁止重定向转发凭证。
 
-`Debugger.scriptParsed`保存CDP脚本身份、执行上下文、URL/起止位置和可得创建栈，正文表示为`debugger-parsed-source`；`network_match=unknown`，没有只凭URL绑定请求。Script网络证据保留requestId、redirect_hop、frameId、loaderId、documentURL、URL/方法/状态、重定向摘要与可得initiator/loading_stack；不复制请求头和请求体，实测请求的原字段仍由原采集配置决定。执行上下文创建/销毁/清空事件独立保存。`observed_tab_url`是任务已知标签页地址，不作为iframe/Worker精确document基址；target_id无法取得时为null。epoch是CDP连接代次，导航身份由loaderId/执行上下文保留，不能混同。
+| 方法/路径 | 输入与确认 |
+| --- | --- |
+| GET `/objects/{sha256}?status` | 查询该项目完整对象的committed/bytes；未提交不表示存在 |
+| PUT `/objects/{sha256}/chunks/{offset}` | 原始UTF-8字节，X-Object-Bytes总长、X-Chunk-SHA256；返回对象/offset/块哈希与durable=true |
+| POST `/objects/{sha256}/commit` | `{bytes}`；校验连续完整块、总长、完整SHA-256和UTF-8，事务提交后返回committed/durable=true |
+| POST `/events` | `{schema,event_json,event_sha256}`；超过1 MiB的事件先分块保存JSON，改传`event_object_sha256`与同一event_sha256 |
+| GET `/events?scan_id=...&after=...&limit=50` | 全字段回读；next为服务端序号，has_more决定继续分页；summary=1仅回轻量摘要，UI使用此模式 |
+| GET `/objects/{sha256}` | 只返回已提交对象字节；客户端重新校验哈希，正文不从未提交块读取 |
 
-单文件上限16 MiB（源码UTF-8字节）；持久缓存全库正文256 MiB、元数据32 MiB，不是每任务额度。JS工作队列64事件/4 MiB元数据、单次读源超时2秒，在途加载4096。预算是应用数据预算，不是浏览器RSS/磁盘实际占用承诺；CDP整串返回及编码/哈希会产生临时副本。单文件超限保存缺正文观察；缓存/队列/写盘失败登记任务缺口并停收新JS，原请求流程继续。无自动未确认清理，删除任务是显式用户数据删除。此本地结构尚不被`/v0`服务接受。
+事件字段：id、scan_id、kind、time、tab_id（可选）、session_id、epoch、data、hash（有正文时）、status。正文按UTF-8字节哈希去重；事件id独立，相同内容跨页面/会话仍保留观察。相同事件ID和完全相同event_json幂等；不同payload冲突409。服务不删减data中字段，event_sha256绑定提交的完整JSON；ACK必须匹配schema/id/event_sha256/content_sha256且durable=true。引用JS正文时先验证对象已提交且data.source_bytes一致。损坏/缺块/缺对象/正文非法UTF-8/非有限数/重复JSON键不返回成功。
+
+kind包括Debugger.scriptParsed、执行上下文生命周期、Script网络加载事件、ObservedRequest、TaskStarted和TaskCheckpoint。data.cdp保留JS采集所取得的原始CDP事件，另存规范化requestId/hop/loaderId/frameId/documentURL、initiator及解析的loading_stack。JS是Debugger解析文本，不是HTTP原始字节；network_match=unknown，连接epoch不能代替导航loaderId。time和已知标签URL在入队时捕获，tab URL不能冒充iframe/Worker基址。ObservedRequest的data.record保留原请求结构与原字段选择/截断配置；传输不再缩减字段。TaskStarted保存任务/配置，停止检查点保存计数/缺口，不把检查点视为远端分析完成。
+
+预算：JS源码64 MiB、通用传输对象/单事件JSON128 MiB，分块256 KiB；普通事件包最多8 MiB，大事件用对象引用。JS元数据队列64事件/4 MiB，单次读源2秒，网络请求（含读响应）5秒，网络错误/408/429/5xx最多3次，无效ACK不得算成功；失败保留首份未确认数据在内存并暂停，同会话恢复时可重试。后续未处理窗口/队列溢出登记缺口；关闭/崩溃后无法找回。字节预算不等于RSS，CDP整串返回、JSON编码和哈希会有临时副本。分页除条数外还有4 MiB目标预算，超大单条可单独返回，UI使用摘要避免回读大记录。
+
+服务端SQLite使用WAL和synchronous=FULL，块/完整对象/事件各自事务提交后确认；部署目录需持久磁盘。完整ACK不等于高可用/备份/无限容量或全站采集无遗漏。本轮只验证接收/回读，不自动触发静态分析、引用补抓或API访问。

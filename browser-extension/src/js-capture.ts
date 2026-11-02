@@ -1,7 +1,11 @@
 import { sha256 } from "@noble/hashes/sha2.js";
 import { bytesToHex } from "@noble/hashes/utils.js";
 import { uid, now, gap, type Scan } from "./model";
-import { appendJS, JS_LIMITS, type JSEvent } from "./js-store";
+import {
+  RemoteCapture,
+  CAPTURE_LIMITS,
+  type CaptureEvent,
+} from "./remote-capture";
 import type { StackCapture } from "./stack";
 type Source = chrome.debugger.DebuggerSession;
 /** Consumes the recorder's session; never attaches or enables Debugger itself. */
@@ -14,6 +18,11 @@ export class JSCapture {
   private queued = 0;
   private queuedBytes = 0;
   private admittedRequests = new Set<string>();
+  resetFailure() {
+    this.requests.clear();
+    this.admittedRequests.clear();
+    this.halted = false;
+  }
   drain() {
     return this.tail;
   }
@@ -48,11 +57,7 @@ export class JSCapture {
         !this.admittedRequests.has(requestKey)
       ) {
         this.halted = true;
-        gap(
-          scan,
-          "js_backpressure",
-          "JS在途加载超过4096，已暂停JS采集；请求采集继续",
-        );
+        gap(scan, "js_backpressure", "JS在途加载超过4096，已暂停远端任务");
         return;
       }
       this.admittedRequests.add(requestKey);
@@ -65,17 +70,32 @@ export class JSCapture {
     const bytes = new TextEncoder().encode(JSON.stringify(p)).length;
     if (this.queued >= 64 || this.queuedBytes + bytes > 4 * 1048576) {
       this.halted = true;
+      scan.state = "paused";
       gap(
         scan,
         "js_backpressure",
-        "JS待处理队列达到64事件/4MiB上限，已暂停JS采集；请求采集继续",
+        "JS待处理队列达到64事件/4MiB上限，已暂停远端任务",
       );
       return;
     }
+    const receivedAt = now();
+    const tabURL = scan.tabs.find((tab) => tab.id === s.tabId)?.url ?? null;
+    const payload = structuredClone(p);
     this.queued++;
     this.queuedBytes += bytes;
     this.tail = this.tail
-      .then(() => this.event(scan, s, method, p, epoch, targetId))
+      .then(() =>
+        this.event(
+          scan,
+          s,
+          method,
+          payload,
+          epoch,
+          targetId,
+          receivedAt,
+          tabURL,
+        ),
+      )
       .catch((error) => {
         this.halted = true;
         gap(scan, "js_capture_failure", String(error));
@@ -88,6 +108,7 @@ export class JSCapture {
   constructor(
     private send: (s: Source, m: string, p?: object) => Promise<any>,
     private stacks: StackCapture,
+    private remote: RemoteCapture,
   ) {}
   private key(s: Source) {
     return `${s.tabId}:${s.sessionId ?? "root"}`;
@@ -119,7 +140,13 @@ export class JSCapture {
     p: any,
     epoch: string,
     targetId?: string,
+    receivedAt?: string,
+    tabURL?: string | null,
   ) {
+    if (this.remote.failed) {
+      gap(scan, "remote_unconfirmed", "远端存在未确认数据；此窗口JS未采集");
+      return;
+    }
     const session = this.key(s);
     if (!epoch) return; // No source is associated across a lost/replaced connection.
     const requestKey = `${session}:${epoch}:${p.requestId}`;
@@ -141,11 +168,7 @@ export class JSCapture {
     if (request) {
       if (this.requests.size >= 4096 && !this.requests.has(requestKey)) {
         this.halted = true;
-        gap(
-          scan,
-          "js_backpressure",
-          "JS在途加载超过4096，已暂停JS采集；请求采集继续",
-        );
+        gap(scan, "js_backpressure", "JS在途加载超过4096，已暂停远端任务");
         return;
       }
       this.requests.set(requestKey, hop!);
@@ -153,7 +176,7 @@ export class JSCapture {
     const data = script
       ? { ...p, stackTrace: this.stacks.snapshot(p.stackTrace) }
       : context
-        ? p
+        ? { ...p }
         : {
             request_id: p.requestId,
             redirect_hop: hop,
@@ -186,19 +209,19 @@ export class JSCapture {
       method === "Network.loadingFailed"
     )
       this.requests.delete(requestKey);
-    const event: JSEvent = {
+    const event: CaptureEvent = {
       id: `${epoch}:${String(++this.serial).padStart(12, "0")}`,
       scan_id: scan.id,
       kind: method,
-      time: now(),
+      time: receivedAt ?? now(),
       tab_id: s.tabId,
       session_id: s.sessionId ?? "root",
       epoch,
       data,
-      status: "pending_remote",
+      status: "captured",
     };
-    event.data.observed_tab_url =
-      scan.tabs.find((tab) => tab.id === s.tabId)?.url ?? null;
+    event.data.observed_tab_url = tabURL ?? null;
+    event.data.cdp = p;
     event.data.target_id = targetId ?? null; // Not inferred from a URL; target/session evidence remains separate.
     let source: string | undefined;
     if (script) {
@@ -206,7 +229,8 @@ export class JSCapture {
       event.data.network_match = "unknown"; // URL equality alone is not sufficient.
       if (this.epochs.get(session) !== epoch)
         event.status = "source_session_changed";
-      else if (p.length > JS_LIMITS.file) event.status = "source_over_budget";
+      else if (p.length > CAPTURE_LIMITS.file)
+        event.status = "source_over_budget";
       else {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -221,7 +245,13 @@ export class JSCapture {
           source = result.scriptSource;
           if (typeof source !== "string") throw Error("没有文本源码");
           const bytes = new TextEncoder().encode(source);
-          if (bytes.length > JS_LIMITS.file) {
+          if (
+            new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(
+              bytes,
+            ) !== source
+          )
+            throw Error("源码不能无损编码为UTF-8");
+          if (bytes.length > CAPTURE_LIMITS.file) {
             source = undefined;
             event.status = "source_over_budget";
           } else {
@@ -242,13 +272,14 @@ export class JSCapture {
       event.data.loading_stack = captured;
     }
     try {
-      await appendJS(event, source);
+      await this.remote.send(event, source);
     } catch (error) {
       this.halted = true;
+      scan.state = "paused";
       gap(
         scan,
-        "js_outbox_failure",
-        `${String(error)}；JS采集已暂停，请求采集继续`,
+        "remote_upload_failure",
+        `${String(error)}；未取得远端持久确认，任务已暂停，无本地正文副本`,
       );
     }
   }

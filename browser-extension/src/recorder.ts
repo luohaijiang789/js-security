@@ -1,3 +1,4 @@
+import { RemoteCapture } from "./remote-capture";
 import {
   defaults,
   gap,
@@ -77,12 +78,14 @@ export class Recorder {
   finalizers = 0;
   stacks: StackCapture;
   js: JSCapture;
+  remote: RemoteCapture;
   observedByURL = new Map<string, Map<string, string[]>>();
   observedByCdpId = new Map<string, Map<string, string>>();
   initiatorNodes: InitiatorNode[] = [];
-  constructor(public send: (s: Source, m: string, p?: object) => Promise<any>) {
+  constructor(public send: (s: Source, m: string, p?: object) => Promise<any>, remote?: RemoteCapture) {
     this.stacks = new StackCapture(send);
-    this.js = new JSCapture(send, this.stacks);
+    this.remote = remote ?? new RemoteCapture(() => this.scan?.config.remote_capture);
+    this.js = new JSCapture(send, this.stacks, this.remote);
   }
   async create(
     name: string,
@@ -90,9 +93,10 @@ export class Recorder {
     config: Config,
     tabScope: "all" | "selected" = "selected",
   ) {
+    if (this.remote.failed) throw Error("仍有内存中的未确认数据，请先恢复重试上传");
     if (this.scan && this.scan.state !== "ended")
       throw Error("请先停止当前任务");
-    this.js = new JSCapture(this.send, this.stacks);
+    this.js = new JSCapture(this.send, this.stacks, this.remote);
     const time = now();
     this.scan = {
       id: uid(),
@@ -110,7 +114,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.6.0",
+      plugin: "0.7.1",
       stats: {
         observed: 0,
         pending: 0,
@@ -137,6 +141,11 @@ export class Recorder {
     this.groups.clear();
     this.connection = uid();
     await db.put("scans", this.scan);
+    if (config.remote_capture) {
+      try { await this.remote.send({id: `task:${this.scan.id}:started`, scan_id:this.scan.id,
+        kind:'TaskStarted',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{scan:structuredClone(this.scan)}}); }
+      catch(error) {this.scan.state='paused';gap(this.scan,'remote_upload_failure',String(error));await this.flush();}
+    }
     return this.scan;
   }
   includeTab(tab: { id: number; url: string }) {
@@ -797,7 +806,7 @@ export class Recorder {
     scan.stats[r.filter_result]++;
     scan.stats.pending--;
     h.done = true;
-    if (savedFieldSet(config).has("initiator"))
+    if (!config.remote_capture && savedFieldSet(config).has("initiator"))
       this.initiatorNodes.push({
         scan_id: r.scan_id,
         request_id: r.request_id,
@@ -818,6 +827,21 @@ export class Recorder {
       selectRecordFields(r, config),
       config.value_storage !== "complete",
     );
+    if (config.remote_capture) {
+      try {
+        await this.remote.send({id: `request:${safe.request_id}`, scan_id: scan.id,
+          kind: 'ObservedRequest', time: now(), tab_id: safe.tab_id,
+          session_id: safe.session_id, epoch: this.connection, data: {record: safe}, status: 'captured'});
+        scan.stats.persisted++; // Remote durable records; no local payload write.
+      } catch (error) {
+        scan.state = 'paused';
+        gap(scan, 'remote_upload_failure', String(error), safe.request_id);
+      }
+      h.record = {...safe, request_headers: [], response_headers: [], query_params: [],
+        request_body: {representation: 'released', parsed: null}, response_body: undefined, initiator_stack: null};
+      return;
+    }
+
     for (const [carrier, status] of Object.entries(safe.capture_status))
       if (
         status.state !== "complete" &&
@@ -971,7 +995,7 @@ export class Recorder {
       const groups = new Map(
         [...this.groups].map(([id, g]) => [id, structuredClone(g)]),
       );
-      const active = [...this.channels.values()].flatMap((c) =>
+      const active = scan.config.remote_capture ? [] : [...this.channels.values()].flatMap((c) =>
         c.hops
           .filter((h) => !h.done)
           .map((h) => {
@@ -1025,6 +1049,13 @@ export class Recorder {
   async resume() {
     if (!this.scan || !["paused", "interrupted"].includes(this.scan.state))
       throw Error("任务不可恢复");
+    if (this.scan.config.remote_capture) {
+      await this.js.drain();
+      const before = this.remote.requestCount(this.scan.id);
+      await this.remote.retry();
+      this.scan.stats.persisted += this.remote.requestCount(this.scan.id) - before;
+      this.js.resetFailure();
+    }
     for (const g of this.scan.gaps)
       if (
         ["pause", "backpressure", "debugger_detach"].includes(g.type) &&
@@ -1041,6 +1072,8 @@ export class Recorder {
       !["recording", "paused", "interrupted"].includes(this.scan.state)
     )
       throw Error("当前任务状态不能修改配置");
+    if (JSON.stringify(this.scan.config.remote_capture) !== JSON.stringify(config.remote_capture))
+      throw Error("任务中不能切换存储模式或远端地址，请新建任务");
     this.scan.config = structuredClone(config);
     this.scan.versions.push({
       version: this.scan.versions.length + 1,
@@ -1067,6 +1100,13 @@ export class Recorder {
         }
     await this.tail;
     await this.js.drain();
+    if (this.scan.config.remote_capture) {
+      try {
+        if (this.remote.failed) throw Error("仍有未确认数据，请恢复重试，不能标记已完成");
+        await this.remote.send({id:`task:${this.scan.id}:checkpoint:${uid()}`, scan_id:this.scan.id,
+          kind:'TaskCheckpoint',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{phase:'stop',scan:structuredClone(this.scan)}});
+      } catch(error) {this.scan.state='paused';gap(this.scan,'remote_upload_failure',String(error));await this.flush();throw error;}
+    }
     await this.flush();
     if (this.failure) throw Error(this.failure);
     this.scan.state = "ended";

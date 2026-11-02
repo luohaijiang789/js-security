@@ -592,8 +592,6 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
       path: "work/redesign/new-task-sls.png",
       fullPage: false,
     });
-    expect(await dialog.getByLabel(/同时持续收集 JS/).isChecked()).toBe(false);
-    await dialog.getByLabel(/同时持续收集 JS/).check();
     await dialog.getByRole("button", { name: "开始采集", exact: true }).click();
     await dialog.waitFor({ state: "hidden" });
     const message = await page.evaluate(() =>
@@ -604,7 +602,7 @@ it("默认全局采集无需选择页面，Filter正确传递且非法配置有�
     expect((message.config.filter.include as any).field).toBe("resource_type");
     expect((message.config.filter.exclude as any).operator).toBe("regex");
     expect(message.config.retention).toBe("matching");
-    expect(message.config.collect_js).toBe(true);
+    expect(message.config.collect_js).toBe(false);
     expect(message.config.value_storage).toBe("complete");
     expect(message.config.saved_fields).toHaveLength(8);
     expect(message.config.saved_fields).not.toContain("request_body");
@@ -1133,29 +1131,54 @@ it('JS探索导入静态交付并独立显示字段、证据和缺口，不改�
  }finally{await context.close();}
 },20000);
 
-it('同一工作台按任务查看持续JS证据和按需源码，不将证据数混入接口数', async () => {
-  const {context, page, errors} = await openWorkspace();
-  try {
-    await page.getByRole('button', {name: 'JS 探索', exact: true}).click();
-    await page.getByRole('heading', {name: '持续 JS 采集', exact: true}).waitFor();
-    await page.evaluate(async () => {
-      const db = await new Promise<IDBDatabase>((resolve, reject) => {
-        const r = indexedDB.open('js-security-js-outbox', 1);
-        r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error);
-      });
-      const tx = db.transaction(['events', 'objects'], 'readwrite');
-      tx.objectStore('objects').put({hash: 'ui-js-hash', source: "fetch('/ui-api')", refs: 1, bytes: 16});
-      tx.objectStore('events').put({id: 'ui-js-event', scan_id: 'ui-latest', kind: 'Debugger.scriptParsed', time: '', session_id: 'root', epoch: 'ui-epoch', hash: 'ui-js-hash', status: 'pending_remote', data: {url: 'https://fixture.test/app.js', network_match: 'unknown'}});
-      await new Promise<void>((resolve, reject) => {tx.oncomplete = () => resolve(); tx.onabort = () => reject(tx.error);});
-      db.close();
-    });
-    await page.getByRole('region', {name: '持续JS采集证据'}).getByRole('button', {name: '刷新', exact: true}).click();
-    await page.getByText('ui-js-hash', {exact: false}).waitFor();
-    await page.getByRole('button', {name: '源码预览', exact: true}).click();
-    await page.getByText("fetch('/ui-api')", {exact: true}).waitFor();
-    expect(await page.getByText('已保存 1 条证据', {exact: false}).count()).toBe(1);
-    await page.getByRole('button', {name: '请求工作台', exact: true}).click();
-    expect(await page.locator('[data-request-id="ui-request-100"]').count()).toBe(1);
-    expect(errors).toEqual([]);
-  } finally { await context.close(); }
-}, 15000);
+it('远端任务只查询远端证据和源码，不创建本地JS库', async () => {
+ const {context,page,errors}=await openWorkspace();
+ try {
+  await page.evaluate(async()=>{
+   const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('js-security-recorder');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
+   const tx=db.transaction('scans','readwrite');const request=tx.objectStore('scans').get('ui-latest');request.onsuccess=()=>{tx.objectStore('scans').put({...request.result,config:{...request.result.config,collect_js:true,remote_capture:{url:'https://receiver.test',project:'default'}}});};
+   await new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error);});db.close();
+  });
+  await page.reload();
+  await page.evaluate(async()=>{
+   await chrome.storage.session.set({'capture-token:https://receiver.test:default':'ui-session-token-123456789'});
+   const original=window.fetch.bind(window);
+   window.fetch=async(input,init)=>{
+    if(String(input).startsWith('https://receiver.test/')) {
+     if(String(input).includes('/objects/'))return new Response("fetch('/ui-api')");
+     return Response.json({events:[{id:'remote-event',scan_id:'ui-latest',kind:'Debugger.scriptParsed',status:'captured',hash:'4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5',data:{url:'https://fixture.test/app.js'}}],count:1,next:1,has_more:false});
+    }
+    return original(input,init);
+   };
+  });
+  await page.getByRole('button',{name:'JS 探索',exact:true}).click();
+  await page.getByText('4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5',{exact:false}).waitFor();
+  expect(await page.getByText('远端已确认 1 条证据',{exact:false}).count()).toBe(1);
+  await page.getByRole('button',{name:'源码预览',exact:true}).click();
+  await page.getByText("fetch('/ui-api')",{exact:true}).waitFor();
+  expect(await page.evaluate(async()=> (await indexedDB.databases()).some(db=>db.name==='js-security-js-outbox'))).toBe(false);
+  expect(errors).toEqual([]);
+ }finally{await context.close();}
+},15000);
+
+it('新任务显式配置远端，令牌不进入持久配置，关闭旧本地转存',async()=>{
+ const {context,page,errors}=await openWorkspace();
+ try {
+  await page.getByRole('button',{name:'新建采集任务',exact:true}).first().click();
+  const dialog=page.getByRole('dialog',{name:'新建采集任务',exact:true});
+  await dialog.getByLabel(/远端采集 JS 和请求/).check();
+  await dialog.getByLabel('远端接收地址',{exact:true}).fill('https://receiver.test');
+  await dialog.getByLabel('远端项目',{exact:true}).fill('project-1');
+  await dialog.getByLabel('远端会话令牌',{exact:true}).fill('ui-session-token-123456789');
+  await dialog.getByRole('button',{name:'开始采集',exact:true}).click();
+  await dialog.waitFor({state:'hidden'});
+  const message=await page.evaluate(()=> (window as any).messages.find((m:any)=>m.type==='start'));
+  expect(message.config.remote_capture).toEqual({url:'https://receiver.test',project:'project-1'});
+  expect(message.config.archive.enabled).toBe(false);
+  expect(message.config.service.enabled).toBe(false);
+  expect(message.config.sls.enabled).toBe(false);
+  expect(JSON.stringify(message.config)).not.toContain('ui-session-token');
+  expect(message.remote_token).toBe('ui-session-token-123456789');
+  expect(errors).toEqual([]);
+ }finally{await context.close();}
+},15000);

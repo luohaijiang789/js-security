@@ -1,33 +1,51 @@
 <script setup lang="ts">
 import { ref, watch } from "vue";
-import { jsPage, jsSource, type JSEvent } from "./js-store";
+import {
+  RemoteCapture,
+  tokenKey,
+  type CaptureEvent,
+  type RemoteSettings,
+} from "./remote-capture";
 const props = defineProps<{
   scanId: string;
   issue?: string;
   enabled?: boolean;
+  remote?: RemoteSettings;
 }>();
-const rows = ref<JSEvent[]>([]),
+const rows = ref<CaptureEvent[]>([]),
   count = ref(0),
-  after = ref(""),
-  next = ref("");
+  after = ref(0),
+  next = ref(0),
+  hasMore = ref(false);
 const error = ref(""),
   preview = ref("");
+const client = new RemoteCapture(() => props.remote);
+const sessionToken = ref("");
+async function saveToken() {
+  if (!props.remote) return;
+  await chrome.storage.session.set({
+    [tokenKey(props.remote)]: sessionToken.value,
+  });
+  sessionToken.value = "";
+  await refresh(true);
+}
 let generation = 0;
 async function refresh(reset = false) {
   const own = ++generation;
   if (reset) {
-    after.value = "";
+    after.value = 0;
     preview.value = "";
     rows.value = [];
     count.value = 0;
   }
-  if (!props.scanId) return;
+  if (!props.scanId || !props.remote) return;
   try {
-    const page = await jsPage(props.scanId, after.value);
+    const page = await client.page(props.scanId, after.value, true);
     if (own !== generation) return;
     rows.value = page.events;
     count.value = page.count;
     next.value = page.next;
+    hasMore.value = !!page.has_more;
     error.value = "";
   } catch (e) {
     if (own === generation) error.value = String(e);
@@ -43,10 +61,10 @@ function download(text: string, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-async function source(row: JSEvent, save = false) {
+async function source(row: CaptureEvent, save = false) {
   const scan = props.scanId;
   try {
-    const text = row.hash ? await jsSource(row.hash) : undefined;
+    const text = row.hash ? await client.source(row.hash) : undefined;
     if (scan !== props.scanId) return;
     if (save && text !== undefined) download(text, `${row.hash}.js`);
     else
@@ -70,24 +88,34 @@ watch(
     </p>
     <p v-if="issue" role="alert">{{ issue }}</p>
     <p>
-      创建任务时开启。与请求采集共用会话，独立保存 JS 正文和加载证据，不受请求
+      创建任务时开启。与请求采集共用会话，直接上传 JS 正文和加载证据，不受请求
       Filter 筛除。
     </p>
     <p>
-      远端尚未接通，数据保存在本地待传缓存。单文件 16 MiB，总正文 256
-      MiB，元数据 32 MiB；超限暂停 JS 并在任务缺口中说明。
+      JS、加载证据和请求内容不写浏览器本地盘；此处从远端查询已持久确认的数据。断网时只保留有界内存，失败会暂停。
     </p>
+    <p v-if="enabled && !remote">此旧任务没有远端配置，请新建远端任务。</p>
+    <template v-if="remote"
+      ><label
+        >更新远端会话令牌<input
+          v-model="sessionToken"
+          type="password"
+          autocomplete="off" /></label
+      ><button @click="saveToken">保存会话令牌并刷新</button></template
+    >
     <p>
       Debugger 源码不是 HTTP 原始字节；加载栈不是 API 发送栈。Network
       与源码的精确关联仍为未知。
     </p>
     <p v-if="!scanId">请先创建或选择任务。</p>
     <template v-else>
-      <p>已保存 {{ count }} 条证据（包含上下文和加载事件，不代表接口数量）</p>
+      <p>
+        远端已确认 {{ count }} 条证据（包含上下文和加载事件，不代表接口数量）
+      </p>
       <button @click="refresh()">刷新</button>
       <button @click="refresh(true)">首页</button>
       <button
-        :disabled="rows.length < 50"
+        :disabled="!hasMore"
         @click="
           after = next;
           refresh();
@@ -121,7 +149,11 @@ watch(
               {{ row.kind }}<br />{{ row.status }}
             </td>
             <td style="overflow-wrap: anywhere">
-              {{ row.data.url || row.data.document_url || "上下文事件"
+              {{
+                row.data.url ||
+                row.data.document_url ||
+                row.data.record?.request_url ||
+                "上下文事件"
               }}<br />{{ row.hash || "无正文" }}
             </td>
             <td>
@@ -135,7 +167,7 @@ watch(
           </tr>
         </tbody>
       </table>
-      <p v-if="preview">预览最多显示 200000 字符；下载保留全文。</p>
+      <p v-if="preview">预览最多显示 200000 字符；远端下载保留全文。</p>
       <pre
         style="
           max-height: 450px;

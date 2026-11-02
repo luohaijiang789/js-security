@@ -57,6 +57,8 @@ export type SlsCredentials = {
 export type Config = {
   /** Opt-in; legacy tasks never collect JS implicitly. */
   collect_js?: boolean;
+  /** Remote-only payload mode; settings only, never store its token here. */
+  remote_capture?: {url: string; project: string};
   filter: Filter;
   retention: "matching" | "all";
   /** Missing on legacy tasks means truncate. */
