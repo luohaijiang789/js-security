@@ -26,6 +26,18 @@ def parser():
     service.add_argument('--extension-id', required=True)
     service.add_argument('--data-dir', type=Path, required=True)
     service.add_argument('--engine-root', type=Path, default=default_engine_root())
+    ingest = commands.add_parser('ingest', help='Analyze capture-stream-1 receiver data offline.')
+    ingest.add_argument('--data-dir', type=Path, required=True, help='Receiver data directory containing capture.sqlite3.')
+    ingest.add_argument('--project', default='default')
+    ingest.add_argument('--scan', help='Scan id; defaults to the most recently active scan.')
+    ingest.add_argument('--out', type=Path, required=True)
+    ingest.add_argument('--engine-root', type=Path, default=default_engine_root())
+    ingest.add_argument('--timeout', type=float, default=120)
+    ingest.add_argument('--discovery-timeout', type=float, default=60)
+    ingest.add_argument('--max-files', type=int, default=1000)
+    ingest.add_argument('--max-asset-mib', type=int, default=20)
+    ingest.add_argument('--max-total-mib', type=int, default=128)
+    ingest.add_argument('--max-js-depth', type=int, default=3)
     run = commands.add_parser('analyze')
     inputs = run.add_mutually_exclusive_group(required=True)
     inputs.add_argument('--har', type=Path)
@@ -62,6 +74,9 @@ def main(argv=None):
     if args.command == 'serve':
         from .service import serve
         return serve(args)
+    if args.command == 'ingest':
+        from .stream import ingest
+        return ingest(args)
     if os.environ.get('WEBSITE_JS_MANAGED_JOB') == '1':
         signal.signal(signal.SIGTERM, _interrupt)
     source = args.har or args.capture or args.directory or args.resume

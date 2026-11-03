@@ -9,6 +9,11 @@ from .assets import digest, http_url
 PAGE_RELATIVE = {'fetch', 'XHR.open', 'sendBeacon', 'Request', 'axios', 'EventSource', 'WebSocket'}
 
 
+def _page_relative(sink):
+    # jshound keeps the member call, e.g. axios.post, rather than a bare client name.
+    return sink in PAGE_RELATIVE or str(sink).startswith('axios.')
+
+
 def leaves(value, prefix=''):
     if not isinstance(value, dict):
         return []
@@ -64,7 +69,7 @@ def build_candidates(snapshot, records):
         asset = assets.get(envelope['asset_id'])
         url = record['template']
         page = asset.get('request_base_url', asset.get('page_url')) if asset else None
-        if page and (record['sink'] in PAGE_RELATIVE or record.get('via_fetch')) and not url.startswith('{'):
+        if page and (_page_relative(record['sink']) or record.get('via_fetch')) and not url.startswith('{'):
             # Only resolve known browser-relative sending semantics, never a CDN fallback.
             url = urljoin(page, url)
         request_id = 'candidate-'+digest([envelope['id'], envelope['asset_id'], url])[:20]

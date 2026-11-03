@@ -250,6 +250,16 @@ class Snapshot:
                 for asset in assets:
                     asset['request_base_url'] = captured['request_base_url']
                 continue
+            runtime = assets[0].get('runtime_context')
+            if runtime:
+                base = runtime.get('request_base_url')
+                self.contexts.append(dict(id=context_id, type=runtime.get('type', 'unknown'),
+                                          page_url=runtime.get('page_url'), request_base_url=base,
+                                          evidence=runtime.get('evidence', 'capture_runtime_context'),
+                                          status='known' if base else 'unknown'))
+                for asset in assets:
+                    asset['request_base_url'] = base
+                continue
             worker = assets[0].get('execution_context')
             if worker:
                 base = worker['request_base_url']

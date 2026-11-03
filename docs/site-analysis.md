@@ -1,6 +1,6 @@
 # 网站 JS 收集与静态分析
 
-黑盒二调整为[远端后端](../website-js-extractor/README.md)，接收增强后的黑盒一提供的真实接口、JS正文和加载证据，存储/去重/关联并持续静态分析。生产插件只有browser-extension，不再先建设独立黑盒二插件；当前仍处于方案更新，实际统一链路未迁移。
+黑盒二调整为[远端后端](../website-js-extractor/README.md)，接收增强后的黑盒一提供的真实接口、JS正文和加载证据，存储/去重/关联并静态分析。生产插件只有browser-extension，不再先建设独立黑盒二插件；v1接收/持久确认和显式离线`ingest`已实现，接收端自动持续分析尚未接通，真实MV3仍未现场验收。
 
 - [需求与操作](../website-js-extractor/docs/requirements.md)：统一插件与远端后端的用户流程。
 - [测试与验收](../website-js-extractor/docs/testing.md)：冻结样本、效果指标与目标 Chrome 现场门槛。
