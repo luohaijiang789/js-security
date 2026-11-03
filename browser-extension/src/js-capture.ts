@@ -8,6 +8,7 @@ import {
 } from "./remote-capture";
 import type { StackCapture } from "./stack";
 type Source = chrome.debugger.DebuggerSession;
+export const JS_LIMITS = { concurrency: 4, requests: 4096 };
 /** Consumes the recorder's session; never attaches or enables Debugger itself. */
 export class JSCapture {
   private epochs = new Map<string, string>();
@@ -15,6 +16,10 @@ export class JSCapture {
   private halted = false;
   private serial = 0;
   private tail: Promise<void> = Promise.resolve();
+  private scripts: Array<() => Promise<void>> = [];
+  private runningScripts = 0;
+  private jobs = 0;
+  private drained: Array<() => void> = [];
   private queued = 0;
   private queuedBytes = 0;
   private admittedRequests = new Set<string>();
@@ -24,7 +29,25 @@ export class JSCapture {
     this.halted = false;
   }
   drain() {
-    return this.tail;
+    if (!this.jobs) return Promise.resolve();
+    return new Promise<void>((resolve) => this.drained.push(resolve));
+  }
+  private done() {
+    if (--this.jobs === 0) for (const resolve of this.drained.splice(0)) resolve();
+  }
+  /** Script reads are independent; a small pool keeps attach-time replays from starving. */
+  private pump() {
+    while (
+      this.runningScripts < JS_LIMITS.concurrency &&
+      this.scripts.length
+    ) {
+      const run = this.scripts.shift()!;
+      this.runningScripts++;
+      void run().finally(() => {
+        this.runningScripts--;
+        this.pump();
+      });
+    }
   }
   enqueue(scan: Scan, s: Source, method: string, p: any, targetId?: string) {
     if (!scan.config.collect_js || scan.state !== "recording" || this.halted)
@@ -53,7 +76,7 @@ export class JSCapture {
       return;
     if (request) {
       if (
-        this.admittedRequests.size >= 4096 &&
+        this.admittedRequests.size >= JS_LIMITS.requests &&
         !this.admittedRequests.has(requestKey)
       ) {
         gap(
@@ -91,29 +114,36 @@ export class JSCapture {
     const receivedAt = now();
     const tabURL = scan.tabs.find((tab) => tab.id === s.tabId)?.url ?? null;
     const payload = structuredClone(p);
+    const id = `${epoch}:${String(++this.serial).padStart(12, "0")}`;
     this.queued++;
     this.queuedBytes += bytes;
-    this.tail = this.tail
-      .then(() =>
-        this.event(
-          scan,
-          s,
-          method,
-          payload,
-          epoch,
-          targetId,
-          receivedAt,
-          tabURL,
-        ),
+    this.jobs++;
+    const run = () =>
+      this.event(
+        scan,
+        s,
+        method,
+        payload,
+        epoch,
+        targetId,
+        receivedAt,
+        tabURL,
+        id,
       )
-      .catch((error) => {
-        this.halted = true;
-        gap(scan, "js_capture_failure", String(error));
-      })
-      .finally(() => {
-        this.queued--;
-        this.queuedBytes -= bytes;
-      });
+        .catch((error) => {
+          this.halted = true;
+          gap(scan, "js_capture_failure", String(error));
+        })
+        .finally(() => {
+          this.queued--;
+          this.queuedBytes -= bytes;
+          this.done();
+        });
+    // Network/context events keep per-session order; source reads run concurrently.
+    if (method === "Debugger.scriptParsed") {
+      this.scripts.push(run);
+      this.pump();
+    } else this.tail = this.tail.then(run);
   }
   constructor(
     private send: (s: Source, m: string, p?: object) => Promise<any>,
@@ -149,9 +179,10 @@ export class JSCapture {
     method: string,
     p: any,
     epoch: string,
-    targetId?: string,
-    receivedAt?: string,
-    tabURL?: string | null,
+    targetId: string | undefined,
+    receivedAt: string,
+    tabURL: string | null,
+    id: string,
   ) {
     if (this.remote.failed) {
       gap(scan, "remote_unconfirmed", "远端存在未确认数据；此窗口JS未采集");
@@ -176,7 +207,10 @@ export class JSCapture {
         : 0
       : this.requests.get(requestKey);
     if (request) {
-      if (this.requests.size >= 4096 && !this.requests.has(requestKey)) {
+      if (
+        this.requests.size >= JS_LIMITS.requests &&
+        !this.requests.has(requestKey)
+      ) {
         gap(
           scan,
           "js_backpressure",
@@ -225,7 +259,7 @@ export class JSCapture {
     )
       this.requests.delete(requestKey);
     const event: CaptureEvent = {
-      id: `${epoch}:${String(++this.serial).padStart(12, "0")}`,
+      id,
       scan_id: scan.id,
       kind: method,
       time: receivedAt ?? now(),

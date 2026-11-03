@@ -62,6 +62,29 @@ it("actual HTTP uploads chunks and exactly preserves all event fields, Unicode a
   ]);
   expect((await remote.source(hash)) === source).toBe(true);
 });
+it("uploads one body per content hash while keeping independent observations", async () => {
+  const objects: string[] = [];
+  const remote = client(async (input, init) => {
+    const url = String(input);
+    if (url.includes("/objects/")) objects.push(url);
+    return fetch(input, init);
+  });
+  const source = "same body";
+  const hash = digest(new TextEncoder().encode(source));
+  for (let i = 0; i < 3; i++) {
+    const event = sample("dedupe-" + i, {
+      source_bytes: new TextEncoder().encode(source).length,
+    });
+    event.hash = hash;
+    await remote.send(event, source);
+  }
+  expect(objects.filter((url) => url.endsWith("?status"))).toHaveLength(1);
+  const events = (await remote.page("transport-scan")).events.filter((e) =>
+    e.id.startsWith("dedupe-"),
+  );
+  expect(events).toHaveLength(3);
+  expect(new Set(events.map((e) => e.hash))).toEqual(new Set([hash]));
+});
 it("a lost event ACK retries idempotently and never duplicates events", async () => {
   let dropped = false;
   const remote = client(async (input, init) => {

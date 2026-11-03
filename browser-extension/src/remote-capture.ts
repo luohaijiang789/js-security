@@ -112,7 +112,28 @@ export class RemoteCapture {
     this.pending = undefined;
     this.failure = "";
   }
-  private async putObject(bytes: Uint8Array, hash: string) {
+  /** Confirmed/in-flight objects per task, receiver and project, keyed by content hash. */
+  private objects = new Map<string, Promise<void>>();
+  resetObjects() {
+    this.objects.clear();
+  }
+  private objectKey(scan: string, hash: string) {
+    const s = this.settings();
+    return `${scan}|${s?.url.replace(/\/$/, "")}|${s?.project}|${hash}`;
+  }
+  private putObject(bytes: Uint8Array, hash: string, scan: string): Promise<void> {
+    const key = this.objectKey(scan, hash);
+    const existing = this.objects.get(key);
+    if (existing) return existing;
+    const task = this.uploadObject(bytes, hash).catch((error) => {
+      this.objects.delete(key);
+      throw error;
+    });
+    this.objects.set(key, task);
+    return task;
+  }
+  /** Uploads only when the receiver does not already hold the hash. */
+  private async uploadObject(bytes: Uint8Array, hash: string) {
     if (bytes.length > 128 * 1048576) throw Error("单个传输对象超过128MiB预算");
     const root = `/objects/${hash}`;
     const status = await (await this.request(root + "?status")).json();
@@ -173,7 +194,7 @@ export class RemoteCapture {
         ) !== source
       )
         throw Error("JS正文大小/哈希/Unicode校验失败");
-      await this.putObject(bytes, event.hash);
+      await this.putObject(bytes, event.hash, event.scan_id);
     }
     const payload = JSON.stringify(event),
       bytes = new TextEncoder().encode(payload),
@@ -184,7 +205,7 @@ export class RemoteCapture {
       event_sha256: hash,
     };
     if (bytes.length > 1048576) {
-      await this.putObject(bytes, hash);
+      await this.putObject(bytes, hash, event.scan_id);
       envelope = {
         schema: "capture-stream-1",
         event_object_sha256: hash,

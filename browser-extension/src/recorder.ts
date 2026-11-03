@@ -96,6 +96,7 @@ export class Recorder {
     if (this.remote.failed) throw Error("仍有内存中的未确认数据，请先恢复重试上传");
     if (this.scan && this.scan.state !== "ended")
       throw Error("请先停止当前任务");
+    this.remote.resetObjects();
     this.js = new JSCapture(this.send, this.stacks, this.remote);
     const time = now();
     this.scan = {

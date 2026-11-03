@@ -159,6 +159,7 @@ it("source failure and size budget produce explicit missing-source observations"
   expect(
     receiver.events
       .filter((e) => e.kind === "Debugger.scriptParsed")
+      .sort((a, b) => a.id.localeCompare(b.id))
       .map((e) => e.status),
   ).toEqual(["source_unavailable", "source_over_budget"]);
   expect(
@@ -167,32 +168,70 @@ it("source failure and size budget produce explicit missing-source observations"
       .every((e) => !e.hash),
   ).toBe(true);
 });
-it("pause drains accepted reads; a new connection never reuses queued script IDs", async () => {
+it("pause drains in-flight reads and a new connection never reuses queued script IDs", async () => {
   const { recorder, send, receiver } = await setup();
-  let finish!: (v: any) => void;
-  send.mockImplementation(async (_s, method) =>
-    method === "Debugger.getScriptSource"
-      ? new Promise((resolve) => {
-          finish = resolve;
-        })
-      : {},
-  );
-  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("1"));
-  await new Promise((r) => setTimeout(r, 0));
-  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("2"));
+  const pending: Array<() => void> = [];
+  send.mockImplementation((_s, method) => {
+    if (method !== "Debugger.getScriptSource") return Promise.resolve({});
+    return new Promise((resolve) => {
+      pending.push(() => resolve({ scriptSource: "old source" }));
+    });
+  });
+  for (let i = 0; i < 5; i++)
+    void recorder.event(
+      { tabId: 1 },
+      "Debugger.scriptParsed",
+      parsed(String(i)),
+    );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(pending).toHaveLength(4); // Four reads in flight, one admitted but queued.
   recorder.js.session({ tabId: 1 });
   const paused = recorder.pause();
-  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("3"));
-  finish({ scriptSource: "old source" });
+  for (let i = 0; i < 10 && pending.length; i++) {
+    pending.shift()!();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
   await paused;
   expect(
     receiver.events
       .filter((e) => e.kind === "Debugger.scriptParsed")
+      .sort((a, b) => a.id.localeCompare(b.id))
       .map((e) => e.status),
-  ).toEqual(["source_unavailable", "source_session_changed"]);
+  ).toEqual([
+    "source_unavailable",
+    "source_unavailable",
+    "source_unavailable",
+    "source_unavailable",
+    "source_session_changed",
+  ]);
+  // The queued read never starts under the new epoch, so only four sources are fetched.
   expect(
     send.mock.calls.filter((c) => c[1] === "Debugger.getScriptSource"),
-  ).toHaveLength(1);
+  ).toHaveLength(4);
+});
+it("reads independent scripts concurrently and keeps the whole burst", async () => {
+  const { recorder, receiver, send } = await setup();
+  let inFlight = 0,
+    peak = 0;
+  send.mockImplementation(async (_s: any, method: string) => {
+    if (method !== "Debugger.getScriptSource") return {};
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight--;
+    return { scriptSource: "concurrent" };
+  });
+  for (let i = 0; i < 8; i++)
+    void recorder.event(
+      { tabId: 1 },
+      "Debugger.scriptParsed",
+      parsed(String(i)),
+    );
+  await recorder.js.drain();
+  expect(peak).toBe(4);
+  expect(
+    receiver.events.filter((e) => e.kind === "Debugger.scriptParsed"),
+  ).toHaveLength(8);
 });
 it("JS queue overflow drops events with a gap without pausing API capture", async () => {
   const { recorder, scan, receiver } = await setup();
