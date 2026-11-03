@@ -1,21 +1,35 @@
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import type { Config } from "./model";
 export type CaptureEvent = {
   id: string;
   scan_id: string;
   kind: string;
+  category: string;
   time: string;
   tab_id?: number;
   session_id: string;
   epoch: string;
   data: Record<string, any>;
-  hash?: string;
+  /** Receiver-assigned body identifier; never computed in the browser. */
+  object_id?: string;
   status: string;
 };
 export type RemoteSettings = { url: string; project: string };
+export type ObjectAck = {
+  object_id: string;
+  url?: string | null;
+  bytes: number;
+  committed: true;
+  durable: true;
+};
+export type DeliveryAck = {
+  schema: string;
+  event_id: string;
+  event_sha256?: string;
+  object_id?: string | null;
+  durable: true;
+};
+export const SCHEMA = "capture-stream-2";
 export const CAPTURE_LIMITS = { file: 64 * 1048576, chunk: 256 * 1024 };
-export const digest = (bytes: Uint8Array) => bytesToHex(sha256(bytes));
 export const RECEIVER_CODE = "blackbox-capture-v1";
 export function validateRemote(s: RemoteSettings | undefined) {
   if (!s || !/^[A-Za-z0-9_-]{1,64}$/.test(s.project))
@@ -90,11 +104,11 @@ export class RemoteCapture {
     }
     throw error;
   }
-  send(event: CaptureEvent, source?: string): Promise<void> {
+  send(event: CaptureEvent, source?: string): Promise<DeliveryAck> {
     const operation = this.tail.then(async () => {
       if (this.pending) throw Error("有未确认数据，采集暂停；请先重试上传");
       try {
-        await this.deliver(event, source);
+        return await this.deliver(event, source);
       } catch (e) {
         this.pending = { event, source };
         this.failure = String(e);
@@ -112,119 +126,85 @@ export class RemoteCapture {
     this.pending = undefined;
     this.failure = "";
   }
-  /** Confirmed/in-flight objects per task, receiver and project, keyed by content hash. */
-  private objects = new Map<string, Promise<void>>();
-  resetObjects() {
-    this.objects.clear();
-  }
-  private objectKey(scan: string, hash: string) {
-    const s = this.settings();
-    return `${scan}|${s?.url.replace(/\/$/, "")}|${s?.project}|${hash}`;
-  }
-  private putObject(bytes: Uint8Array, hash: string, scan: string): Promise<void> {
-    const key = this.objectKey(scan, hash);
-    const existing = this.objects.get(key);
-    if (existing) return existing;
-    const task = this.uploadObject(bytes, hash).catch((error) => {
-      this.objects.delete(key);
-      throw error;
-    });
-    this.objects.set(key, task);
-    return task;
-  }
-  /** Uploads only when the receiver does not already hold the hash. */
-  private async uploadObject(bytes: Uint8Array, hash: string) {
-    if (bytes.length > 128 * 1048576) throw Error("单个传输对象超过128MiB预算");
-    const root = `/objects/${hash}`;
-    const status = await (await this.request(root + "?status")).json();
-    if (status.sha256 !== hash || typeof status.committed !== "boolean")
-      throw Error("正文状态确认无效");
-    if (!status.committed) {
-      for (
-        let offset = 0;
-        offset < bytes.length;
-        offset += CAPTURE_LIMITS.chunk
-      ) {
-        const chunk = bytes.slice(offset, offset + CAPTURE_LIMITS.chunk),
-          chunkHash = digest(chunk);
-        const ack = await (
-          await this.request(`${root}/chunks/${offset}`, {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/octet-stream",
-              "X-Object-Bytes": String(bytes.length),
-              "X-Chunk-SHA256": chunkHash,
-            },
-            body: chunk,
-          })
-        ).json();
-        if (
-          ack.sha256 !== hash ||
-          ack.offset !== offset ||
-          ack.chunk_sha256 !== chunkHash ||
-          ack.durable !== true
-        )
-          throw Error("分块确认无效");
-      }
+  /** Uploads raw UTF-8 text without any browser-side hash; the receiver assigns the ID. */
+  async upload(
+    text: string,
+    url: string | null,
+    kind: "js" | "event",
+    limit: number,
+  ): Promise<ObjectAck> {
+    const bytes = new TextEncoder().encode(text);
+    if (bytes.length > limit) throw Error("传输对象超过大小预算");
+    const uploadId = crypto.randomUUID().replace(/-/g, "");
+    for (let offset = 0; offset < bytes.length; offset += CAPTURE_LIMITS.chunk) {
+      const chunk = bytes.slice(offset, offset + CAPTURE_LIMITS.chunk);
       const ack = await (
-        await this.request(root + "/commit", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ bytes: bytes.length }),
+        await this.request(`/uploads/${uploadId}/chunks/${offset}`, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/octet-stream",
+            "X-Object-Bytes": String(bytes.length),
+          },
+          body: chunk,
         })
       ).json();
-      if (
-        ack.sha256 !== hash ||
-        ack.bytes !== bytes.length ||
-        ack.committed !== true ||
-        ack.durable !== true
-      )
-        throw Error("正文持久确认无效");
-    } else if (status.bytes !== bytes.length) throw Error("远端正文长度冲突");
+      if (ack.upload !== uploadId || ack.offset !== offset || ack.durable !== true)
+        throw Error("分块确认无效");
+    }
+    const ack = (await (
+      await this.request(`/uploads/${uploadId}/commit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bytes: bytes.length, url, kind }),
+      })
+    ).json()) as ObjectAck;
+    if (
+      typeof ack.object_id !== "string" ||
+      !/^[a-f0-9]{64}$/.test(ack.object_id) ||
+      ack.bytes !== bytes.length ||
+      (kind === "js" && ack.url !== url) ||
+      ack.committed !== true ||
+      ack.durable !== true
+    )
+      throw Error("正文持久确认无效");
+    return ack;
   }
-  private async deliver(event: CaptureEvent, source?: string) {
-    if (event.hash) {
-      if (source === undefined) throw Error("缺少待发送正文");
-      const bytes = new TextEncoder().encode(source);
-      if (
-        bytes.length > CAPTURE_LIMITS.file ||
-        digest(bytes) !== event.hash ||
-        new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(
-          bytes,
-        ) !== source
-      )
-        throw Error("JS正文大小/哈希/Unicode校验失败");
-      await this.putObject(bytes, event.hash, event.scan_id);
+  private async deliver(
+    event: CaptureEvent,
+    source?: string,
+  ): Promise<DeliveryAck> {
+    if (source !== undefined) {
+      const object = await this.upload(
+        source,
+        event.data.object_url ?? event.data.url ?? null,
+        "js",
+        CAPTURE_LIMITS.file,
+      );
+      event.object_id = object.object_id;
+      event.data.source_bytes = object.bytes;
     }
     const payload = JSON.stringify(event),
-      bytes = new TextEncoder().encode(payload),
-      hash = digest(bytes);
+      bytes = new TextEncoder().encode(payload);
     let envelope: Record<string, unknown> = {
-      schema: "capture-stream-1",
+      schema: SCHEMA,
       event_json: payload,
-      event_sha256: hash,
     };
     if (bytes.length > 1048576) {
-      await this.putObject(bytes, hash, event.scan_id);
-      envelope = {
-        schema: "capture-stream-1",
-        event_object_sha256: hash,
-        event_sha256: hash,
-      };
+      const object = await this.upload(payload, null, "event", 128 * 1048576);
+      envelope = { schema: SCHEMA, event_object_id: object.object_id };
     }
-    const ack = await (
+    const ack = (await (
       await this.request("/events", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(envelope),
       })
-    ).json();
+    ).json()) as DeliveryAck;
     if (
-      ack.schema !== "capture-stream-1" ||
+      ack.schema !== SCHEMA ||
       ack.event_id !== event.id ||
-      ack.event_sha256 !== hash ||
-      ack.content_sha256 !== (event.hash ?? null) ||
-      ack.durable !== true
+      ack.durable !== true ||
+      (event.object_id !== undefined && ack.object_id !== event.object_id)
     )
       throw Error("事件持久确认无效");
     this.acknowledged++;
@@ -233,6 +213,7 @@ export class RemoteCapture {
         event.scan_id,
         this.requestCount(event.scan_id) + 1,
       );
+    return ack;
   }
   async page(scan: string, after = 0, summary = false) {
     return (
@@ -246,11 +227,10 @@ export class RemoteCapture {
       has_more?: boolean;
     }>;
   }
-  async source(hash: string) {
+  async source(objectId: string) {
     const bytes = new Uint8Array(
-      await (await this.request(`/objects/${hash}`)).arrayBuffer(),
+      await (await this.request(`/objects/${objectId}`)).arrayBuffer(),
     );
-    if (digest(bytes) !== hash) throw Error("回读正文哈希不一致");
     return new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(
       bytes,
     );

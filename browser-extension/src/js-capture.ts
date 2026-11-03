@@ -1,11 +1,10 @@
-import { sha256 } from "@noble/hashes/sha2.js";
-import { bytesToHex } from "@noble/hashes/utils.js";
 import { uid, now, gap, type Scan } from "./model";
 import {
   RemoteCapture,
   CAPTURE_LIMITS,
   type CaptureEvent,
 } from "./remote-capture";
+import { hostOf, type AssetIndex } from "./asset-index";
 import type { StackCapture } from "./stack";
 type Source = chrome.debugger.DebuggerSession;
 export const JS_LIMITS = { concurrency: 4, requests: 4096 };
@@ -23,6 +22,8 @@ export class JSCapture {
   private queued = 0;
   private queuedBytes = 0;
   private admittedRequests = new Set<string>();
+  /** Serializes the same project+URL so concurrent duplicates share one upload. */
+  private urlTails = new Map<string, Promise<void>>();
   resetFailure() {
     this.requests.clear();
     this.admittedRequests.clear();
@@ -149,6 +150,7 @@ export class JSCapture {
     private send: (s: Source, m: string, p?: object) => Promise<any>,
     private stacks: StackCapture,
     private remote: RemoteCapture,
+    private assets: AssetIndex,
   ) {}
   private key(s: Source) {
     return `${s.tabId}:${s.sessionId ?? "root"}`;
@@ -262,7 +264,8 @@ export class JSCapture {
       id,
       scan_id: scan.id,
       kind: method,
-      time: receivedAt ?? now(),
+      category: script ? "js_source" : context ? "page_context" : "script_load",
+      time: receivedAt,
       tab_id: s.tabId,
       session_id: s.sessionId ?? "root",
       epoch,
@@ -272,56 +275,107 @@ export class JSCapture {
     event.data.observed_tab_url = tabURL ?? null;
     event.data.cdp = p;
     event.data.target_id = targetId ?? null; // Not inferred from a URL; target/session evidence remains separate.
-    let source: string | undefined;
+    let source: string | undefined,
+      project = "",
+      objectURL = "",
+      host = "",
+      deduplicated = false,
+      release: (() => void) | undefined;
     if (script) {
+      const plainURL = typeof p.url === "string" ? p.url : "";
+      objectURL = plainURL || `${tabURL ?? ""}#inline:${p.scriptId}`;
+      project = scan.config.remote_capture?.project ?? "";
+      host = hostOf(plainURL || tabURL || "");
       event.data.representation = "debugger-parsed-source";
       event.data.network_match = "unknown"; // URL equality alone is not sufficient.
-      if (this.epochs.get(session) !== epoch)
-        event.status = "source_session_changed";
-      else if (p.length > CAPTURE_LIMITS.file)
-        event.status = "source_over_budget";
-      else {
-        let timer: ReturnType<typeof setTimeout> | undefined;
-        try {
-          const result = await Promise.race([
-            this.send(s, "Debugger.getScriptSource", { scriptId: p.scriptId }),
-            new Promise<never>((_, reject) => {
-              timer = setTimeout(() => reject(Error("读取JS超时")), 2000);
-            }),
-          ]);
-          if (this.epochs.get(session) !== epoch)
-            throw Error("源码会话代次已改变");
-          source = result.scriptSource;
-          if (typeof source !== "string") throw Error("没有文本源码");
-          const bytes = new TextEncoder().encode(source);
-          if (
-            new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(
-              bytes,
-            ) !== source
-          )
-            throw Error("源码不能无损编码为UTF-8");
-          if (bytes.length > CAPTURE_LIMITS.file) {
+      event.data.url = plainURL || null;
+      event.data.object_url = objectURL;
+      event.data.host = host || null;
+      const markerKey = project ? `${project}\u0000${objectURL}` : "";
+      const previous = markerKey
+        ? (this.urlTails.get(markerKey) ?? Promise.resolve())
+        : undefined;
+      if (markerKey) {
+        let settled!: () => void;
+        const waiting = new Promise<void>((resolve) => {
+          settled = resolve;
+        });
+        const tail = previous!.then(() => waiting);
+        this.urlTails.set(markerKey, tail);
+        release = () => {
+          settled();
+          if (this.urlTails.get(markerKey) === tail)
+            this.urlTails.delete(markerKey);
+        };
+        await previous;
+      }
+      {
+        const marker = project ? this.assets.get(project, objectURL) : undefined;
+        if (this.epochs.get(session) !== epoch)
+          event.status = "source_session_changed";
+        else if (marker?.sent && marker.object_id) {
+          // Same project + URL was already persisted remotely; do not read or
+          // send it again. The marker is the whole dedupe key, no hashing.
+          event.object_id = marker.object_id;
+          event.data.source_bytes = marker.bytes;
+          event.status = "deduplicated";
+          deduplicated = true;
+          if (project)
+            this.assets.observe(project, "js", objectURL, host, {
+              sent: true,
+              object_id: marker.object_id,
+              bytes: marker.bytes,
+            });
+        } else if (p.length > CAPTURE_LIMITS.file)
+          event.status = "source_over_budget";
+        else {
+          let timer: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const result = await Promise.race([
+              this.send(s, "Debugger.getScriptSource", { scriptId: p.scriptId }),
+              new Promise<never>((_, reject) => {
+                timer = setTimeout(() => reject(Error("读取JS超时")), 2000);
+              }),
+            ]);
+            if (this.epochs.get(session) !== epoch)
+              throw Error("源码会话代次已改变");
+            source = result.scriptSource;
+            if (typeof source !== "string") throw Error("没有文本源码");
+            const bytes = new TextEncoder().encode(source);
+            if (
+              new TextDecoder("utf-8", { ignoreBOM: true, fatal: true }).decode(
+                bytes,
+              ) !== source
+            )
+              throw Error("源码不能无损编码为UTF-8");
+            if (bytes.length > CAPTURE_LIMITS.file) {
+              source = undefined;
+              event.status = "source_over_budget";
+            } else event.data.source_bytes = bytes.length;
+          } catch (error) {
+            event.status = "source_unavailable";
+            event.data.error = String(error);
             source = undefined;
-            event.status = "source_over_budget";
-          } else {
-            event.hash = bytesToHex(sha256(bytes));
-            event.data.source_bytes = bytes.length;
+          } finally {
+            clearTimeout(timer);
           }
-        } catch (error) {
-          event.status = "source_unavailable";
-          event.data.error = String(error);
-          source = undefined;
-        } finally {
-          clearTimeout(timer);
         }
+        if (project && !deduplicated && !event.object_id)
+          this.assets.observe(project, "js", objectURL, host, { sent: false });
       }
     }
-    if (p.initiator?.stack) {
-      const captured = await this.stacks.capture(s, p.initiator.stack);
-      event.data.loading_stack = captured;
-    }
     try {
-      await this.remote.send(event, source);
+      if (p.initiator?.stack) {
+        const captured = await this.stacks.capture(s, p.initiator.stack);
+        event.data.loading_stack = captured;
+      }
+      const ack = await this.remote.send(event, source);
+      if (script && project && !deduplicated && ack.object_id)
+        this.assets.observe(project, "js", objectURL, host, {
+          sent: true,
+          object_id: ack.object_id,
+          bytes: event.data.source_bytes,
+        });
     } catch (error) {
       this.halted = true;
       scan.state = "paused";
@@ -330,6 +384,9 @@ export class JSCapture {
         "remote_upload_failure",
         `${String(error)}；未取得远端持久确认，任务已暂停，无本地正文副本`,
       );
+    } finally {
+      // The URL lock spans the upload so the next duplicate sees the sent marker.
+      release?.();
     }
   }
 }

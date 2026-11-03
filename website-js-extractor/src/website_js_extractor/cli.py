@@ -26,7 +26,7 @@ def parser():
     service.add_argument('--extension-id', required=True)
     service.add_argument('--data-dir', type=Path, required=True)
     service.add_argument('--engine-root', type=Path, default=default_engine_root())
-    ingest = commands.add_parser('ingest', help='Analyze capture-stream-1 receiver data offline.')
+    ingest = commands.add_parser('ingest', help='Analyze capture-stream-2 receiver data offline.')
     ingest.add_argument('--data-dir', type=Path, required=True, help='Receiver data directory containing capture.sqlite3.')
     ingest.add_argument('--project', default='default')
     ingest.add_argument('--scan', help='Scan id; defaults to the most recently active scan.')

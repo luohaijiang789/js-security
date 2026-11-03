@@ -139,9 +139,9 @@ HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由�
 Job原型不支持相同快照新建多个独立run；要重跑需新snapshot_id。这是原型限制，不是未来AnalysisRun身份规则。服务重启对queued/running标interrupted，不自动重跑；意外崩溃的孤立进程回收尚待正式恢复验收。历史任务/快照清理和分块续传未实现。
 
 
-## v1 已实现范围与仍缺能力
+## v2 已实现范围与仍缺能力
 
-`capture-stream-1` 的正文对象、分块、事件幂等、持久ACK、分页回读和查询已经实现在 `receiver.py`，由统一插件 `remote-capture.ts` 调用。以下能力仍未实现，不能由现有接收闭环推断为已完成：
+`capture-stream-2` 的正文上传、服务端哈希、事件幂等、持久ACK、分页回读和按项目+URL的映射已经实现在 `receiver.py`，由统一插件 `remote-capture.ts` 调用。以下能力仍未实现，不能由现有接收闭环推断为已完成：
 
 - 领域事件 schema 的正式冻结：当前 `kind` 仍沿用 CDP 方法名，`data.cdp` 原样保留；`stream.py` 已在内部归一化 `ScriptObservation`、`JSLoadRequest`、`ExecutionContext`、加载/发起证据和 `Gap`，但尚未成为带逐字段校验的公开稳定schema。
 - 接收后的自动/持续静态分析：已实现显式离线`ingest`（事件→资产图→核心→候选/缺口），但接收端不会在新事件到达时自动触发，也没有批次/水位。
@@ -149,27 +149,29 @@ Job原型不支持相同快照新建多个独立run；要重跑需新snapshot_id
 - 正式TLS、项目级认证/隔离、配额、保留与垃圾回收；固定code只是协议匹配值，不是秘密凭证。
 - 真实远端部署、长时间运行和MV3现场验收。
 
-旧 `/v0` 仍只处理loopback整份capture-0.1快照，不接收v1增量事件；不能把 `/v0`、SLS转存和v1接收混成同一协议。
+旧 `/v0` 仍只处理loopback整份capture-0.1快照，不接收v2增量事件；不能把 `/v0`、SLS转存和v2接收混成同一协议。
 
-## 统一插件增量接收协议 v1（capture-stream-1）
+## 统一插件增量接收协议 v2（capture-stream-2）
 
-新链路是`browser-extension/src/remote-capture.ts`→`website_js_extractor.receiver`；不复用/v0/SLS。远端模式的新JS、加载证据、ObservedRequest均不落浏览器本地数据库，旧JS库只保留删除兼容；本地仅配置/计数/缺口，接收code固定内置，不写入任务配置。没有磁盘待传或崩溃恢复保证。
+新链路是`browser-extension/src/remote-capture.ts`→`website_js_extractor.receiver`；不复用/v0/SLS。远端模式的新JS、加载证据、ObservedRequest均不落浏览器本地数据库，旧JS库只保留删除兼容；本地仅配置/计数/缺口/轻量索引。接收code固定内置，不写入任务配置。没有磁盘待传或崩溃恢复保证。
+
+分类与去重：事件带`category`（`js_source`/`script_load`/`api_request`/`page_context`/`task`）。浏览器不计算SHA-256；上传使用客户端随机`upload_id`，服务端提交时计算内容SHA-256并返回`object_id`。去重标记是「项目 + URL」：插件本地`assets`索引记录URL、次数、字节数、是否已发送和`object_id`，同一项目+URL已持久确认后不再读取或上传正文；索引只存元数据，上限20000行（超出后批量淘汰），不含正文。
 
 所有数据路由前缀`/v1/projects/{project}`，默认项目default和固定code `blackbox-capture-v1`已内置；客户端自动发送`Authorization: Bearer blackbox-capture-v1`。不需要用户提供令牌、环境变量或扩展ID。默认允许各Origin预检，不使用Cookie；固定code只是协议匹配值，不宣称为秘密认证。服务支持HTTP/HTTPS客户端源地址，`server.py`默认监听0.0.0.0:8379；GET / 或 /health无需code即可检查status。默认启动不提供配对步骤。请求和响应均no-store，禁止重定向转发。
 
 | 方法/路径 | 输入与确认 |
 | --- | --- |
-| GET `/objects/{sha256}?status` | 查询该项目完整对象的committed/bytes；未提交不表示存在 |
-| PUT `/objects/{sha256}/chunks/{offset}` | 原始UTF-8字节，X-Object-Bytes总长、X-Chunk-SHA256；返回对象/offset/块哈希与durable=true |
-| POST `/objects/{sha256}/commit` | `{bytes}`；校验连续完整块、总长、完整SHA-256和UTF-8，事务提交后返回committed/durable=true |
-| POST `/events` | `{schema,event_json,event_sha256}`；超过1 MiB的事件先分块保存JSON，改传`event_object_sha256`与同一event_sha256 |
+| GET `/objects/{object_id}?status` | 查询该项目正文对象的committed/bytes；未提交不表示存在 |
+| PUT `/uploads/{upload_id}/chunks/{offset}` | 原始UTF-8字节，X-Object-Bytes总长；返回upload/offset与durable=true |
+| POST `/uploads/{upload_id}/commit` | `{bytes,url,kind}`；校验连续完整块、总长和UTF-8，服务端计算SHA-256作为`object_id`，记录项目+URL映射后返回object_id/url/bytes/committed/durable；同一upload_id和相同bytes/url/kind重试时幂等返回同一object_id（ACK丢失可恢复） |
+| POST `/events` | `{schema,event_json}`；超过1 MiB的事件先按`kind=event`上传JSON，改传`event_object_id`。服务端计算事件摘要 |
 | GET `/events?scan_id=...&after=...&limit=50` | 全字段回读；next为服务端序号，has_more决定继续分页；summary=1仅回轻量摘要，UI使用此模式 |
-| GET `/objects/{sha256}` | 只返回已提交对象字节；客户端重新校验哈希，正文不从未提交块读取 |
+| GET `/objects/{object_id}` | 只返回已提交对象字节；正文不从未提交块读取 |
 
-事件字段：id、scan_id、kind、time、tab_id（可选）、session_id、epoch、data、hash（有正文时）、status。正文按UTF-8字节哈希去重；事件id独立，相同内容跨页面/会话仍保留观察。相同事件ID和完全相同event_json幂等；不同payload冲突409。服务不删减data中字段，event_sha256绑定提交的完整JSON；ACK必须匹配schema/id/event_sha256/content_sha256且durable=true。引用JS正文时先验证对象已提交且data.source_bytes一致。损坏/缺块/缺对象/正文非法UTF-8/非有限数/重复JSON键不返回成功。
+事件字段：id、scan_id、kind、category、time、tab_id（可选）、session_id、epoch、data、object_id（有正文时）、status。正文按服务端计算的UTF-8字节SHA-256内容寻址；事件id独立，相同内容跨页面/会话仍保留观察。同一项目+URL的重复JS由插件标记`status=deduplicated`，仍作为独立观察发送但不重复读取/上传正文。相同事件ID和完全相同event_json幂等；不同payload冲突409。服务不删减data中字段；ACK必须匹配schema/id/object_id且durable=true。引用JS正文时先验证对象已提交且data.source_bytes一致。损坏/缺块/缺对象/正文非法UTF-8/非有限数/重复JSON键不返回成功。
 
 kind包括Debugger.scriptParsed、执行上下文生命周期、Script网络加载事件、ObservedRequest、TaskStarted和TaskCheckpoint。data.cdp保留JS采集所取得的原始CDP事件，另存规范化requestId/hop/loaderId/frameId/documentURL、initiator及解析的loading_stack。JS是Debugger解析文本，不是HTTP原始字节；network_match=unknown，连接epoch不能代替导航loaderId。time和已知标签URL在入队时捕获，tab URL不能冒充iframe/Worker基址。ObservedRequest的data.record保留原请求结构与原字段选择/截断配置；传输不再缩减字段。TaskStarted保存任务/配置，停止检查点保存计数/缺口，不把检查点视为远端分析完成。
 
-预算：JS源码64 MiB、通用传输对象/单事件JSON128 MiB，分块256 KiB；普通事件包最多8 MiB，大事件用对象引用。JS元数据队列64事件/4 MiB，单次读源2秒，网络请求（含读响应）5秒，网络错误/408/429/5xx最多3次，无效ACK不得算成功；失败保留首份未确认数据在内存并暂停，同会话恢复时可重试。后续未处理窗口/队列溢出登记缺口；关闭/崩溃后无法找回。字节预算不等于RSS，CDP整串返回、JSON编码和哈希会有临时副本。分页除条数外还有4 MiB目标预算，超大单条可单独返回，UI使用摘要避免回读大记录。
+预算：JS源码64 MiB、通用传输对象/单事件JSON128 MiB，分块256 KiB；普通事件包最多8 MiB，大事件用对象引用。JS元数据队列64事件/4 MiB，单次读源2秒，网络请求（含读响应）5秒，网络错误/408/429/5xx最多3次，无效ACK不得算成功；失败保留首份未确认数据在内存并暂停，同会话恢复时可重试。后续未处理窗口/队列溢出登记缺口；关闭/崩溃后无法找回。字节预算不等于RSS，CDP整串返回和JSON编码会有临时副本；浏览器不做SHA-256，哈希只在服务端提交时计算一次。分页除条数外还有4 MiB目标预算，超大单条可单独返回，UI使用摘要避免回读大记录。
 
 服务端SQLite使用WAL和synchronous=FULL，块/完整对象/事件各自事务提交后确认；部署目录需持久磁盘。完整ACK不等于高可用/备份/无限容量或全站采集无遗漏。接收端只负责接收/回读，不自动触发静态分析、引用补抓或API访问；显式`ingest`命令离线读取同一SQLite并复用核心，见[使用说明](../README.md#分析已接收的数据)。

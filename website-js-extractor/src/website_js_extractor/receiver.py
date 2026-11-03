@@ -1,27 +1,33 @@
 """Incremental receiver with a built-in matching code. No browser-local outbox.
 
-SQLite FULL synchronous commits precede acknowledgements. Bodies remain chunked
-on the server; an object becomes visible only after total length/hash validation.
+The browser uploads raw bytes under a random upload ID and never computes a
+hash. The server hashes on commit, keeps content-addressed bodies and records
+the project + URL mapping used by the plugin's local "already sent" marker.
+SQLite FULL synchronous commits precede every acknowledgement.
 """
 import argparse
+import codecs
 import hashlib
 import hmac
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
 import re
 import sqlite3
 import threading
-from urllib.parse import urlsplit, parse_qs, unquote
+from urllib.parse import urlsplit, parse_qs
 
-SCHEMA = 'capture-stream-1'
+SCHEMA = 'capture-stream-2'
 DEFAULT_CODE = 'blackbox-capture-v1'
 CHUNK_BYTES = 256 * 1024
 OBJECT_BYTES = 128 * 1024 * 1024
 EVENT_BYTES = 128 * 1024 * 1024
 HASH = re.compile(r'[a-f0-9]{64}')
 PROJECT = re.compile(r'[A-Za-z0-9_-]{1,64}')
+UPLOAD = re.compile(r'[A-Za-z0-9_-]{8,64}')
+CATEGORIES = {'js_source', 'script_load', 'api_request', 'page_context', 'task'}
 
 
 class Invalid(ValueError):
@@ -42,13 +48,16 @@ def strict_json(value):
                 raise Invalid('Duplicate JSON key.')
             result[key] = item
         return result
+
     def invalid_constant(value):
         raise Invalid('Non-finite JSON number.')
+
     def finite_float(value):
         number = float(value)
         if not math.isfinite(number):
-            raise Invalid("Non-finite JSON number.")
+            raise Invalid('Non-finite JSON number.')
         return number
+
     try:
         return json.loads(value, object_pairs_hook=pairs, parse_constant=invalid_constant, parse_float=finite_float)
     except (ValueError, UnicodeError, RecursionError) as error:
@@ -63,11 +72,18 @@ class Receiver:
         self.db = sqlite3.connect(directory / 'capture.sqlite3', check_same_thread=False)
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('PRAGMA synchronous=FULL')
+        # Old protocol-1 tables are left untouched; protocol-2 uses new names.
         self.db.executescript('''
-          CREATE TABLE IF NOT EXISTS chunks(project TEXT, hash TEXT, offset INTEGER,
-            total INTEGER, data BLOB, digest TEXT, PRIMARY KEY(project,hash,offset));
-          CREATE TABLE IF NOT EXISTS objects(project TEXT, hash TEXT, bytes INTEGER,
-            PRIMARY KEY(project,hash));
+          CREATE TABLE IF NOT EXISTS uploads(project TEXT, upload TEXT, offset INTEGER,
+            total INTEGER, data BLOB, PRIMARY KEY(project,upload,offset));
+          CREATE TABLE IF NOT EXISTS blobs(project TEXT, object_id TEXT, offset INTEGER,
+            total INTEGER, data BLOB, PRIMARY KEY(project,object_id,offset));
+          CREATE TABLE IF NOT EXISTS bodies(project TEXT, object_id TEXT, bytes INTEGER,
+            kind TEXT, PRIMARY KEY(project,object_id));
+          CREATE TABLE IF NOT EXISTS upload_receipts(project TEXT, upload TEXT, object_id TEXT,
+            bytes INTEGER, url TEXT, kind TEXT, PRIMARY KEY(project,upload));
+          CREATE TABLE IF NOT EXISTS object_urls(project TEXT, url TEXT, object_id TEXT,
+            kind TEXT, updated TEXT, PRIMARY KEY(project,url));
           CREATE TABLE IF NOT EXISTS events(seq INTEGER PRIMARY KEY AUTOINCREMENT,
             project TEXT, id TEXT, scan TEXT, payload TEXT, digest TEXT,
             UNIQUE(project,id));
@@ -79,55 +95,94 @@ class Receiver:
 
     def object_info(self, project, identity):
         with self.lock:
-            row = self.db.execute('SELECT bytes FROM objects WHERE project=? AND hash=?', (project, identity)).fetchone()
-            return dict(sha256=identity, bytes=row[0], committed=True) if row else dict(sha256=identity, committed=False)
+            row = self.db.execute('SELECT bytes FROM bodies WHERE project=? AND object_id=?', (project, identity)).fetchone()
+            return dict(object_id=identity, bytes=row[0], committed=True) if row else dict(object_id=identity, committed=False)
 
-    def chunk(self, project, identity, offset, total, data, digest):
-        if not 0 < total <= OBJECT_BYTES or not 0 <= offset < total or offset % CHUNK_BYTES:
+    def lookup_url(self, project, url):
+        with self.lock:
+            row = self.db.execute('SELECT object_id,kind FROM object_urls WHERE project=? AND url=?', (project, url)).fetchone()
+        return dict(url=url, object_id=row[0], kind=row[1], committed=True) if row else dict(url=url, committed=False)
+
+    def chunk(self, project, upload, offset, total, data):
+        if not UPLOAD.fullmatch(upload):
+            raise Invalid('Invalid upload ID.')
+        if not 0 <= total <= OBJECT_BYTES or not 0 <= offset < total or offset % CHUNK_BYTES:
             raise Invalid('Invalid object size/offset.')
-        if len(data) != min(CHUNK_BYTES, total-offset) or sha(data) != digest:
-            raise Invalid('Chunk size/hash mismatch.')
+        if len(data) != min(CHUNK_BYTES, total - offset):
+            raise Invalid('Chunk size mismatch.')
         with self.lock, self.db:
-            rows = self.db.execute('SELECT total,data,digest FROM chunks WHERE project=? AND hash=? AND offset=?', (project, identity, offset)).fetchone()
+            rows = self.db.execute('SELECT total,data FROM uploads WHERE project=? AND upload=? AND offset=?',
+                                   (project, upload, offset)).fetchone()
             if rows:
-                if rows != (total, data, digest):
+                if rows != (total, data):
                     raise Invalid('Conflicting chunk.', 409)
             else:
-                old = self.db.execute('SELECT total FROM chunks WHERE project=? AND hash=? LIMIT 1', (project, identity)).fetchone()
+                old = self.db.execute('SELECT total FROM uploads WHERE project=? AND upload=? LIMIT 1',
+                                      (project, upload)).fetchone()
                 if old and old[0] != total:
                     raise Invalid('Conflicting object length.', 409)
-                self.db.execute('INSERT INTO chunks VALUES(?,?,?,?,?,?)', (project, identity, offset, total, data, digest))
-        return dict(sha256=identity, offset=offset, chunk_sha256=digest, durable=True)
+                self.db.execute('INSERT INTO uploads VALUES(?,?,?,?,?)', (project, upload, offset, total, data))
+        return dict(upload=upload, offset=offset, durable=True)
 
-    def commit(self, project, identity, total):
+    def commit(self, project, upload, total, url, kind):
         if not isinstance(total, int) or isinstance(total, bool) or not 0 <= total <= OBJECT_BYTES:
             raise Invalid('Invalid object length.')
+        if url is not None and (not isinstance(url, str) or not 0 < len(url) <= 4096):
+            raise Invalid('Invalid object URL.')
+        if kind not in ('js', 'event'):
+            raise Invalid('Invalid object kind.')
+        if kind == 'event' and url is not None:
+            raise Invalid('Event objects cannot claim a URL.')
         with self.lock, self.db:
-            offset, digest = 0, hashlib.sha256()
-            for start, size, data in self.db.execute('SELECT offset,total,data FROM chunks WHERE project=? AND hash=? ORDER BY offset', (project, identity)):
+            # A commit whose ACK was lost must stay idempotent even though the
+            # upload rows were already moved into content-addressed storage.
+            prior = self.db.execute(
+                'SELECT object_id,bytes,url,kind FROM upload_receipts WHERE project=? AND upload=?',
+                (project, upload)).fetchone()
+            if prior:
+                if prior[1] != total or prior[2] != url or prior[3] != kind:
+                    raise Invalid('Upload was already committed with different metadata.', 409)
+                return dict(object_id=prior[0], url=prior[2], bytes=prior[1], committed=True, durable=True)
+            rows = list(self.db.execute('SELECT offset,total,data FROM uploads WHERE project=? AND upload=? ORDER BY offset',
+                                        (project, upload)))
+            digest, offset = hashlib.sha256(), 0
+            for start, size, data in rows:
                 if start != offset or size != total:
                     raise Invalid('Missing or inconsistent chunks.', 409)
                 digest.update(data)
                 offset += len(data)
-            if offset != total or digest.hexdigest() != identity:
-                raise Invalid('Object length/hash mismatch.', 409)
+            if offset != total:
+                raise Invalid('Object length mismatch.', 409)
             # Reject invalid text rather than changing the bytes during analysis.
-            import codecs
             decoder = codecs.getincrementaldecoder('utf-8')('strict')
             try:
-                for (data,) in self.db.execute('SELECT data FROM chunks WHERE project=? AND hash=? ORDER BY offset', (project, identity)):
+                for _, _, data in rows:
                     decoder.decode(data)
                 decoder.decode(b'', final=True)
             except UnicodeError as error:
                 raise Invalid('Source must be UTF-8.') from error
-            self.db.execute('INSERT OR IGNORE INTO objects VALUES(?,?,?)', (project, identity, total))
-        return dict(sha256=identity, bytes=total, committed=True, durable=True)
+            object_id = digest.hexdigest()
+            for start, size, data in rows:
+                self.db.execute('INSERT OR IGNORE INTO blobs VALUES(?,?,?,?,?)',
+                                (project, object_id, start, size, data))
+            self.db.execute('INSERT OR IGNORE INTO bodies VALUES(?,?,?,?)',
+                            (project, object_id, total, kind))
+            if url is not None:
+                self.db.execute(
+                    'INSERT INTO object_urls(project,url,object_id,kind,updated) VALUES(?,?,?,?,?) '
+                    'ON CONFLICT(project,url) DO UPDATE SET object_id=excluded.object_id, '
+                    'kind=excluded.kind, updated=excluded.updated',
+                    (project, url, object_id, kind, datetime.now(timezone.utc).isoformat()))
+            self.db.execute('INSERT INTO upload_receipts VALUES(?,?,?,?,?,?)',
+                            (project, upload, object_id, total, url, kind))
+            self.db.execute('DELETE FROM uploads WHERE project=? AND upload=?', (project, upload))
+        return dict(object_id=object_id, url=url, bytes=total, committed=True, durable=True)
 
     def event(self, project, envelope):
         if not isinstance(envelope, dict) or envelope.get('schema') != SCHEMA:
             raise Invalid('Invalid event envelope/schema.')
-        if 'event_object_sha256' in envelope:
-            identity = envelope['event_object_sha256']
+        if 'event_object_id' in envelope:
+            identity = envelope['event_object_id']
             if not isinstance(identity, str) or not HASH.fullmatch(identity) or not self.object_info(project, identity)['committed']:
                 raise Invalid('Event object is not committed.', 409)
             payload = b''.join(self.source_chunks(project, identity)).decode('utf-8')
@@ -139,51 +194,61 @@ class Receiver:
             raw = payload.encode('utf-8')
         except UnicodeError as error:
             raise Invalid('Invalid event Unicode.') from error
+        if len(raw) > EVENT_BYTES:
+            raise Invalid('Event exceeds size budget.', 413)
         digest = sha(raw)
-        if len(raw) > EVENT_BYTES or digest != envelope.get('event_sha256'):
-            raise Invalid('Event size/hash mismatch.')
         value = strict_json(payload)
         if not isinstance(value, dict) or not isinstance(value.get('data'), dict):
             raise Invalid('Invalid event data.')
         for field in ['id', 'scan_id', 'kind', 'time', 'session_id', 'epoch', 'status']:
             if not isinstance(value.get(field), str) or not value[field] or len(value[field]) > 512:
                 raise Invalid('Missing/invalid event identity.')
-        content = value.get('hash')
-        if content is not None and (not isinstance(content, str) or not HASH.fullmatch(content)):
-            raise Invalid('Invalid content hash.')
+        category = value.get('category')
+        if not isinstance(category, str) or category not in CATEGORIES:
+            raise Invalid('Missing/invalid event category.')
+        content = value.get('object_id')
+        if content is not None:
+            if not isinstance(content, str) or not HASH.fullmatch(content):
+                raise Invalid('Invalid object ID.')
+            obj = self.object_info(project, content)
+            if not obj['committed']:
+                raise Invalid('Event references an uncommitted object.', 409)
+            if obj['bytes'] != value['data'].get('source_bytes'):
+                raise Invalid('Event source length mismatch.')
         with self.lock, self.db:
-            if content:
-                obj = self.object_info(project, content)
-                if not obj['committed']:
-                    raise Invalid('Event references an uncommitted object.', 409)
-                if obj['bytes'] != value['data'].get('source_bytes'):
-                    raise Invalid('Event source length mismatch.')
             old = self.db.execute('SELECT digest FROM events WHERE project=? AND id=?', (project, value['id'])).fetchone()
             if old and old[0] != digest:
                 raise Invalid('Event ID reused for different data.', 409)
             if not old:
-                self.db.execute('INSERT INTO events(project,id,scan,payload,digest) VALUES(?,?,?,?,?)', (project,value['id'],value['scan_id'],payload,digest))
-        return dict(schema=SCHEMA, event_id=value['id'], event_sha256=digest, content_sha256=content, durable=True)
+                self.db.execute('INSERT INTO events(project,id,scan,payload,digest) VALUES(?,?,?,?,?)',
+                                (project, value['id'], value['scan_id'], payload, digest))
+        return dict(schema=SCHEMA, event_id=value['id'], event_sha256=digest, object_id=content, durable=True)
 
     def page(self, project, scan, after=0, limit=50, summary=False):
         if not 0 <= after or not 1 <= limit <= 100:
             raise Invalid('Invalid page.')
         with self.lock:
             rows, size = [], 0
-            for row in self.db.execute('SELECT seq,payload FROM events WHERE project=? AND scan=? AND seq>? ORDER BY seq LIMIT ?', (project,scan,after,limit)):
-                if rows and size + len(row[1]) > 4*1024*1024: break
-                rows.append(row); size += len(row[1])
-            count = self.db.execute('SELECT count(*) FROM events WHERE project=? AND scan=?', (project,scan)).fetchone()[0]
+            for row in self.db.execute('SELECT seq,payload FROM events WHERE project=? AND scan=? AND seq>? ORDER BY seq LIMIT ?',
+                                       (project, scan, after, limit)):
+                if rows and size + len(row[1]) > 4 * 1024 * 1024:
+                    break
+                rows.append(row)
+                size += len(row[1])
+            count = self.db.execute('SELECT count(*) FROM events WHERE project=? AND scan=?', (project, scan)).fetchone()[0]
             next_cursor = rows[-1][0] if rows else after
-            more = bool(self.db.execute('SELECT 1 FROM events WHERE project=? AND scan=? AND seq>? LIMIT 1', (project,scan,next_cursor)).fetchone())
+            more = bool(self.db.execute('SELECT 1 FROM events WHERE project=? AND scan=? AND seq>? LIMIT 1',
+                                        (project, scan, next_cursor)).fetchone())
         events = [strict_json(r[1]) for r in rows]
         if summary:
             for item in events:
                 data = item['data']
-                item['data'] = {key: data[key] for key in ['url','document_url','source_bytes','network_match','observed_tab_url','target_id'] if key in data}
+                item['data'] = {key: data[key] for key in ['url', 'document_url', 'source_bytes', 'network_match',
+                                                          'observed_tab_url', 'target_id'] if key in data}
                 if item['kind'] == 'ObservedRequest':
                     record = data.get('record', {})
-                    item['data']['record'] = {key: record[key] for key in ['request_url','method','status_code','request_id'] if key in record}
+                    item['data']['record'] = {key: record[key] for key in ['request_url', 'method', 'status_code',
+                                                                          'request_id'] if key in record}
                 item['summary_only'] = True
         return dict(events=events, count=count, next=next_cursor, has_more=more)
 
@@ -191,7 +256,8 @@ class Receiver:
         offset = 0
         while True:
             with self.lock:
-                row = self.db.execute('SELECT data FROM chunks WHERE project=? AND hash=? AND offset=?', (project,identity,offset)).fetchone()
+                row = self.db.execute('SELECT data FROM blobs WHERE project=? AND object_id=? AND offset=?',
+                                      (project, identity, offset)).fetchone()
             if not row:
                 return
             offset += len(row[0])
@@ -205,6 +271,7 @@ def make_server(directory, token=DEFAULT_CODE, project='default', host='127.0.0.
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = 'HTTP/1.1'
+
         def log_message(self, *_):
             pass  # URLs/payloads/tokens must not leak to console logs.
 
@@ -242,7 +309,8 @@ def make_server(directory, token=DEFAULT_CODE, project='default', host='127.0.0.
             self.send_response(204)
             self.send_header('Access-Control-Allow-Origin', '*' if origins is None else self.headers['Origin'])
             self.send_header('Access-Control-Allow-Methods', 'GET,POST,PUT,OPTIONS')
-            self.send_header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Object-Bytes,X-Chunk-SHA256')
+            self.send_header('Access-Control-Allow-Headers', 'Authorization,Content-Type,X-Object-Bytes')
+            self.send_header('Access-Control-Max-Age', '600')
             self.send_header('Content-Length', '0')
             self.end_headers()
 
@@ -251,39 +319,52 @@ def make_server(directory, token=DEFAULT_CODE, project='default', host='127.0.0.
             try:
                 origin = self.headers.get('Origin')
                 if self.command == 'GET' and self.path in {'/', '/health'}:
-                    return self.reply(200, dict(status='ok', service='blackbox-receiver', project=project))
+                    return self.reply(200, dict(status='ok', service='blackbox-receiver', project=project,
+                                                schema=SCHEMA))
                 if origins is not None and origin and origin not in origins:
                     raise Invalid('Origin denied.', 403)
                 if not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + token):
                     raise Invalid('Invalid token.', 401)
                 parsed = urlsplit(self.path)
-                match = re.fullmatch(r'/v1/projects/([A-Za-z0-9_-]{1,64})/(events|objects(?:/([a-f0-9]{64})(?:/(commit|chunks/(\d+)))?)?)', parsed.path)
+                match = re.fullmatch(
+                    r'/v1/projects/([A-Za-z0-9_-]{1,64})/(events|objects/([a-f0-9]{64})|uploads/([A-Za-z0-9_-]{8,64})/(commit|chunks/([0-9]+)))',
+                    parsed.path)
                 if not match or match[1] != project:
                     raise Invalid('Unknown route/project.', 404)
-                route, identity, action, offset = match.groups()[1:]
+                _, route, identity, upload, action, offset = match.groups()
                 if route == 'events' and self.command == 'POST':
                     return self.reply(200, store.event(project, strict_json(self.body(8 * 1024 * 1024))))
                 if route == 'events' and self.command == 'GET':
                     query = parse_qs(parsed.query)
-                    return self.reply(200, store.page(project, query.get('scan_id', [''])[0], int(query.get('after', ['0'])[0]), int(query.get('limit', ['50'])[0]), query.get('summary') == ['1']))
-                if identity and self.command == 'PUT' and offset is not None:
-                    return self.reply(200, store.chunk(project, identity, int(offset), int(self.headers.get('X-Object-Bytes','-1')), self.body(CHUNK_BYTES), self.headers.get('X-Chunk-SHA256','')))
-                if identity and action == 'commit' and self.command == 'POST':
-                    value = strict_json(self.body(1024))
-                    if not isinstance(value, dict): raise Invalid('Invalid commit.')
-                    return self.reply(200, store.commit(project, identity, value.get('bytes')))
-                if identity and action is None and self.command == 'GET':
-                    info = store.object_info(project, identity)
+                    return self.reply(200, store.page(project, query.get('scan_id', [''])[0],
+                                                      int(query.get('after', ['0'])[0]),
+                                                      int(query.get('limit', ['50'])[0]),
+                                                      query.get('summary') == ['1']))
+                if upload and action == 'commit' and self.command == 'POST':
+                    value = strict_json(self.body(16 * 1024))
+                    if not isinstance(value, dict):
+                        raise Invalid('Invalid commit.')
+                    return self.reply(200, store.commit(project, upload, value.get('bytes'),
+                                                        value.get('url'), value.get('kind')))
+                if upload and action.startswith('chunks/') and self.command == 'PUT':
+                    return self.reply(200, store.chunk(project, upload, int(offset),
+                                                       int(self.headers.get('X-Object-Bytes', '-1')),
+                                                       self.body(CHUNK_BYTES)))
+                if identity and self.command == 'GET':
                     if parsed.query == 'status':
-                        return self.reply(200, info)
-                    if not info['committed']: raise Invalid('Unknown object.', 404)
+                        return self.reply(200, store.object_info(project, identity))
+                    info = store.object_info(project, identity)
+                    if not info['committed']:
+                        raise Invalid('Unknown object.', 404)
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/javascript; charset=utf-8')
                     self.send_header('Content-Length', str(info['bytes']))
                     self.send_header('Cache-Control', 'no-store')
-                    if origins is None or origin in origins: self.send_header('Access-Control-Allow-Origin', '*' if origins is None else origin)
+                    if origins is None or origin in origins:
+                        self.send_header('Access-Control-Allow-Origin', '*' if origins is None else origin)
                     self.end_headers()
-                    for data in store.source_chunks(project, identity): self.wfile.write(data)
+                    for data in store.source_chunks(project, identity):
+                        self.wfile.write(data)
                     return
                 raise Invalid('Unsupported method/route.', 404)
             except (Invalid, ValueError, TypeError, KeyError, OverflowError) as error:

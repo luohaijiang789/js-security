@@ -5,6 +5,7 @@ import {
   type CaptureEvent,
   type RemoteSettings,
 } from "./remote-capture";
+import { listAssets, type AssetRow } from "./asset-index";
 const props = defineProps<{
   scanId: string;
   issue?: string;
@@ -12,6 +13,7 @@ const props = defineProps<{
   remote?: RemoteSettings;
 }>();
 const rows = ref<CaptureEvent[]>([]),
+  assets = ref<AssetRow[]>([]),
   count = ref(0),
   after = ref(0),
   next = ref(0),
@@ -28,15 +30,24 @@ async function refresh(reset = false) {
     rows.value = [];
     count.value = 0;
   }
-  if (!props.scanId || !props.remote) return;
+  if (!props.scanId) return;
   try {
+    assets.value = props.remote
+      ? await listAssets(props.remote.project)
+      : [];
+    if (own !== generation) return;
+    error.value = "";
+    if (!props.remote) {
+      rows.value = [];
+      count.value = 0;
+      return;
+    }
     const page = await client.page(props.scanId, after.value, true);
     if (own !== generation) return;
     rows.value = page.events;
     count.value = page.count;
     next.value = page.next;
     hasMore.value = !!page.has_more;
-    error.value = "";
   } catch (e) {
     if (own === generation) error.value = String(e);
   }
@@ -54,9 +65,11 @@ function download(text: string, name: string) {
 async function source(row: CaptureEvent, save = false) {
   const scan = props.scanId;
   try {
-    const text = row.hash ? await client.source(row.hash) : undefined;
+    const text = row.object_id
+      ? await client.source(row.object_id)
+      : undefined;
     if (scan !== props.scanId) return;
-    if (save && text !== undefined) download(text, `${row.hash}.js`);
+    if (save && text !== undefined) download(text, `${row.object_id}.js`);
     else
       preview.value =
         text === undefined ? "没有可用源码" : text.slice(0, 200000);
@@ -91,6 +104,36 @@ watch(
     </p>
     <p v-if="!scanId">请先创建或选择任务。</p>
     <template v-else>
+      <h3>本地轻量索引（仅标记，不含正文）</h3>
+      <p>
+        以「项目 + URL」为标记记录已采集对象；已确认发送的 JS 正文不再重复读取和上传。
+        仅保留约 20000 条元数据，超出后按最近使用批量淘汰，不含正文。
+      </p>
+      <table style="width: 100%; table-layout: fixed">
+        <thead>
+          <tr>
+            <th>类型</th>
+            <th>URL</th>
+            <th>Host</th>
+            <th>次数</th>
+            <th>正文</th>
+            <th>已发送</th>
+            <th>最近</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="asset in assets" :key="asset.key">
+            <td>{{ asset.kind }}</td>
+            <td style="overflow-wrap: anywhere">{{ asset.url }}</td>
+            <td style="overflow-wrap: anywhere">{{ asset.host || "未知" }}</td>
+            <td>{{ asset.count }}</td>
+            <td>{{ asset.bytes === undefined ? "无" : asset.bytes + " B" }}</td>
+            <td>{{ asset.sent ? "是" : "否" }}</td>
+            <td>{{ asset.last_seen }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <p v-if="!assets.length">当前项目还没有本地索引记录。</p>
       <p>
         远端已确认 {{ count }} 条证据（包含上下文和加载事件，不代表接口数量）
       </p>
@@ -121,7 +164,7 @@ watch(
         <thead>
           <tr>
             <th>类型 / 状态</th>
-            <th>来源 / 内容哈希</th>
+            <th>来源 / 正文标识</th>
             <th>查看</th>
           </tr>
         </thead>
@@ -136,13 +179,14 @@ watch(
                 row.data.document_url ||
                 row.data.record?.request_url ||
                 "上下文事件"
-              }}<br />{{ row.hash || "无正文" }}
+              }}<br />{{ row.object_id || "无正文" }}
             </td>
             <td>
               <button @click="preview = JSON.stringify(row, null, 2)">
                 详情</button
-              ><button v-if="row.hash" @click="source(row)">源码预览</button
-              ><button v-if="row.hash" @click="source(row, true)">
+              ><button v-if="row.object_id" @click="source(row)">
+                源码预览</button
+              ><button v-if="row.object_id" @click="source(row, true)">
                 下载源码
               </button>
             </td>

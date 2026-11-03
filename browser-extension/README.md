@@ -108,6 +108,6 @@ npm test/test:browser 会先正式构建，避免页面测试读取旧 dist。�
 
 ## 统一采集与远端分析方向
 
-本插件是唯一生产入口：保留真实请求采集，并已通过 `remote-capture.ts` 将有界内存中的JS正文、页面/执行上下文、加载证据和实测请求增量发送给[黑盒二远端后端](../website-js-extractor/README.md)。后端v1接收、分块哈希校验、持久ACK和查询已实现，统一保存实测证据与后续静态候选，两类计数不混合。
+本插件是唯一生产入口：保留真实请求采集，并已通过 `remote-capture.ts` 将有界内存中的JS正文、页面/执行上下文、加载证据和实测请求增量发送给[黑盒二远端后端](../website-js-extractor/README.md)。后端v2接收（服务端SHA-256）、持久ACK和查询已实现；浏览器按「项目+URL」轻量索引去重且不计算哈希，统一保存实测证据与后续静态候选，两类计数不混合。
 
 持续静态分析、精确发送点绑定和真实MV3现场仍未完成；旧JS探索界面与旧analysis.json仅作历史兼容。现有独立黑盒二采集原型只供迁移/回归参考，不再另做完整插件。共享会话的独立租约仍未抽出，具体设计见[架构](../website-js-extractor/docs/architecture.md#5-黑盒一集成方案仅设计)，工作与状态见[统一计划](../website-js-extractor/docs/plan.md)。

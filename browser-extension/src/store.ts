@@ -18,7 +18,7 @@ const request = <T>(r: IDBRequest<T>) =>
 let dbPromise: Promise<IDBDatabase> | undefined;
 export function database() {
   return (dbPromise ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const r = indexedDB.open("js-security-recorder", 2);
+    const r = indexedDB.open("js-security-recorder", 3);
     r.onupgradeneeded = () => {
       const d = r.result;
       for (const name of ["scans", "errors", "batches", "groups"]) {
@@ -58,6 +58,11 @@ export function database() {
         });
         nodes.createIndex("scan", "scan_id");
         nodes.createIndex("parent", ["scan_id", "parent_id"]);
+      }
+      if (!d.objectStoreNames.contains("assets")) {
+        const assets = d.createObjectStore("assets", { keyPath: "key" });
+        assets.createIndex("project", "project");
+        assets.createIndex("last_seen", ["project", "last_seen"]);
       }
     };
     r.onsuccess = () => resolve(r.result);

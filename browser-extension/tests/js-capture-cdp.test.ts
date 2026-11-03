@@ -4,11 +4,7 @@ import { chromium } from "playwright";
 import { createServer } from "node:http";
 import { Recorder } from "../src/recorder";
 import { defaults } from "../src/model";
-import {
-  RemoteCapture,
-  digest,
-  type CaptureEvent,
-} from "../src/remote-capture";
+import { RemoteCapture, type CaptureEvent } from "../src/remote-capture";
 import { receiverFixture, receiverToken } from "./receiver-fixture";
 import * as db from "../src/store";
 it("real Chromium CDP collects duplicate multi-MiB external JS and network provenance through the request recorder session", async () => {
@@ -34,8 +30,10 @@ it("real Chromium CDP collects duplicate multi-MiB external JS and network prove
   const expected: CaptureEvent[] = [];
   const deliver = remote.send.bind(remote);
   remote.send = async (event, source) => {
+    const ack = await deliver(event, source);
+    // Snapshot after delivery so the receiver-assigned object_id is included.
     expected.push(JSON.parse(JSON.stringify(event)));
-    await deliver(event, source);
+    return ack;
   };
   const browser = await chromium.launch({
     executablePath: process.env.CHROMIUM_PATH ?? "/usr/bin/chromium",
@@ -95,20 +93,17 @@ it("real Chromium CDP collects duplicate multi-MiB external JS and network prove
       if (!page.has_more) break;
       cursor = page.next;
     }
-    expect(
-      events.map((e) => digest(new TextEncoder().encode(JSON.stringify(e)))),
-    ).toEqual(
-      expected.map((e) => digest(new TextEncoder().encode(JSON.stringify(e)))),
-    );
+    expect(events).toEqual(expected);
     const scripts = events.filter(
       (e) =>
         e.kind === "Debugger.scriptParsed" &&
         /\/(first|copy)\.js$/.test(e.data.url),
     );
     expect(scripts).toHaveLength(2);
-    expect(scripts[0].hash).toBeTruthy();
-    expect(scripts[0].hash).toBe(scripts[1].hash);
-    expect((await remote.source(scripts[0].hash!)) === source).toBe(true);
+    expect(scripts[0].object_id).toBeTruthy();
+    // Different URLs, identical bytes: the receiver's content addressing returns one ID.
+    expect(scripts[0].object_id).toBe(scripts[1].object_id);
+    expect((await remote.source(scripts[0].object_id!)) === source).toBe(true);
     const requests = events.filter(
       (e) => e.kind === "Network.requestWillBeSent",
     );

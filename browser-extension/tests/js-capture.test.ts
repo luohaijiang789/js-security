@@ -2,11 +2,17 @@ import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
 import { Recorder } from "../src/recorder";
 import { defaults } from "../src/model";
-import { RemoteCapture, type CaptureEvent } from "../src/remote-capture";
+import {
+  RemoteCapture,
+  SCHEMA,
+  type CaptureEvent,
+  type DeliveryAck,
+} from "../src/remote-capture";
 import * as db from "../src/store";
 class MemoryReceiver extends RemoteCapture {
   events: CaptureEvent[] = [];
   sources = new Map<string, string>();
+  private serial = 0;
   constructor() {
     super(() => undefined);
   }
@@ -15,13 +21,38 @@ class MemoryReceiver extends RemoteCapture {
       (e) => e.scan_id === scan && e.kind === "ObservedRequest",
     ).length;
   }
-  override async send(event: CaptureEvent, source?: string) {
+  override async send(
+    event: CaptureEvent,
+    source?: string,
+  ): Promise<DeliveryAck> {
     this.events.push(JSON.parse(JSON.stringify(event)));
-    if (event.hash && source !== undefined)
-      this.sources.set(event.hash, source);
+    if (source !== undefined) {
+      const object_id = String(++this.serial).padStart(64, "0");
+      this.sources.set(object_id, source);
+      return {
+        schema: SCHEMA,
+        event_id: event.id,
+        object_id,
+        durable: true,
+      };
+    }
+    return {
+      schema: SCHEMA,
+      event_id: event.id,
+      object_id: event.object_id ?? null,
+      durable: true,
+    };
   }
 }
 const setup = async (enabled = true, source = "fetch('/orders?id=1')") => {
+  // The lightweight index survives in fake-indexeddb across tests; start clean.
+  const open = await db.database();
+  await new Promise<void>((resolve, reject) => {
+    const tx = open.transaction("assets", "readwrite");
+    tx.objectStore("assets").clear();
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
   const send = vi.fn(async (_s: any, method: string) =>
     method === "Debugger.getScriptSource" ? { scriptSource: source } : {},
   );
@@ -50,7 +81,7 @@ const setup = async (enabled = true, source = "fetch('/orders?id=1')") => {
 };
 const parsed = (id: string) => ({
   scriptId: id,
-  url: "https://fixture.test/app.js",
+  url: `https://fixture.test/app-${id}.js`,
   executionContextId: 1,
   length: 30,
   startLine: 0,
@@ -93,6 +124,25 @@ it("multi-MiB identical bodies retain independent observations and do not create
       (d) => d.name === "js-security-js-outbox",
     ),
   ).toBe(false);
+});
+it("skips reading and uploading a JS body already sent for the same project + URL", async () => {
+  const { recorder, send, receiver } = await setup();
+  const reads = () =>
+    send.mock.calls.filter((c) => c[1] === "Debugger.getScriptSource").length;
+  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("same"));
+  await recorder.js.drain();
+  expect(reads()).toBe(1);
+  expect(receiver.sources.size).toBe(1);
+  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("same"));
+  await recorder.js.drain();
+  expect(reads()).toBe(1); // Already-sent URL: no second getScriptSource.
+  expect(receiver.sources.size).toBe(1); // Nor a second body upload.
+  const scripts = receiver.events
+    .filter((e) => e.kind === "Debugger.scriptParsed")
+    .sort((a, b) => a.id.localeCompare(b.id));
+  expect(scripts.map((e) => e.status)).toEqual(["captured", "deduplicated"]);
+  expect(scripts[0].category).toBe("js_source");
+  expect(scripts[1].object_id).toBeTruthy();
 });
 it("retains original loading CDP fields, context, redirect and resolved loading stack", async () => {
   const { recorder, receiver } = await setup();
@@ -165,7 +215,7 @@ it("source failure and size budget produce explicit missing-source observations"
   expect(
     receiver.events
       .filter((e) => e.kind === "Debugger.scriptParsed")
-      .every((e) => !e.hash),
+      .every((e) => !e.object_id),
   ).toBe(true);
 });
 it("pause drains in-flight reads and a new connection never reuses queued script IDs", async () => {

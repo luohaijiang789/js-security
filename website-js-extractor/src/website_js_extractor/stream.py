@@ -1,4 +1,4 @@
-"""Ingest capture-stream-1 browser evidence into the static analysis core.
+"""Ingest capture-stream-2 browser evidence into the static analysis core.
 
 The receiver only stores bytes and immutable event envelopes.  This module turns
 those envelopes into execution contexts, content-addressed scripts, observed JS
@@ -25,7 +25,7 @@ from .collection import ReferenceGraph
 from .engine import LOCK, analyze, default_engine_root
 from .results import build_candidates, write_report
 
-SCHEMA = 'capture-stream-1'
+SCHEMA = 'capture-stream-2'
 TASK_KINDS = {'TaskStarted', 'TaskCheckpoint'}
 CONTEXT_KINDS = {'Runtime.executionContextCreated', 'Runtime.executionContextDestroyed',
                  'Runtime.executionContextsCleared'}
@@ -129,7 +129,7 @@ class EventReader:
         return result
 
     def content_size(self, identity):
-        row = self.db.execute('SELECT bytes FROM objects WHERE project=? AND hash=?',
+        row = self.db.execute('SELECT bytes FROM bodies WHERE project=? AND object_id=?',
                               (self.project, identity)).fetchone()
         return int(row['bytes']) if row else None
 
@@ -139,7 +139,7 @@ class EventReader:
             raise StreamError(f'Content object is not committed: {identity}')
         offset = 0
         for row in self.db.execute(
-                'SELECT offset, total, data FROM chunks WHERE project=? AND hash=? ORDER BY offset',
+                'SELECT offset, total, data FROM blobs WHERE project=? AND object_id=? ORDER BY offset',
                 (self.project, identity)):
             if int(row['offset']) != offset or int(row['total']) != size:
                 raise StreamError(f'Content chunks are not contiguous: {identity}')
@@ -286,13 +286,18 @@ class Ingest:
         if context is None:
             context = self._implicit_context(event, context_id)
         status = event.get('status') or 'captured'
-        identity = event.get('hash')
-        if status != 'captured':
+        # The receiver assigns object_id; the browser never computes it.
+        identity = event.get('object_id')
+        if status == 'deduplicated':
+            # A later observation of an already-sent project+URL. Keep the
+            # observation; it references the same committed body.
+            self.stats['deduplicated_script_events'] += 1
+        elif status != 'captured':
             self.gap('stream_' + str(status), str(data.get('error') or status)[:2000],
                      source=event.get('id'))
             return
         if not isinstance(identity, str) or not re.fullmatch(r'[0-9a-f]{64}', identity):
-            self.gap('stream_source_missing', 'Script event has no content hash.', source=event.get('id'))
+            self.gap('stream_source_missing', 'Script event has no object_id.', source=event.get('id'))
             return
         size = self.reader.content_size(identity)
         if size is None:
@@ -752,6 +757,7 @@ def ingest(args):
             observed_requests=len(getattr(snapshot, 'observed_requests', [])) if snapshot else 0,
             runtime_loads=len(getattr(snapshot, 'runtime_loads', [])) if snapshot else 0,
             static_candidates=len(candidates),
+            deduplicated_script_events=ingest_state.stats.get('deduplicated_script_events', 0),
             api_groups=len(inventory),
             matched_api_groups=sum(row['status'] == 'matched' for row in inventory),
             observed_only_groups=sum(row['status'] == 'observed-only' for row in inventory),

@@ -6,9 +6,10 @@ import sqlite3
 import tempfile
 import threading
 import unittest
+import uuid
 
 from website_js_extractor.cli import main
-from website_js_extractor.receiver import CHUNK_BYTES, Receiver, make_server
+from website_js_extractor.receiver import CHUNK_BYTES, Receiver, SCHEMA, make_server
 
 ROOT = Path(__file__).resolve().parents[2]
 ENGINE = ROOT/'references/repos/jshound'
@@ -18,22 +19,34 @@ SOURCE = b'''fetch("/api/users?x=1", {method:"POST", headers:{"x-test":"1"}, bod
 
 def envelope(value):
     payload = json.dumps(value, ensure_ascii=True, separators=(',', ':'))
-    return dict(schema='capture-stream-1', event_json=payload,
-                event_sha256=hashlib.sha256(payload.encode()).hexdigest())
+    return dict(schema=SCHEMA, event_json=payload)
 
 
 def upload(store, data, project='default'):
-    identity = hashlib.sha256(data).hexdigest()
+    upload_id = uuid.uuid4().hex
     for offset in range(0, len(data), CHUNK_BYTES):
         chunk = data[offset:offset+CHUNK_BYTES]
-        store.chunk(project, identity, offset, len(data), chunk, hashlib.sha256(chunk).hexdigest())
-    store.commit(project, identity, len(data))
-    return identity
+        store.chunk(project, upload_id, offset, len(data), chunk)
+    ack = store.commit(project, upload_id, len(data), 'https://app.example.test/assets/app.js', 'js')
+    return ack['object_id']
+
+
+CATEGORY = {
+    'TaskStarted': 'task', 'TaskCheckpoint': 'task', 'ObservedRequest': 'api_request',
+    'Debugger.scriptParsed': 'js_source', 'Runtime.executionContextCreated': 'page_context',
+    'Runtime.executionContextDestroyed': 'page_context',
+    'Runtime.executionContextsCleared': 'page_context',
+    'Network.requestWillBeSent': 'script_load', 'Network.responseReceived': 'script_load',
+    'Network.loadingFinished': 'script_load', 'Network.loadingFailed': 'script_load',
+}
 
 
 def event(kind, data, identity, **changes):
-    return dict(id=identity, scan_id=SCAN, kind=kind, time='2026-11-03T10:00:00Z', tab_id=1,
-                session_id='root', epoch='connection-1', status='captured', data=data, **changes)
+    value = dict(id=identity, scan_id=SCAN, kind=kind, category=CATEGORY.get(kind, 'task'),
+                 time='2026-11-03T10:00:00Z', tab_id=1,
+                 session_id='root', epoch='connection-1', status='captured', data=data)
+    value.update(changes)
+    return value
 
 
 def scan_event(identity='scan-1:task'):
@@ -51,13 +64,13 @@ def context(identity, context_id, page_url, origin='https://app.example.test', *
                   'observed_tab_url': page_url, 'target_id': 'T1'}, identity)
 
 
-def script(identity, source_hash, url, context_id=1, page_url='https://app.example.test/home'):
+def script(identity, source_hash, url, context_id=1, page_url='https://app.example.test/home', **changes):
     return event('Debugger.scriptParsed',
                  {'url': url, 'scriptId': 'S1', 'executionContextId': context_id,
                   'representation': 'debugger-parsed-source', 'network_match': 'unknown',
                   'source_bytes': len(SOURCE), 'observed_tab_url': page_url, 'target_id': 'T1',
                   'cdp': {'scriptId': 'S1', 'url': url, 'executionContextId': context_id}},
-                 identity, hash=source_hash)
+                 identity, object_id=source_hash, **changes)
 
 
 def load_events(url='https://app.example.test/assets/app.js'):
@@ -169,15 +182,16 @@ class StreamIngestTest(unittest.TestCase):
                 connection.close()
                 return status, data
 
-            identity = hashlib.sha256(SOURCE).hexdigest()
+            upload_id = uuid.uuid4().hex
             for offset in range(0, len(SOURCE), CHUNK_BYTES):
                 chunk = SOURCE[offset:offset+CHUNK_BYTES]
-                status, data = request('PUT', f'/objects/{identity}/chunks/{offset}', chunk,
-                                       {'X-Object-Bytes': str(len(SOURCE)),
-                                        'X-Chunk-SHA256': hashlib.sha256(chunk).hexdigest()})
+                status, data = request('PUT', f'/uploads/{upload_id}/chunks/{offset}', chunk,
+                                       {'X-Object-Bytes': str(len(SOURCE))})
                 self.assertEqual(status, 200, data)
-            status, data = request('POST', f'/objects/{identity}/commit', json.dumps({'bytes': len(SOURCE)}))
+            status, data = request('POST', f'/uploads/{upload_id}/commit', json.dumps(
+                {'bytes': len(SOURCE), 'url': 'https://app.example.test/assets/app.js', 'kind': 'js'}))
             self.assertEqual(status, 200, data)
+            identity = json.loads(data)['object_id']
             for item in [scan_event('http:task'), context('http:ctx', 1, 'https://app.example.test/home'),
                          script('http:script', identity, 'https://app.example.test/assets/app.js')]:
                 status, data = request('POST', '/events', json.dumps(envelope(item)))
@@ -208,7 +222,7 @@ class StreamIngestTest(unittest.TestCase):
                            script('scan-1:script', identity, 'https://app.example.test/assets/app.js')])
         # Simulate a lost/GC'd object after the durable event was accepted.
         connection = sqlite3.connect(self.data/'capture.sqlite3')
-        connection.execute('DELETE FROM objects WHERE project=? AND hash=?', ('default', identity))
+        connection.execute('DELETE FROM bodies WHERE project=? AND object_id=?', ('default', identity))
         connection.commit()
         connection.close()
         code = self.ingest()
@@ -239,7 +253,8 @@ class StreamIngestTest(unittest.TestCase):
                            script('scan-1:script-a', identity, 'https://app.example.test/assets/app.js',
                                   context_id=1, page_url='https://app.example.test/a'),
                            script('scan-1:script-b', identity, 'https://app.example.test/assets/app.js',
-                                  context_id=2, page_url='https://app.example.test/b')])
+                                  context_id=2, page_url='https://app.example.test/b',
+                                  status='deduplicated')])
         code = self.ingest()
         self.assertIn(code, (0, 4))
         report = json.loads((self.out/'analysis.json').read_text(encoding='utf-8'))
@@ -247,6 +262,9 @@ class StreamIngestTest(unittest.TestCase):
         self.assertEqual({item['body_file'] for item in report['assets']}, {'snapshot/'+identity+'.js'})
         self.assertEqual(len(report['capture_contexts']), 2)
         self.assertEqual(len(list((self.out/'snapshot').glob('*.js'))), 1)
+        # A later same-URL observation is still evidence, not a gap.
+        self.assertEqual(report['statistics']['deduplicated_script_events'], 1)
+        self.assertEqual(report['assets'][1]['observations'][0]['status'], 'deduplicated')
 
 
 if __name__ == '__main__':

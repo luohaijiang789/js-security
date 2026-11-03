@@ -1,4 +1,5 @@
 import { RemoteCapture } from "./remote-capture";
+import { AssetIndex, hostOf } from "./asset-index";
 import {
   defaults,
   gap,
@@ -79,13 +80,14 @@ export class Recorder {
   stacks: StackCapture;
   js: JSCapture;
   remote: RemoteCapture;
+  assets = new AssetIndex();
   observedByURL = new Map<string, Map<string, string[]>>();
   observedByCdpId = new Map<string, Map<string, string>>();
   initiatorNodes: InitiatorNode[] = [];
   constructor(public send: (s: Source, m: string, p?: object) => Promise<any>, remote?: RemoteCapture) {
     this.stacks = new StackCapture(send);
     this.remote = remote ?? new RemoteCapture(() => this.scan?.config.remote_capture);
-    this.js = new JSCapture(send, this.stacks, this.remote);
+    this.js = new JSCapture(send, this.stacks, this.remote, this.assets);
   }
   async create(
     name: string,
@@ -96,8 +98,8 @@ export class Recorder {
     if (this.remote.failed) throw Error("仍有内存中的未确认数据，请先恢复重试上传");
     if (this.scan && this.scan.state !== "ended")
       throw Error("请先停止当前任务");
-    this.remote.resetObjects();
-    this.js = new JSCapture(this.send, this.stacks, this.remote);
+    await this.assets.load(config.remote_capture?.project ?? "");
+    this.js = new JSCapture(this.send, this.stacks, this.remote, this.assets);
     const time = now();
     this.scan = {
       id: uid(),
@@ -144,7 +146,7 @@ export class Recorder {
     await db.put("scans", this.scan);
     if (config.remote_capture) {
       try { await this.remote.send({id: `task:${this.scan.id}:started`, scan_id:this.scan.id,
-        kind:'TaskStarted',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{scan:structuredClone(this.scan)}}); }
+        kind:'TaskStarted',category:'task',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{scan:structuredClone(this.scan)}}); }
       catch(error) {this.scan.state='paused';gap(this.scan,'remote_upload_failure',String(error));await this.flush();}
     }
     return this.scan;
@@ -829,11 +831,15 @@ export class Recorder {
       config.value_storage !== "complete",
     );
     if (config.remote_capture) {
+      const url = safe.request_url,
+        host = hostOf(url),
+        project = config.remote_capture.project;
       try {
         await this.remote.send({id: `request:${safe.request_id}`, scan_id: scan.id,
-          kind: 'ObservedRequest', time: now(), tab_id: safe.tab_id,
-          session_id: safe.session_id, epoch: this.connection, data: {record: safe}, status: 'captured'});
+          kind: 'ObservedRequest', category: 'api_request', time: now(), tab_id: safe.tab_id,
+          session_id: safe.session_id, epoch: this.connection, data: {record: safe, url, host}, status: 'captured'});
         scan.stats.persisted++; // Remote durable records; no local payload write.
+        this.assets.observe(project, "api", url, host, { sent: true });
       } catch (error) {
         scan.state = 'paused';
         gap(scan, 'remote_upload_failure', String(error), safe.request_id);
@@ -1020,6 +1026,7 @@ export class Recorder {
       snapshot.stats.persisted += entries.length;
       snapshot.stats.bytes += bytes;
       await db.commit(snapshot, entries, groups, active, initiatorNodes);
+      await this.assets.flush();
       scan.stats.persisted += entries.length;
       scan.stats.bytes += bytes;
       this.entries.splice(0, entries.length);
@@ -1105,7 +1112,7 @@ export class Recorder {
       try {
         if (this.remote.failed) throw Error("仍有未确认数据，请恢复重试，不能标记已完成");
         await this.remote.send({id:`task:${this.scan.id}:checkpoint:${uid()}`, scan_id:this.scan.id,
-          kind:'TaskCheckpoint',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{phase:'stop',scan:structuredClone(this.scan)}});
+          kind:'TaskCheckpoint',category:'task',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{phase:'stop',scan:structuredClone(this.scan)}});
       } catch(error) {this.scan.state='paused';gap(this.scan,'remote_upload_failure',String(error));await this.flush();throw error;}
     }
     await this.flush();
