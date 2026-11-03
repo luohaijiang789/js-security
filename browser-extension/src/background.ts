@@ -450,7 +450,7 @@ async function attach(
         window.timestamp = started;
         window.end = now();
       }
-    } catch {
+    } catch (error) {
       if (acquired) await detachIntentionally(tab.id);
       failed.push(tab.id);
       attachedTabs.delete(tab.id);
@@ -461,7 +461,7 @@ async function attach(
       gap(
         scan,
         "attach_failed",
-        `无法附加标签页 ${tab.id}，可能已关闭、页面受限、被其他调试器占用或连接超时`,
+        `无法附加标签页 ${tab.id}：${String(error).slice(0, 200)}`,
       );
       if (scan.tab_scope !== "all") scan.state = "interrupted";
     }

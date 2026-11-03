@@ -56,8 +56,13 @@ export class JSCapture {
         this.admittedRequests.size >= 4096 &&
         !this.admittedRequests.has(requestKey)
       ) {
-        this.halted = true;
-        gap(scan, "js_backpressure", "JS在途加载超过4096，已暂停远端任务");
+        gap(
+          scan,
+          "js_backpressure",
+          "JS在途请求超过4096，丢弃新的JS请求事件；请求采集继续",
+          undefined,
+          1,
+        );
         return;
       }
       this.admittedRequests.add(requestKey);
@@ -68,13 +73,18 @@ export class JSCapture {
     )
       this.admittedRequests.delete(requestKey);
     const bytes = new TextEncoder().encode(JSON.stringify(p)).length;
-    if (this.queued >= 64 || this.queuedBytes + bytes > 4 * 1048576) {
-      this.halted = true;
-      scan.state = "paused";
+    if (
+      this.queued >= scan.config.queue_count ||
+      this.queuedBytes + bytes > scan.config.queue_bytes
+    ) {
+      // Bounded loss instead of pausing the whole task: CDP attach replays every
+      // existing scriptParsed at once, and pausing here also stops API capture.
       gap(
         scan,
         "js_backpressure",
-        "JS待处理队列达到64事件/4MiB上限，已暂停远端任务",
+        `JS待处理队列达到${scan.config.queue_count}事件/${scan.config.queue_bytes}字节上限，丢弃本次JS事件；请求采集继续`,
+        undefined,
+        1,
       );
       return;
     }
@@ -167,8 +177,13 @@ export class JSCapture {
       : this.requests.get(requestKey);
     if (request) {
       if (this.requests.size >= 4096 && !this.requests.has(requestKey)) {
-        this.halted = true;
-        gap(scan, "js_backpressure", "JS在途加载超过4096，已暂停远端任务");
+        gap(
+          scan,
+          "js_backpressure",
+          "JS在途请求超过4096，丢弃新的JS请求事件；请求采集继续",
+          undefined,
+          1,
+        );
         return;
       }
       this.requests.set(requestKey, hop!);

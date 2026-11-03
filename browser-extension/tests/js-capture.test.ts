@@ -194,8 +194,9 @@ it("pause drains accepted reads; a new connection never reuses queued script IDs
     send.mock.calls.filter((c) => c[1] === "Debugger.getScriptSource"),
   ).toHaveLength(1);
 });
-it("JS queue is bounded with an explicit gap", async () => {
+it("JS queue overflow drops events with a gap without pausing API capture", async () => {
   const { recorder, scan, receiver } = await setup();
+  scan.config.queue_count = 10;
   for (let i = 0; i < 70; i++)
     void recorder.event(
       { tabId: 1 },
@@ -203,10 +204,13 @@ it("JS queue is bounded with an explicit gap", async () => {
       parsed(String(i)),
     );
   await recorder.js.drain();
-  expect(scan.gaps.some((g) => g.type === "js_backpressure")).toBe(true);
+  const gaps = scan.gaps.filter((g) => g.type === "js_backpressure");
+  expect(gaps).toHaveLength(1); // Dropped events collapse into one counted gap.
+  expect(gaps[0].count).toBeGreaterThan(1);
+  expect(scan.state).toBe("recording");
   expect(
     receiver.events.filter((e) => e.kind === "Debugger.scriptParsed").length,
-  ).toBeLessThanOrEqual(64);
+  ).toBeLessThanOrEqual(10);
 });
 it("remote request payloads and active snapshots never reach local request/initiator stores", async () => {
   const { recorder, scan, receiver } = await setup();
