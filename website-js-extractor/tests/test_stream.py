@@ -1,12 +1,14 @@
 import hashlib
+import http.client
 import json
 from pathlib import Path
 import sqlite3
 import tempfile
+import threading
 import unittest
 
 from website_js_extractor.cli import main
-from website_js_extractor.receiver import CHUNK_BYTES, Receiver
+from website_js_extractor.receiver import CHUNK_BYTES, Receiver, make_server
 
 ROOT = Path(__file__).resolve().parents[2]
 ENGINE = ROOT/'references/repos/jshound'
@@ -150,6 +152,46 @@ class StreamIngestTest(unittest.TestCase):
         self.assertTrue((self.out/'api_inventory.json').is_file())
         self.assertTrue((self.out/'api_inventory.csv').is_file())
         self.assertTrue((self.out/'observed_requests.json').is_file())
+
+    def test_real_receiver_http_upload_then_ingest(self):
+        code = 'stream-http-code'
+        server = make_server(self.data, code, origins=('chrome-extension://' + 'a'*32,))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            def request(method, path, body=None, headers=None):
+                connection = http.client.HTTPConnection('127.0.0.1', server.server_port, timeout=10)
+                connection.request(method, '/v1/projects/default' + path, body=body,
+                                   headers={'Authorization': 'Bearer ' + code, **(headers or {})})
+                response = connection.getresponse()
+                data = response.read()
+                status = response.status
+                connection.close()
+                return status, data
+
+            identity = hashlib.sha256(SOURCE).hexdigest()
+            for offset in range(0, len(SOURCE), CHUNK_BYTES):
+                chunk = SOURCE[offset:offset+CHUNK_BYTES]
+                status, data = request('PUT', f'/objects/{identity}/chunks/{offset}', chunk,
+                                       {'X-Object-Bytes': str(len(SOURCE)),
+                                        'X-Chunk-SHA256': hashlib.sha256(chunk).hexdigest()})
+                self.assertEqual(status, 200, data)
+            status, data = request('POST', f'/objects/{identity}/commit', json.dumps({'bytes': len(SOURCE)}))
+            self.assertEqual(status, 200, data)
+            for item in [scan_event('http:task'), context('http:ctx', 1, 'https://app.example.test/home'),
+                         script('http:script', identity, 'https://app.example.test/assets/app.js')]:
+                status, data = request('POST', '/events', json.dumps(envelope(item)))
+                self.assertEqual(status, 200, data)
+            code = self.ingest()
+            self.assertIn(code, (0, 4))
+            report = json.loads((self.out/'analysis.json').read_text(encoding='utf-8'))
+            self.assertEqual(len(report['assets']), 1)
+            self.assertEqual(len(report['api_inventory']), 2)
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join()
+            server.store.close()
 
     def test_ingest_reads_wal_while_receiver_is_still_open(self):
         identity = upload(self.store, SOURCE)

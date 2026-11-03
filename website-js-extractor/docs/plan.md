@@ -85,7 +85,7 @@ I1–I3 是P1/P2增强黑盒一时的工作包，不再另建独立插件后才�
 
 | 证据 | 入口/清单 | 范围与限制 |
 | --- | --- | --- |
-| 88 项 Python 检查（按测试模块运行） | [tests](../tests/)、[服务输入检查](../tests/test_capture_service.py) | 核心、HTTP、预算、恢复、接收器6项、离线ingest5项；不含实际扩展加载。合并单进程discover在当前环境被SIGKILL，未计为通过 |
+| 89 项 Python 检查（按测试模块运行） | [tests](../tests/)、[服务输入检查](../tests/test_capture_service.py) | 核心、HTTP、预算、恢复、接收器6项、离线ingest6项；不含实际扩展加载。合并单进程discover在当前环境被SIGKILL，未计为通过 |
 | 9 项插件逻辑检查 | [extension/tests](../extension/tests/) | 采集模型、IndexedDB 与消息；替代 chrome API |
 | 真实 CDP→核心、独立 UI 检查 | [cdp.test.ts](../extension/tests/cdp.test.ts)、[ui.mjs](../extension/tests/ui.mjs) | 真实 Chromium，但不证明 MV3 权限/后台 |
 | MV3 现场脚本 | [mv3.mjs](../extension/tests/mv3.mjs) | 当日环境企业策略阻止加载，退出 2；**未通过**，不修改策略 |
@@ -119,7 +119,7 @@ I1–I3 是P1/P2增强黑盒一时的工作包，不再另建独立插件后才�
 
 浏览器只有64事件/4 MiB的JS元数据队列、顺序读源和在途/失败内存；JS单文件64 MiB、单个传输对象128 MiB。上传失败暂停任务，保留首个未确认内容供同会话“恢复”重试；其后未处理的窗口和排队事件以缺口计数，停止不能把未确认标为完成。内存队列/正文不写IndexedDB或storage；仅任务配置、计数、缺口/UI设置留本地，接收code已内置，不需要手动令牌。页面/请求URL仍在少量任务/错误元数据中，不宣称浏览器完全零磁盘。既有本地请求模式保持兼容，远端模式禁止切回本地或换接收端。
 
-验证：Python接收器6项包含大文件/Unicode/空正文、分块损坏、完整哈希、缺块、事件冲突、项目/认证/Origin、分页和库重新打开。插件新增真实HTTP传输测试覆盖丢ACK、伪造ACK、冲突、大请求事件、服务进程重启、错误令牌及失败暂停/内存重试；实际Chromium CDP通过同一Recorder连接采集两份3 MiB JS和含中文/emoji/重复查询参数/嵌套JSON的POST，逐事件JSON摘要、正文和具体参数回读一致；断言无本地JS库、无请求/活动快照落盘。本轮`npm test`含构建与20个文件、173项通过；后端88项按模块运行通过（含接收器6项、离线ingest5项）。合并单进程discover在当前环境被SIGKILL，未记为通过。真实MV3仍被企业策略阻止，未绕过。未开展长期唯一正文总量/RSS压力、远端TLS/公网部署或接收端持续分析验收。
+验证：Python接收器6项包含大文件/Unicode/空正文、分块损坏、完整哈希、缺块、事件冲突、项目/认证/Origin、分页和库重新打开。插件新增真实HTTP传输测试覆盖丢ACK、伪造ACK、冲突、大请求事件、服务进程重启、错误令牌及失败暂停/内存重试；实际Chromium CDP通过同一Recorder连接采集两份3 MiB JS和含中文/emoji/重复查询参数/嵌套JSON的POST，逐事件JSON摘要、正文和具体参数回读一致；断言无本地JS库、无请求/活动快照落盘。本轮`npm test`含构建与20个文件、173项通过；后端89项按模块运行通过（含接收器6项、离线ingest6项）。合并单进程discover在当前环境被SIGKILL，未记为通过。真实MV3仍被企业策略阻止，未绕过。未开展长期唯一正文总量/RSS压力、远端TLS/公网部署或接收端持续分析验收。
 
 ## 简化启动与连接（本轮）
 

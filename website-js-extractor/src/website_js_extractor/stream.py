@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import re
 import sqlite3
 import sys
@@ -660,6 +661,9 @@ def _inventory_row(snapshot, assets, host, method, path, members, records):
                 observed_request_ids=request_ids, observed_count=len(set(request_ids)) or len(records),
                 observed_request_count=len(records), observed_urls=sorted(
                     {str(item.get('request_url')) for item in records if item.get('request_url')}),
+                page_urls=sorted({str(item.get('page_url')) for item in records if item.get('page_url')}),
+                status_codes=sorted({item.get('status_code') for item in records
+                                     if isinstance(item.get('status_code'), int)}),
                 contexts=sorted(contexts), js_files=js_files,
                 parameters=dict(static=static_parameters, observed_query=observed_query,
                                 observed_body_keys=sorted(set(body_keys))),
@@ -675,7 +679,7 @@ def _write_inventory(output, report):
     write_csv(output/'api_inventory.csv',
               ['id', 'host', 'method', 'url_template', 'path_template', 'status', 'sources',
                'static_candidate_count', 'observed_count', 'observed_request_count', 'observed_urls',
-               'js_files', 'contexts'], inventory)
+               'page_urls', 'status_codes', 'js_files', 'contexts'], inventory)
     write_csv(output/'observed_requests.csv',
               ['request_id', 'request_url', 'method', 'status_code', 'page_url', 'initiator_url', 'tab_id', 'timestamp'],
               observed)
@@ -686,6 +690,13 @@ def ingest(args):
     output = args.out.resolve()
     if data_dir.is_symlink() or not data_dir.is_dir():
         print('Invalid capture data directory.', file=sys.stderr)
+        return 2
+    if output == data_dir or data_dir in output.parents:
+        print('Output must be outside the capture data directory.', file=sys.stderr)
+        return 2
+    if any(not math.isfinite(value) or value <= 0 for value in (args.timeout, args.discovery_timeout)) \
+            or min(args.max_files, args.max_asset_mib, args.max_total_mib) <= 0 or args.max_js_depth < 0:
+        print('Budgets and timeout must be positive.', file=sys.stderr)
         return 2
     if output.exists() and (not output.is_dir() or any(output.iterdir())):
         print('Output must be absent or an empty directory; refusing to overwrite.', file=sys.stderr)
