@@ -591,28 +591,35 @@ def build_inventory(snapshot, candidates):
             continue
         observed[(parts[0], method, parts[1])].append(record)
     static_regex = {key: _candidate_regex(key[2]) for key in static}
-    matched_observed = set()
+    assignments = {}
+    for observed_key, records in observed.items():
+        host, method, path = observed_key
+        exact = (host, method, path)
+        if exact in static:
+            assignments[observed_key] = exact
+            continue
+        candidates = [key for key in static
+                      if key[0] == host and key[1] == method and static_regex[key].match(path)]
+        if len(candidates) == 1:
+            assignments[observed_key] = candidates[0]
+        elif len(candidates) > 1:
+            # Do not guess between multiple static templates that match the same concrete path.
+            unresolved.append(dict(kind='observed', request_ids=sorted(str(item.get('request_id') or '') for item in records),
+                                   reason='ambiguous_static_match', observed_url=records[0].get('request_url'),
+                                   candidate_ids=sorted(item['id'] for key in candidates for item in static[key])))
+        else:
+            assignments[observed_key] = None
     rows = []
     for key, members in static.items():
         host, method, path = key
-        matches = []
-        for observed_key, records in observed.items():
-            if observed_key[0] != host or observed_key[1] != method:
-                continue
-            # Exact path wins; a template only matches when it is the only candidate form.
-            if observed_key[2] == path:
-                matches.extend(records)
-            elif static_regex[key].match(observed_key[2]):
-                matches.extend(records)
-        matched_observed.update(id(record) for record in matches)
-        row = _inventory_row(snapshot, assets, host, method, path, members, matches)
-        rows.append(row)
+        matches = [record for observed_key, records in observed.items()
+                   if assignments.get(observed_key) == key for record in records]
+        rows.append(_inventory_row(snapshot, assets, host, method, path, members, matches))
     for key, records in observed.items():
-        host, method, path = key
-        if all(id(record) in matched_observed for record in records):
+        if assignments.get(key) is not None:
             continue
-        row = _inventory_row(snapshot, assets, host, method, path, [], records)
-        rows.append(row)
+        host, method, path = key
+        rows.append(_inventory_row(snapshot, assets, host, method, path, [], records))
     rows.sort(key=lambda row: (row['host'], row['method'], row['path_template']))
     return rows, unresolved
 
@@ -647,11 +654,13 @@ def _inventory_row(snapshot, assets, host, method, path, members, records):
         if asset and asset.get('context_id'):
             contexts.add(asset['context_id'])
     return dict(id='api-' + digest([host, method, path])[:20], host=host, method=method,
-                path_template=path, sources=sources,
+                url_template=host + path, path_template=path, sources=sources,
                 status='matched' if members and records else 'static-only' if members else 'observed-only',
                 static_candidate_ids=candidate_ids, static_candidate_count=len(candidate_ids),
                 observed_request_ids=request_ids, observed_count=len(set(request_ids)) or len(records),
-                observed_request_count=len(records), contexts=sorted(contexts), js_files=js_files,
+                observed_request_count=len(records), observed_urls=sorted(
+                    {str(item.get('request_url')) for item in records if item.get('request_url')}),
+                contexts=sorted(contexts), js_files=js_files,
                 parameters=dict(static=static_parameters, observed_query=observed_query,
                                 observed_body_keys=sorted(set(body_keys))),
                 evidence=dict(static_candidate_ids=candidate_ids, observed_request_ids=request_ids))
@@ -664,8 +673,9 @@ def _write_inventory(output, report):
     (output/'observed_requests.json').write_text(json.dumps(observed, ensure_ascii=False, indent=2), encoding='utf-8')
     from .results import write_csv
     write_csv(output/'api_inventory.csv',
-              ['id', 'host', 'method', 'path_template', 'status', 'sources', 'static_candidate_count',
-               'observed_count', 'observed_request_count', 'js_files', 'contexts'], inventory)
+              ['id', 'host', 'method', 'url_template', 'path_template', 'status', 'sources',
+               'static_candidate_count', 'observed_count', 'observed_request_count', 'observed_urls',
+               'js_files', 'contexts'], inventory)
     write_csv(output/'observed_requests.csv',
               ['request_id', 'request_url', 'method', 'status_code', 'page_url', 'initiator_url', 'tab_id', 'timestamp'],
               observed)
@@ -691,7 +701,7 @@ def ingest(args):
     records, candidates, groups, other = [], [], [], []
     inventory, unresolved = [], []
     statistics = {}
-    task = dict(id=str(args.scan or ''), schema_version='0.6', tool_version=__version__, engine=LOCK,
+    task = dict(id=str(args.scan or ''), schema_version='0.5', tool_version=__version__, engine=LOCK,
                 input=str(data_dir), input_type=SCHEMA, started_at=datetime.now(timezone.utc).isoformat(),
                 phase='ingest', status='running', settings=dict(project=args.project, scan=args.scan,
                                                                  max_files=args.max_files,
