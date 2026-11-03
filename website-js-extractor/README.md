@@ -58,7 +58,7 @@ PYTHONPATH=website-js-extractor/src python3 -m website_js_extractor.cli ingest \
   --scan <可选scan-id>
 ```
 
-省略`--scan`时取最近活动任务。命令读取`capture.sqlite3`，物化已完成校验的JS正文，归一化执行上下文、脚本、JS加载和实测请求，随后复用引用图、固定jshound和候选生成，输出：
+省略`--scan`时取最近活动任务。命令读取`capture.sqlite3`，物化已完成校验的JS正文，归一化执行上下文、脚本、JS加载和实测请求，随后复用引用图、固定jshound和候选生成。默认最多1000个文件、单文件64 MiB、正文总量128 MiB，超过预算的脚本登记缺口而不是静默截断；可用`--max-files`、`--max-asset-mib`、`--max-total-mib`调整。输出：
 
 - `analysis.json`：任务、上下文、脚本、静态候选、缺口和计数；
 - `api_inventory.json` / `api_inventory.csv`：静态候选与实测请求按Host+Method+路径保守关联，状态为`matched`、`static-only`或`observed-only`；

@@ -35,7 +35,7 @@ def parser():
     ingest.add_argument('--timeout', type=float, default=120)
     ingest.add_argument('--discovery-timeout', type=float, default=60)
     ingest.add_argument('--max-files', type=int, default=1000)
-    ingest.add_argument('--max-asset-mib', type=int, default=20)
+    ingest.add_argument('--max-asset-mib', type=int, default=64)
     ingest.add_argument('--max-total-mib', type=int, default=128)
     ingest.add_argument('--max-js-depth', type=int, default=3)
     run = commands.add_parser('analyze')
