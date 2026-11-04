@@ -1,3 +1,7 @@
+# 历史原型调试说明（非当前生产入口）
+
+当前唯一插件见[生产工程](../../browser-extension/README.md)，后端见[启动说明](../../backend/README.md)。下文保留历史验证方法，不代表新链路功能完成。
+
 # 原型调试说明：现有采集原型与本机后端
 
 生产方向已改为增强黑盒一作为唯一插件，黑盒二只交付远端后端。本文记录现有独立采集原型和本机HTTP的真实调试方法，供迁移/回归使用；不作为第二个插件产品继续建设。当前仍保留这些代码，尚未迁移或删除。它收集浏览器已解析 JS，保存完整源码和观察，冻结快照，调用同一分析核心展示四项候选与缺口。尚未完成真实目标 Chrome MV3 验收或集成黑盒一；不保证静态未加载脚本的 D3 补抓、所有子目标基址、精确调用位置、正式统计或 Excel。
@@ -10,12 +14,12 @@
 git submodule update --init references/repos/jshound
 python -m venv work/website-js-extractor-venv
 work/website-js-extractor-venv/bin/python -m pip install -e ./website-js-extractor
-cd website-js-extractor/extension
+cd backend/extension
 npm ci
 npm run build
 ```
 
-在允许自定义扩展的目标 Chrome 打开扩展管理页，启用开发者模式，加载已解压的 `website-js-extractor/extension/dist/`。点击插件图标打开管理页，复制其中的扩展 ID。本工程的扩展与黑盒一暂时独立加载；若某网页已由黑盒一或 DevTools 占用调试会话，采集会记连接缺口，不强行接管。
+在允许自定义扩展的目标 Chrome 打开扩展管理页，启用开发者模式，加载已解压的 `backend/extension/dist/`。点击插件图标打开管理页，复制其中的扩展 ID。本工程的扩展与黑盒一暂时独立加载；若某网页已由黑盒一或 DevTools 占用调试会话，采集会记连接缺口，不强行接管。
 
 2026-10-30 的开发环境验证记录显示企业策略禁止自定义扩展，该次现场项未验收；这不是产品在所有机器上均受限的结论。请记录实际目标环境，不修改策略绕过限制。构建、替代 API 或普通网页 UI 检查不能代替 MV3 现场通过。
 
@@ -49,7 +53,7 @@ work/website-js-extractor-venv/bin/python -m website_js_extractor analyze --capt
 
 ## 原型预算与恢复边界
 
-实际插件、上传、作业与报告预算统一见[协议预算表](protocol.md#原型预算来源)，不在此重复默认值。超限不保存半截源码；额外缺口数量单列。原型尚无历史任务/快照自动清理与增量恢复，归档后再按用户意图清理，不自动删除旧数据腾空间。
+实际插件、上传、作业与报告预算统一见[协议预算表](../../backend/docs/protocol.md#原型预算来源)，不在此重复默认值。超限不保存半截源码；额外缺口数量单列。原型尚无历史任务/快照自动清理与增量恢复，归档后再按用户意图清理，不自动删除旧数据腾空间。
 
 上传 JSON 的字节预算与源码预算分别计；重复正文在不同上下文仍可保留不同观察。相同 snapshot_id 重传内容一致时返回同一作业；内容变化则拒绝，想重跑应生成新快照 ID。旧快照不因后续采集而修改。
 
@@ -83,11 +87,11 @@ work/website-js-extractor-venv/bin/python -m website_js_extractor analyze --resu
 | `--seed-js` | 明确把已导入JS设为D1；不自动把所有加载文件当根种子 |
 | `--session-file` | 本地JSON，规范精确origin映射显式请求头；仅与fetch-js使用，不复制HAR认证或跨域继承 |
 
-网络额度为初始输入剩余字节，包含失败读取成本；不能当网卡流量。导入关联仍受输入预算，完整响应也可能在入库时因预算被拒绝。CLI 补取是新观察，不证明与旧 HAR 同版。Worker/动态script 的支持边界和 UTF-16 引用位置见[分析设计](analysis-design.md)，实际输出/退出码见[协议](protocol.md)。
+网络额度为初始输入剩余字节，包含失败读取成本；不能当网卡流量。导入关联仍受输入预算，完整响应也可能在入库时因预算被拒绝。CLI 补取是新观察，不证明与旧 HAR 同版。Worker/动态script 的支持边界和 UTF-16 引用位置见[分析设计](../../backend/docs/analysis-design.md)，实际输出/退出码见[协议](../../backend/docs/protocol.md)。
 
 ## 验证入口
 
-在 `website-js-extractor/extension/` 执行：
+在 `backend/extension/` 执行：
 
 ```bash
 npm ci
@@ -98,18 +102,18 @@ npm run test:ui
 npm run test:mv3
 ```
 
-默认 npm test 是无需 Chrome 的逻辑/存储/消息检查；其余三个入口需要实际 Chromium，可用 CHROMIUM_PATH 指定位置。CDP检查读取真实协议源码并调用真实核心，UI检查替代扩展API和服务响应，MV3检查才加载真实扩展。验证分层、故障矩阵及发布规则只见[testing](testing.md)。现场脚本可通过 PYTHON 指定分析环境，Windows发行仍需另验。
+默认 npm test 是无需 Chrome 的逻辑/存储/消息检查；其余三个入口需要实际 Chromium，可用 CHROMIUM_PATH 指定位置。CDP检查读取真实协议源码并调用真实核心，UI检查替代扩展API和服务响应，MV3检查才加载真实扩展。验证分层、故障矩阵及发布规则只见[testing](../../backend/docs/testing.md)。现场脚本可通过 PYTHON 指定分析环境，Windows发行仍需另验。
 
 Python检查从仓库根目录执行：
 
 ```bash
-work/website-js-extractor-venv/bin/python -m unittest discover -s website-js-extractor/tests -v
-work/website-js-extractor-venv/bin/python website-js-extractor/tests/check_baseline.py --public
-work/website-js-extractor-venv/bin/python website-js-extractor/tests/check_collection.py
-work/website-js-extractor-venv/bin/python website-js-extractor/tests/check_collection_load.py
-work/website-js-extractor-venv/bin/python website-js-extractor/tests/check_workers.py --prepare
+work/website-js-extractor-venv/bin/python -m unittest discover -s backend/tests -v
+work/website-js-extractor-venv/bin/python backend/tests/check_baseline.py --public
+work/website-js-extractor-venv/bin/python backend/tests/check_collection.py
+work/website-js-extractor-venv/bin/python backend/tests/check_collection_load.py
+work/website-js-extractor-venv/bin/python backend/tests/check_workers.py --prepare
 ```
 
-基线需要[开源实测](../../references/blackbox2-experiment/README.md)准备的固定资产；检查器验证原始/压缩/public哈希及预期字段。Worker首次 `--prepare` 显式下载固定 MDN Commit 并校验哈希，后续去掉该参数只用本地。公开正文/报告仅放 work；许可见[第三方说明](../THIRD_PARTY_NOTICES.md)。
+基线需要[开源实测](../../references/blackbox2-experiment/README.md)准备的固定资产；检查器验证原始/压缩/public哈希及预期字段。Worker首次 `--prepare` 显式下载固定 MDN Commit 并校验哈希，后续去掉该参数只用本地。公开正文/报告仅放 work；许可见[第三方说明](../../backend/THIRD_PARTY_NOTICES.md)。
 
-当前可复核结果索引只在[计划](plan.md#3-已有证据索引)维护。后续共享会话和黑盒一接入只见[架构](architecture.md#5-黑盒一集成方案仅设计)，本轮不实施集成。
+当前可复核结果索引只在[计划](../../backend/docs/plan.md)维护。后续共享会话和黑盒一接入只见[架构](../../backend/docs/architecture.md#4-插件会话与失败隔离)，本轮不实施集成。

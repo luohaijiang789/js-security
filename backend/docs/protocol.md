@@ -1,4 +1,6 @@
-# 黑盒二结果与补取协议 0.5
+# 实际接收与分析协议
+
+生产插件使用本文后半的capture-stream-2及/v1/projects接收路由；前半capture-0.1、result/checkpoint 0.5和/v0是离线/历史兼容。目录已迁到backend，包名与wire格式不变。新产品边界以[总览](../../docs/overview.md)为准，Agent任务为[独立目标](agent.md)，不在现有wire上伪造已支持字段。
 
 0.5 增加浏览器 capture-0.1 输入及 capture_context，继续保留并发预算、Worker 上下文与动态 script 引用；不等同于已完成全量 API 统计。进度只在[执行计划](plan.md)维护。
 
@@ -83,11 +85,11 @@ Worker 的相对请求和 importScripts 用主脚本最终 URL；模块导入用
 
 `--capture` 接收 capture-0.1 的完整 JS 正文、SHA256、上下文和采集缺口；先验证大小、哈希及同 context_key 的基址一致性，再导入。未知上下文禁止附带猜测基址。Asset.capture_context 为浏览器静态观察，request_base_url 由此保留（包括 null），不能回退到页面或 CDN 地址猜 Host。0.5 checkpoint 保留此字段，旧 0.4 读取器必须拒绝新版本，避免丢失基址语义；本版本仍可恢复 0.2–0.4。
 
-HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由仅接收 loopback + 精确扩展 Origin + 随机密钥。capabilities.protocol=capture-0.1、result_schema=0.5、offline_only=true。不是正式 /v1，也不替代持久任务、分块上传或完整配对协议。只接收有界正文，不接受待下载 URL 或命令。详见[插件说明](plugin.md)。
+HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由仅接收 loopback + 精确扩展 Origin + 随机密钥。capabilities.protocol=capture-0.1、result_schema=0.5、offline_only=true。不是正式 /v1，也不替代持久任务、分块上传或完整配对协议。只接收有界正文，不接受待下载 URL 或命令。详见[插件说明](../README.md)。
 
 ## capture-0.1 最小输入例子
 
-以下是校验结构示例，不表示源码已执行；实际 content/sha256 必须匹配。完整前端类型见 [model.ts](../extension/src/model.ts)，接收端约束见 [capture.py](../src/website_js_extractor/capture.py)。
+以下是校验结构示例，不表示源码已执行；实际 content/sha256 必须匹配。完整前端类型见 [model.ts](../../legacy/js-capture-extension/src/model.ts)，接收端约束见 [capture.py](../src/website_js_extractor/capture.py)。
 
 ```json
 {
@@ -113,7 +115,7 @@ HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由�
 
 ## 当前 /v0 路由
 
-所有路由要求精确扩展 Origin、对应 loopback Host 和 `Authorization: Bearer <本次密钥>`；OPTIONS仅校验Origin/Host并返回限定的预检许可，不返回任务。密钥生成/填写方式见[使用说明](plugin.md)。
+所有路由要求精确扩展 Origin、对应 loopback Host 和 `Authorization: Bearer <本次密钥>`；OPTIONS仅校验Origin/Host并返回限定的预检许可，不返回任务。密钥生成/填写方式见[使用说明](../README.md)。
 
 | 方法/路径 | 成功结果 | 错误/状态语义 |
 | --- | --- | --- |
@@ -127,12 +129,12 @@ HTTP 原型 /v0/capabilities、/v0/jobs、/v0/jobs/{id}、result/cancel 路由�
 
 ## 原型预算来源
 
-下表只描述当前代码，不是生产性能承诺；CLI实验的参数和默认值见[命令行用法](plugin.md#命令行调试与重放)。插件/服务/CLI额度不是同一计数器，不能混用。
+下表只描述当前代码，不是生产性能承诺；CLI实验的参数和默认值见[命令行用法](../README.md)。插件/服务/CLI额度不是同一计数器，不能混用。
 
 | 层/来源 | 当前上限或行为 |
 | --- | --- |
-| [插件model](../extension/src/model.ts) | 单任务300个源码观察、单正文2 MiB、累计12 MiB、60个目标、500个会话源码排队标识、200条逐项缺口（额外数量保留） |
-| [Collector](../extension/src/capture.ts) | 读取并发2；单命令默认5秒；停止读取等待7秒，超时记缺口，仍需分离/持久化，不等于全动作7秒内完成 |
+| [插件model](../../legacy/js-capture-extension/src/model.ts) | 单任务300个源码观察、单正文2 MiB、累计12 MiB、60个目标、500个会话源码排队标识、200条逐项缺口（额外数量保留） |
+| [Collector](../../legacy/js-capture-extension/src/capture.ts) | 读取并发2；单命令默认5秒；停止读取等待7秒，超时记缺口，仍需分离/持久化，不等于全动作7秒内完成 |
 | [捕获输入校验](../src/website_js_extractor/capture.py) | 1–300个完整源码、单正文2 MiB、累计12 MiB；最多201条输入缺口含汇总 |
 | [本机服务](../src/website_js_extractor/service.py) | JSON上传20 MiB；最多保存20个作业，单作业执行；发现40秒、引擎120秒、作业总180秒；HTTP结果读取64 MiB |
 
@@ -174,4 +176,4 @@ kind包括Debugger.scriptParsed、执行上下文生命周期、Script网络加�
 
 预算：JS源码64 MiB、通用传输对象/单事件JSON128 MiB，分块256 KiB；普通事件包最多8 MiB，大事件用对象引用。JS元数据队列64事件/4 MiB，单次读源2秒，网络请求（含读响应）5秒，网络错误/408/429/5xx最多3次，无效ACK不得算成功；失败保留首份未确认数据在内存并暂停，同会话恢复时可重试。后续未处理窗口/队列溢出登记缺口；关闭/崩溃后无法找回。字节预算不等于RSS，CDP整串返回和JSON编码会有临时副本；浏览器不做SHA-256，哈希只在服务端提交时计算一次。分页除条数外还有4 MiB目标预算，超大单条可单独返回，UI使用摘要避免回读大记录。
 
-服务端SQLite使用WAL和synchronous=FULL，块/完整对象/事件各自事务提交后确认；部署目录需持久磁盘。完整ACK不等于高可用/备份/无限容量或全站采集无遗漏。接收端只负责接收/回读，不自动触发静态分析、引用补抓或API访问；显式`ingest`命令离线读取同一SQLite并复用核心，见[使用说明](../README.md#分析已接收的数据)。
+服务端SQLite使用WAL和synchronous=FULL，块/完整对象/事件各自事务提交后确认；部署目录需持久磁盘。完整ACK不等于高可用/备份/无限容量或全站采集无遗漏。接收端只负责接收/回读，不自动触发静态分析、引用补抓或API访问；显式`ingest`命令离线读取同一SQLite并复用核心，见[使用说明](../README.md#启动与分析)。

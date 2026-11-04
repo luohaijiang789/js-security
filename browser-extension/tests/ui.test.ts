@@ -1145,7 +1145,7 @@ it('远端任务只查询远端证据和源码，不创建本地JS库', async ()
    window.fetch=async(input,init)=>{
     if(String(input).startsWith('https://receiver.test/')) {
      if(String(input).includes('/objects/'))return new Response("fetch('/ui-api')");
-     return Response.json({events:[{id:'remote-event',scan_id:'ui-latest',kind:'Debugger.scriptParsed',status:'captured',hash:'4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5',data:{url:'https://fixture.test/app.js'}}],count:1,next:1,has_more:false});
+     return Response.json({events:[{id:'remote-event',scan_id:'ui-latest',kind:'Debugger.scriptParsed',category:'js_source',status:'captured',object_id:'4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5',data:{url:'https://fixture.test/app.js'}}],count:1,next:1,has_more:false});
     }
     return original(input,init);
    };

@@ -1,7 +1,0 @@
-node_modules
-coverage/
-reports/
-work/
-/benchmarks/
-*.tgz
-*.zip
