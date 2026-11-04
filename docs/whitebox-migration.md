@@ -1,46 +1,21 @@
-# 白盒独立仓库迁移
+# 白盒独立仓库
 
-## 实际状态
+迁移已完成。白盒后续需求、设计、计划和实现统一在 [frontend-api-extractor](https://github.com/luohaijiang789/frontend-api-extractor) 维护；本仓只负责黑盒插件和分析后端，不维护第二份白盒内容。
 
 | 项目 | 状态 |
 | --- | --- |
-| 原始输入 | js-security的`frontend-api-extractor/`，来源Commit `25f46fc` |
-| 独立本地Git | `/workspace/frontend-api-extractor`，main分支；设计阶段，无运行代码 |
-| 迁移清单 | 新仓`migration-source.json`含来源完整Commit与原文件SHA-256 |
-| 独立提交 | `9006f0d`，重新建立白盒独立历史；原历史在js-security保留 |
-| 目标远端 | `luohaijiang789/frontend-api-extractor`，默认私有，尚未创建 |
-| 阻塞原因 | `gh repo create`访问GitHub API返回Forbidden；现有连接器无建仓能力、无可用浏览器建仓入口 |
-| 持久恢复入口 | js-security的独立根目录分支`migration/whitebox-export`；本地另有已验证Git bundle |
+| 正式仓库 | https://github.com/luohaijiang789/frontend-api-extractor |
+| 发布分支/提交 | main / `3bfe6ca` |
+| 原始来源 | js-security的frontend-api-extractor子目录，来源Commit `25f46fc` |
+| 来源校验 | 新仓migration-source.json保存完整来源Commit及原文件SHA-256 |
+| 独立历史 | `9006f0d`为独立根提交；原子目录历史继续保留在js-security |
+| 当前能力 | 设计阶段，尚无可运行白盒CLI/服务；黑盒能力不算白盒已实现 |
+| 历史备份 | migration/whitebox-export仅作迁移备份，后续不在该分支开发 |
 
-导出分支用来在新仓创建受阻时保存独立项目，不把它称为GitHub新仓。主仓保留迁移指针，不继续维护白盒实现或重复计划。本次未改写主仓历史。
-
-## 创建远端后发布
-
-有建仓权限的GitHub入口创建空私有仓库`frontend-api-extractor`（不自动初始化README），再从独立本地仓库执行：
+获取白盒项目：
 
 ```bash
-cd /workspace/frontend-api-extractor
-git push -u origin main
-git ls-remote origin refs/heads/main
+git clone https://github.com/luohaijiang789/frontend-api-extractor.git
 ```
 
-核对远端SHA与本地HEAD一致后，将本表远端状态改为完成；在此之前不得称新GitHub仓库已创建。
-
-## 从导出分支恢复
-
-另一台机器可获得完全独立目录：
-
-```bash
-git clone --single-branch --branch migration/whitebox-export https://github.com/luohaijiang789/js-security.git frontend-api-extractor
-cd frontend-api-extractor
-git branch -m main
-git remote set-url origin https://github.com/luohaijiang789/frontend-api-extractor.git
-```
-
-确认新仓为空且可写后再`git push -u origin main`。分支包含白盒README、AGENTS、需求/架构/算法/验收/计划和迁移来源，不包含浏览器插件/黑盒接收器/采集数据。
-
-本地bundle保存于主仓忽略目录`work/restructure/frontend-api-extractor.bundle`，可用`git clone <bundle路径> <新目录>`恢复；bundle不作为产品依赖提交。
-
-## 主仓迁移验证
-
-后端92项自动化通过；生产插件构建通过。插件全套首次运行178项通过、1项UI样例仍使用旧hash字段失败；改为当前v2的object_id后复跑UI全部10项通过。真实本地HTTP接收测试使用新backend路径通过。主仓和白盒相对链接检查均无失效项；真实MV3、实际远端部署与Agent不在本次通过声明内。
+浏览器插件、黑盒接收器及采集数据没有迁入白盒仓库。本地独立工作区为`/workspace/frontend-api-extractor`，已跟踪新仓origin/main。此前GitHub建仓权限阻塞已由用户创建仓库解决。
