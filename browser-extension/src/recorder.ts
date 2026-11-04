@@ -1,5 +1,5 @@
 import { RemoteCapture } from "./remote-capture";
-import { AssetIndex, hostOf } from "./asset-index";
+import { AssetIndex, hostOf, assetScope } from "./asset-index";
 import {
   defaults,
   gap,
@@ -84,9 +84,13 @@ export class Recorder {
   observedByURL = new Map<string, Map<string, string[]>>();
   observedByCdpId = new Map<string, Map<string, string>>();
   initiatorNodes: InitiatorNode[] = [];
-  constructor(public send: (s: Source, m: string, p?: object) => Promise<any>, remote?: RemoteCapture) {
+  constructor(
+    public send: (s: Source, m: string, p?: object) => Promise<any>,
+    remote?: RemoteCapture,
+  ) {
     this.stacks = new StackCapture(send);
-    this.remote = remote ?? new RemoteCapture(() => this.scan?.config.remote_capture);
+    this.remote =
+      remote ?? new RemoteCapture(() => this.scan?.config.remote_capture);
     this.js = new JSCapture(send, this.stacks, this.remote, this.assets);
   }
   async create(
@@ -95,10 +99,13 @@ export class Recorder {
     config: Config,
     tabScope: "all" | "selected" = "selected",
   ) {
-    if (this.remote.failed) throw Error("仍有内存中的未确认数据，请先恢复重试上传");
+    if (this.remote.failed)
+      throw Error("仍有内存中的未确认数据，请先恢复重试上传");
     if (this.scan && this.scan.state !== "ended")
       throw Error("请先停止当前任务");
-    await this.assets.load(config.remote_capture?.project ?? "");
+    await this.assets.load(
+      config.remote_capture ? assetScope(config.remote_capture) : "",
+    );
     this.js = new JSCapture(this.send, this.stacks, this.remote, this.assets);
     const time = now();
     this.scan = {
@@ -117,7 +124,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.7.1",
+      plugin: "0.8.0",
       stats: {
         observed: 0,
         pending: 0,
@@ -145,9 +152,23 @@ export class Recorder {
     this.connection = uid();
     await db.put("scans", this.scan);
     if (config.remote_capture) {
-      try { await this.remote.send({id: `task:${this.scan.id}:started`, scan_id:this.scan.id,
-        kind:'TaskStarted',category:'task',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{scan:structuredClone(this.scan)}}); }
-      catch(error) {this.scan.state='paused';gap(this.scan,'remote_upload_failure',String(error));await this.flush();}
+      try {
+        await this.remote.send({
+          id: `task:${this.scan.id}:started`,
+          scan_id: this.scan.id,
+          kind: "TaskStarted",
+          category: "task",
+          time: now(),
+          session_id: "task",
+          epoch: this.connection,
+          status: "captured",
+          data: { scan: structuredClone(this.scan) },
+        });
+      } catch (error) {
+        this.scan.state = "paused";
+        gap(this.scan, "remote_upload_failure", String(error));
+        await this.flush();
+      }
     }
     return this.scan;
   }
@@ -291,7 +312,13 @@ export class Recorder {
     }
     if (source.tabId !== undefined && this.unavailableTabs.has(source.tabId))
       return;
-    this.js.enqueue(scan, source, method, p, this.targets.get(`${source.tabId}:${source.sessionId}`));
+    this.js.enqueue(
+      scan,
+      source,
+      method,
+      p,
+      this.targets.get(`${source.tabId}:${source.sessionId}`),
+    );
     if (!method.startsWith("Network.")) return;
     const key = this.key(source, p.requestId);
     let channel = this.channels.get(key);
@@ -833,19 +860,35 @@ export class Recorder {
     if (config.remote_capture) {
       const url = safe.request_url,
         host = hostOf(url),
-        project = config.remote_capture.project;
+        project = assetScope(config.remote_capture);
       try {
-        await this.remote.send({id: `request:${safe.request_id}`, scan_id: scan.id,
-          kind: 'ObservedRequest', category: 'api_request', time: now(), tab_id: safe.tab_id,
-          session_id: safe.session_id, epoch: this.connection, data: {record: safe, url, host}, status: 'captured'});
+        await this.remote.send({
+          id: `request:${safe.request_id}`,
+          scan_id: scan.id,
+          kind: "ObservedRequest",
+          category: "api_request",
+          time: now(),
+          tab_id: safe.tab_id,
+          session_id: safe.session_id,
+          epoch: this.connection,
+          data: { record: safe, url, host },
+          status: "captured",
+        });
         scan.stats.persisted++; // Remote durable records; no local payload write.
         this.assets.observe(project, "api", url, host, { sent: true });
       } catch (error) {
-        scan.state = 'paused';
-        gap(scan, 'remote_upload_failure', String(error), safe.request_id);
+        scan.state = "paused";
+        gap(scan, "remote_upload_failure", String(error), safe.request_id);
       }
-      h.record = {...safe, request_headers: [], response_headers: [], query_params: [],
-        request_body: {representation: 'released', parsed: null}, response_body: undefined, initiator_stack: null};
+      h.record = {
+        ...safe,
+        request_headers: [],
+        response_headers: [],
+        query_params: [],
+        request_body: { representation: "released", parsed: null },
+        response_body: undefined,
+        initiator_stack: null,
+      };
       return;
     }
 
@@ -998,24 +1041,31 @@ export class Recorder {
     try {
       const scan = this.scan;
       scan.heartbeat = now();
+      if (scan.config.remote_capture) {
+        scan.delivery = this.remote.status(scan.id) ?? scan.delivery;
+        if (scan.delivery)
+          scan.stats.persisted = this.remote.requestCount(scan.id);
+      }
       const entries = this.entries.slice();
       const groups = new Map(
         [...this.groups].map(([id, g]) => [id, structuredClone(g)]),
       );
-      const active = scan.config.remote_capture ? [] : [...this.channels.values()].flatMap((c) =>
-        c.hops
-          .filter((h) => !h.done)
-          .map((h) => {
-            const config = scan.versions.find(
-              (version) => version.version === h.record.filter_version,
-            )?.config;
-            const effective = config ?? defaults();
-            return protectRecord(
-              selectRecordFields(h.record, effective),
-              effective.value_storage !== "complete",
-            );
-          }),
-      );
+      const active = scan.config.remote_capture
+        ? []
+        : [...this.channels.values()].flatMap((c) =>
+            c.hops
+              .filter((h) => !h.done)
+              .map((h) => {
+                const config = scan.versions.find(
+                  (version) => version.version === h.record.filter_version,
+                )?.config;
+                const effective = config ?? defaults();
+                return protectRecord(
+                  selectRecordFields(h.record, effective),
+                  effective.value_storage !== "complete",
+                );
+              }),
+          );
       const initiatorNodes = this.initiatorNodes.slice();
       const snapshot = structuredClone(scan);
       const bytes = [...entries, ...initiatorNodes].reduce(
@@ -1059,10 +1109,18 @@ export class Recorder {
       throw Error("任务不可恢复");
     if (this.scan.config.remote_capture) {
       await this.js.drain();
+      await this.remote.restore(this.scan.id);
       const before = this.remote.requestCount(this.scan.id);
       await this.remote.retry();
-      this.scan.stats.persisted += this.remote.requestCount(this.scan.id) - before;
+      this.scan.stats.persisted +=
+        this.remote.requestCount(this.scan.id) - before;
       this.js.resetFailure();
+      if (this.remote.isSealed(this.scan.id)) {
+        this.scan.state = "ended";
+        this.scan.ended_at ??= now();
+        await this.flush();
+        return;
+      }
     }
     for (const g of this.scan.gaps)
       if (
@@ -1080,7 +1138,10 @@ export class Recorder {
       !["recording", "paused", "interrupted"].includes(this.scan.state)
     )
       throw Error("当前任务状态不能修改配置");
-    if (JSON.stringify(this.scan.config.remote_capture) !== JSON.stringify(config.remote_capture))
+    if (
+      JSON.stringify(this.scan.config.remote_capture) !==
+      JSON.stringify(config.remote_capture)
+    )
       throw Error("任务中不能切换存储模式或远端地址，请新建任务");
     this.scan.config = structuredClone(config);
     this.scan.versions.push({
@@ -1093,6 +1154,8 @@ export class Recorder {
   async stop() {
     if (!this.scan || this.scan.state === "ended") return;
     if (this.scan.state === "draining") throw Error("任务正在收尾，请等待完成");
+    if (this.scan.config.remote_capture)
+      await this.remote.restore(this.scan.id);
     this.scan.state = "draining";
     await this.flush();
     const until = Date.now() + this.scan.config.stop_wait_ms;
@@ -1110,10 +1173,29 @@ export class Recorder {
     await this.js.drain();
     if (this.scan.config.remote_capture) {
       try {
-        if (this.remote.failed) throw Error("仍有未确认数据，请恢复重试，不能标记已完成");
-        await this.remote.send({id:`task:${this.scan.id}:checkpoint:${uid()}`, scan_id:this.scan.id,
-          kind:'TaskCheckpoint',category:'task',time:now(),session_id:'task',epoch:this.connection,status:'captured',data:{phase:'stop',scan:structuredClone(this.scan)}});
-      } catch(error) {this.scan.state='paused';gap(this.scan,'remote_upload_failure',String(error));await this.flush();throw error;}
+        await this.remote.drain();
+        if (this.remote.failed)
+          throw Error("仍有未确认数据，请恢复重试，不能标记已完成");
+        if (!this.remote.isSealed(this.scan.id))
+          await this.remote.send({
+            id: `task:${this.scan.id}:checkpoint:${uid()}`,
+            scan_id: this.scan.id,
+            kind: "TaskCheckpoint",
+            category: "task",
+            time: now(),
+            session_id: "task",
+            epoch: this.connection,
+            status: "captured",
+            data: { phase: "stop", scan: structuredClone(this.scan) },
+          });
+        if (!this.remote.isSealed(this.scan.id))
+          await this.remote.seal(this.scan.id);
+      } catch (error) {
+        this.scan.state = "paused";
+        gap(this.scan, "remote_upload_failure", String(error));
+        await this.flush();
+        throw error;
+      }
     }
     await this.flush();
     if (this.failure) throw Error(this.failure);

@@ -103,4 +103,4 @@ flowchart TD
 | `jshound/analyze.py::js_files`、`_build_module_index` | 有目录资产枚举和跨文件模块索引逻辑 | 内部模块、跨文件 wrapper、调用者和实例隔离 |
 | `jshound/js/static_ast.js` | JS 静态分析入口之一 | 用冻结样本核验四项信息及请求加工能力 |
 
-参考源码见 [jshound](../references/repos/jshound/)。下一步先按“直接、依赖自发、多层调用、请求加工”四类建立人工预期，再对固定输入运行基线；实现顺序见[黑盒二计划](../backend/docs/plan.md)。
+参考源码见 [jshound](../references/repos/jshound)。下一步先按“直接、依赖自发、多层调用、请求加工”四类建立人工预期，再对固定输入运行基线；实现顺序见[黑盒二计划](plan.md)。

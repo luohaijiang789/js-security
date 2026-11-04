@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, nextTick, onMounted, onUnmounted, watch } from "vue";
 import JSCapturePanel from "./JSCapturePanel.vue";
-import StaticExplorer from "./StaticExplorer.vue";
 import SimpleFilter from "./SimpleFilter.vue";
 import FieldSelector from "./FieldSelector.vue";
 import SlsFieldSelector from "./SlsFieldSelector.vue";
@@ -51,7 +50,6 @@ const detail = ref<RecordEntry | null>(null),
 const filterText = ref("{}"),
   filterValid = ref(true),
   filterFeedback = ref("");
-const jsCapturing=ref(false);
 const section = ref("请求"),
   mode = ref("原始"),
   search = ref(""),
@@ -147,7 +145,7 @@ watch(filterText, () => {
   filterFeedback.value = "";
 });
 const canStart = computed(
-  () => !jsCapturing.value&&(!current.value || current.value.state === "ended"),
+  () => !current.value || current.value.state === "ended",
 );
 function safeForm(value: unknown, base: any): any {
   if (!value || typeof value !== "object" || Array.isArray(value)) return base;
@@ -418,6 +416,7 @@ function groupMembers(group: Group) {
 async function openNewTask() {
   name.value = "业务采集 " + timeText(new Date().toISOString());
   const next = defaults();
+  next.value_storage = "complete";
   next.sls = cloneSls(savedSlsProfile.value);
   draftSlsExpanded.value = !next.sls.endpoint;
   draftConfig.value = next;
@@ -620,8 +619,12 @@ async function start() {
   const c = JSON.parse(JSON.stringify(draftConfig.value));
   c.filter = JSON.parse(draftFilterText.value);
   if (c.collect_js) {
-    c.remote_capture = {url: remoteURL.value.trim().replace(/\/$/, ''), project: "default"};
-    c.archive.enabled = false; c.service.enabled = false;
+    c.remote_capture = {
+      url: remoteURL.value.trim().replace(/\/$/, ""),
+      project: "default",
+    };
+    c.archive.enabled = false;
+    c.service.enabled = false;
     if (c.sls) c.sls.enabled = false;
   } else delete c.remote_capture;
   validateConfig(c);
@@ -632,7 +635,13 @@ async function start() {
     )
   )
     return;
-  if (c.remote_capture && !(await chrome.permissions.request({origins: [new URL(c.remote_capture.url).origin + "/*"]}))) throw Error("远端接收服务权限未授权");
+  if (
+    c.remote_capture &&
+    !(await chrome.permissions.request({
+      origins: [new URL(c.remote_capture.url).origin + "/*"],
+    }))
+  )
+    throw Error("远端接收服务权限未授权");
   const credentials = c.sls?.enabled
     ? await authorizeSlsTarget(c.sls, true)
     : undefined;
@@ -2549,8 +2558,21 @@ onUnmounted(() => {
         </section>
         <UsageGuide v-else-if="section === '使用说明'" />
         <template v-if="section === 'JS探索'">
-          <JSCapturePanel :remote="scan?.config.remote_capture" :enabled="scan?.config.collect_js" :scan-id="scanId" :issue="scan?.gaps.filter(g => (g.type.startsWith('js_') || g.type.startsWith('remote_'))).map(g => g.reason).join('；')" />
-          <KeepAlive><StaticExplorer :capture-disabled="!!current && current.state !== 'ended'" @capturing="jsCapturing=$event" /></KeepAlive>
+          <JSCapturePanel
+            :delivery="scan?.delivery"
+            :remote="scan?.config.remote_capture"
+            :enabled="scan?.config.collect_js"
+            :scan-id="scanId"
+            :issue="
+              scan?.gaps
+                .filter(
+                  (g) =>
+                    g.type.startsWith('js_') || g.type.startsWith('remote_'),
+                )
+                .map((g) => g.reason)
+                .join('；')
+            "
+          />
         </template>
       </main>
     </div>
@@ -2619,10 +2641,19 @@ onUnmounted(() => {
               </select></label
             >
           </div>
-          <label><input v-model="draftConfig.collect_js" type="checkbox" /> 远端采集 JS 和请求（内容不落浏览器本地盘）</label>
+          <label
+            ><input v-model="draftConfig.collect_js" type="checkbox" /> 远端采集
+            JS 和请求（未确认数据临时保存，支持重启补传）</label
+          >
           <div v-if="draftConfig.collect_js" class="form-grid">
-            <label>远端接收地址<input v-model="remoteURL" placeholder="http://服务器IP:8379" /></label>
-            <p>正文和证据只经内存直传；本地仅保留任务配置与计数。失败会暂停，未确认数据在浏览器退出后无法恢复。</p>
+            <label
+              >远端接收地址<input
+                v-model="remoteURL"
+                placeholder="http://服务器IP:8379"
+            /></label>
+            <p>
+              正文和证据只经内存直传；本地仅保留任务配置与计数。失败会暂停，未确认数据在浏览器退出后无法恢复。
+            </p>
           </div>
           <div class="new-task-filter">
             <div class="section-heading">

@@ -5,7 +5,9 @@ import { AssetIndex, listAssets } from "../src/asset-index";
 it("keeps only lightweight project+URL metadata and reuses the sent marker", async () => {
   const index = new AssetIndex();
   await index.load("asset-test-project");
-  expect(index.get("asset-test-project", "https://a.test/x.js")).toBeUndefined();
+  expect(
+    index.get("asset-test-project", "https://a.test/x.js"),
+  ).toBeUndefined();
   index.observe("asset-test-project", "js", "https://a.test/x.js", "a.test", {
     sent: false,
   });
@@ -38,7 +40,33 @@ it("keeps only lightweight project+URL metadata and reuses the sent marker", asy
   ]);
   const reopened = new AssetIndex();
   await reopened.load("asset-test-project");
-  expect(reopened.get("asset-test-project", "https://a.test/x.js")?.object_id).toBe(
-    "a".repeat(64),
+  expect(
+    reopened.get("asset-test-project", "https://a.test/x.js")?.object_id,
+  ).toBe("a".repeat(64));
+});
+it("API and JS at the same URL remain separate classifications", async () => {
+  const index = new AssetIndex();
+  await index.load("separate-categories");
+  index.observe(
+    "separate-categories",
+    "js",
+    "https://site.test/resource",
+    "site.test",
+    { sent: true },
   );
+  index.observe(
+    "separate-categories",
+    "api",
+    "https://site.test/resource",
+    "site.test",
+    { sent: true },
+  );
+  await index.flush();
+  expect(
+    index.get("separate-categories", "https://site.test/resource")?.kind,
+  ).toBe("js");
+  expect(
+    index.get("separate-categories", "https://site.test/resource", "api")?.kind,
+  ).toBe("api");
+  expect(await listAssets("separate-categories")).toHaveLength(2);
 });

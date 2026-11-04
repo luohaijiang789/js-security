@@ -22,7 +22,10 @@ export type AssetRow = {
 };
 
 export const ASSET_LIMIT = 20000;
-const keyOf = (project: string, url: string) => `${project}\u0000${url}`;
+const keyOf = (project: string, url: string, kind: AssetKind) =>
+  `${project}\u0000${kind}\u0000${url}`;
+export const assetScope = (s: { url: string; project: string }) =>
+  `${new URL(s.url).origin}\u0000${s.project}`;
 export function hostOf(value: string) {
   try {
     return new URL(value).host;
@@ -57,8 +60,8 @@ export class AssetIndex {
     for (const row of rows) this.rows.set(row.key, row);
   }
 
-  get(project: string, url: string) {
-    return this.rows.get(keyOf(project, url));
+  get(project: string, url: string, kind: AssetKind = "js") {
+    return this.rows.get(keyOf(project, url, kind));
   }
 
   observe(
@@ -69,7 +72,7 @@ export class AssetIndex {
     extra: { sent?: boolean; object_id?: string; bytes?: number } = {},
   ) {
     if (!project || !url) return;
-    const key = keyOf(project, url);
+    const key = keyOf(project, url, kind);
     const time = now();
     let row = this.rows.get(key);
     if (row) {

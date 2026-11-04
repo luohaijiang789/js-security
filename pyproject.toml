@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "blackbox-backend"
+version = "0.6.0"
+description = "Browser evidence receiver, delivery reconciliation and automatic offline API analysis"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+blackbox-server = "website_js_extractor.receiver:main"
+website-js-extractor = "website_js_extractor.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+website_js_extractor = ["engine-lock.json", "*.js"]

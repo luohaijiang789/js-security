@@ -110,8 +110,8 @@ it("multi-MiB identical bodies retain independent observations and do not create
   expect(
     receiver.events.filter((e) => e.kind === "Debugger.scriptParsed"),
   ).toHaveLength(2);
-  expect(receiver.sources.size).toBe(1);
-  expect([...receiver.sources.values()].every(s=>s===source)).toBe(true);
+  expect(receiver.sources.size).toBe(2);
+  expect([...receiver.sources.values()].every((s) => s === source)).toBe(true);
   expect(
     new Set(
       receiver.events
@@ -125,7 +125,7 @@ it("multi-MiB identical bodies retain independent observations and do not create
     ),
   ).toBe(false);
 });
-it("skips reading and uploading a JS body already sent for the same project + URL", async () => {
+it("rereads every parse even at the same URL so changed content cannot be silently skipped", async () => {
   const { recorder, send, receiver } = await setup();
   const reads = () =>
     send.mock.calls.filter((c) => c[1] === "Debugger.getScriptSource").length;
@@ -135,14 +135,14 @@ it("skips reading and uploading a JS body already sent for the same project + UR
   expect(receiver.sources.size).toBe(1);
   await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", parsed("same"));
   await recorder.js.drain();
-  expect(reads()).toBe(1); // Already-sent URL: no second getScriptSource.
-  expect(receiver.sources.size).toBe(1); // Nor a second body upload.
+  expect(reads()).toBe(2); // URL equality never proves an unchanged parse.
+  expect(receiver.sources.size).toBe(2); // Exact content dedupe belongs to the receiver.
   const scripts = receiver.events
     .filter((e) => e.kind === "Debugger.scriptParsed")
     .sort((a, b) => a.id.localeCompare(b.id));
-  expect(scripts.map((e) => e.status)).toEqual(["captured", "deduplicated"]);
+  expect(scripts.map((e) => e.status)).toEqual(["captured", "captured"]);
   expect(scripts[0].category).toBe("js_source");
-  expect(scripts[1].object_id).toBeTruthy();
+  expect(receiver.sources.size).toBe(2);
 });
 it("retains original loading CDP fields, context, redirect and resolved loading stack", async () => {
   const { recorder, receiver } = await setup();
@@ -329,4 +329,34 @@ it("remote request payloads and active snapshots never reach local request/initi
   expect(await db.all("requests", scan.id)).toEqual([]);
   expect(await db.all("initiator_nodes", scan.id)).toEqual([]);
   expect(await db.all("groups", scan.id)).toEqual([]);
+});
+
+it("a new parse at an already sent URL reads and transmits the new deployed content", async () => {
+  const { recorder, receiver, send } = await setup(
+    true,
+    "fetch('/old-version')",
+  );
+  await recorder.event(
+    { tabId: 1 },
+    "Debugger.scriptParsed",
+    parsed("version-one"),
+  );
+  await recorder.js.drain();
+  send.mockImplementation(async (_s: any, method: string) =>
+    method === "Debugger.getScriptSource"
+      ? { scriptSource: "fetch('/new-version')" }
+      : {},
+  );
+  await recorder.event({ tabId: 1 }, "Debugger.scriptParsed", {
+    ...parsed("version-two"),
+    url: parsed("version-one").url,
+  });
+  await recorder.js.drain();
+  expect([...receiver.sources.values()]).toEqual([
+    "fetch('/old-version')",
+    "fetch('/new-version')",
+  ]);
+  expect(
+    receiver.events.filter((e) => e.kind === "Debugger.scriptParsed"),
+  ).toHaveLength(2);
 });

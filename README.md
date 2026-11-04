@@ -1,39 +1,17 @@
-# 浏览器采集与后端分析平台
+# 黑盒 API 与 JS 采集分析后端
 
-本仓库负责黑盒链路：**一个Chrome插件收集API实测、JS和上下文，发送到配置的服务器；后端统一存储、关联、提取并接入Agent。** 白盒源码扫描与正式构建迁往独立Git仓库，实际状态见[白盒迁移](docs/whitebox-migration.md)。
+后端是本仓库主工程，浏览器只有一个生产插件。插件填写服务器地址，分类上传API实测、JS、上下文和加载证据；后端持久接收、核对传输账目、自动离线分析，插件查看API清单、参数/JS证据及缺口。
 
-项目用于前端API和请求参数排查，交付URL、Host、参数、JS依据和缺口，当前阶段不输出敏感性、风险分级或合规结论。
+## 快速运行
 
-```mermaid
-flowchart LR
- A[一个生产插件] -->|API / JS / 上下文 / 加载证据| B[配置的服务器IP:端口]
- B --> C[分类接收、对象与事件存储]
- C --> D[分析调度、静态提取与实测关联]
- D --> E[Agent工具调用与证据核验]
- E --> F[API资产、参数、JS证据、缺口与报告]
-```
-
-接收、持久确认和离线分析已有实现；自动调度、增量分析、Agent及统一结果回传仍待实现，不因目录整理而算完成。
-
-## 工程与运行
-
-| 位置 | 职责 | 当前状态 |
-| --- | --- | --- |
-| [browser-extension/](browser-extension/README.md) | 唯一生产插件；TypeScript/Vue、共享CDP连接 | 已有请求、JS、上下文采集及远端传输，真实MV3仍待现场 |
-| [backend/](backend/README.md) | Python接收/存储/编排，Node/Babel/jshound分析 | 接收及离线ingest已有，持续作业、精确绑定、Agent未完成 |
-| [docs/](docs/README.md) | 系统边界、设计与迁移 | 当前设计入口 |
-| [references/](references/README.md) | 固定第三方源码、实验与采用依据 | 不混入产品业务代码 |
-| [legacy/](legacy/README.md) | 旧独立JS插件 | 只作迁移/回归材料，不交付第二个插件 |
-
-启动后端（Python 3.10+，无额外Python依赖）：
+后端需要Python 3.10+；静态分析还需要Node.js 18+和固定jshound源码（开发/插件构建推荐Node 22.12+）：
 
 ```bash
-python3 backend/server.py
+git submodule update --init references/repos/jshound
+python3 server.py
 ```
 
-默认监听`0.0.0.0:8379`。插件开启远端采集，只填`http://服务器IP:8379`；同机测试用`http://127.0.0.1:8379`。当前内置code/default项目，无需手填令牌或扩展ID；固定code是协议匹配值，不是用户身份凭证。本次不部署未知服务器。
-
-构建唯一插件（Node.js 20.19+或22.12+）：
+默认监听`0.0.0.0:8379`，数据在`data/capture/`。用`--host`、`--port`、`--data-dir`覆盖；`--no-analysis`只接收。Python接收器无额外依赖。`curl http://127.0.0.1:8379/health`检查运行状态。
 
 ```bash
 cd browser-extension
@@ -41,15 +19,36 @@ npm ci
 npm run build
 ```
 
-Chrome加载`browser-extension/dist/`。远端模式JS/请求正文只走有界内存，持久ACK后释放；离线、队列满、退出未确认内容登记缺口，不承诺零丢失。旧任务、本地请求导出与SLS保留兼容。
+在Chrome开发者模式加载`browser-extension/dist/`。新建任务开启“远端采集JS和请求”，填写`http://服务器IP:8379`；同机使用`http://127.0.0.1:8379`。code/default项目内置，无需手填令牌、扩展ID或项目。
 
-## 设计与实施入口
+用户正常登录和操作，所有窗口HTTP/HTTPS网页及新页/导航自动接入。插件“JS探索”页持续显示接收证据、传输账目和分析结果，也可立即分析、查看参数/JS证据和导出JSON。静态结果仍是文件级候选，不是已证明的精确调用点。
 
-- [总览](docs/overview.md)：仓库划分、分类信息和端到端分工。
-- [后端架构](backend/docs/architecture.md)：语言、进程、数据和依赖。
-- [模块交付](backend/docs/modules.md)：输入、输出、代码落点和完成条件。
-- [Agent设计](backend/docs/agent.md)：工具、模型、证据核验与降级；尚未实现。
-- [实际协议](backend/docs/protocol.md)：capture-stream-2及旧格式兼容。
-- [唯一计划](backend/docs/plan.md)：现有代码与待完成工作。
+## 传输如何核对
 
-第三方源码执行`git submodule update --init --recursive`获取。分析默认离线，不执行取得的JS、不主动调用提取API；实测、静态和模型建议分别保留证据。
+1. 分类事件与完整正文先原子写入临时IndexedDB待传队列，再上传；未写成功不发送，保留内存重试并暂停。
+2. 正文分块，服务端计算SHA-256、完整校验并持久ACK；事件按任务传输流连续编号，重复提交幂等。
+3. 仅在有效ACK后，以同一浏览器事务更新确认账目并删除临时正文。浏览器重启后点击恢复，先补传，再重新接入页面。
+4. 停止时后端核对连续序号、分类数量、事件字节数和对象存在性，封账成功才结束任务；核对不一致不显示完成。
+5. JS每个解析观察都读取正文，不再按项目+URL跳过。同URL换版不会漏读；服务端按完整内容去重、保留独立观察。
+
+这保证“已接纳且成功持久化的待传数据可恢复补传，并能核对是否全部确认”，不等于Chrome一定提供了全部网站信息。暂停/未附加窗口、正文不可得、配额或队列超限、硬件损坏等明确列为缺口，不显示100%全站覆盖。默认待确认上限4096项/256MiB，JS单文件64MiB；超限暂停/记缺口，不静默截断。需要原值完整时选择完整保留，采集字段/Filter范围在任务配置可见。
+
+## 后端流程与目录
+
+接收与分析解耦；已持久事件合并触发固定数据库快照，单作业静态提取、实测关联，新增事件进入下一批。当前按批次重算，不声称已实现依赖增量索引；模型未配置，不默认向AI发送采集数据。
+
+```text
+server.py / pyproject.toml        后端入口和独立Python包
+src/website_js_extractor/         接收/分类账、作业、输入适配和分析核心
+browser-extension/               唯一Chrome插件、临时待传队列和结果工作台
+tests/                          后端单元、真实HTTP及自动分析验证
+docs/                           架构、协议、使用边界与唯一计划
+references/                     固定jshound及工具依据
+data/                           运行数据（不提交Git）
+```
+
+legacy、旧独立JS插件、旧探索导入页、独占取源RPC与/v0配对服务已删除。白盒已移出当前产品，历史通过Git追溯。
+
+验证：`PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py'`；插件目录执行`npm test`。真实MV3现场检查使用`npm run test:extension`，企业策略禁止时不绕过。
+
+细节：[架构](docs/architecture.md)、[传输协议](docs/protocol.md)、[模块](docs/modules.md)、[唯一计划](docs/plan.md)、[测试](docs/testing.md)、[第三方许可](THIRD_PARTY_NOTICES.md)。

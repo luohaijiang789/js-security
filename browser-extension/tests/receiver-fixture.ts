@@ -10,7 +10,8 @@ export async function receiverFixture() {
     child = spawn(
       process.env.PYTHON ?? "python3",
       [
-        resolve("../backend/server.py"),
+        resolve("../server.py"),
+        "--no-analysis",
         "--host",
         "127.0.0.1",
         "--data-dir",

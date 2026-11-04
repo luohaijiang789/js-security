@@ -38,8 +38,7 @@ const client = (fetcher?: typeof fetch) =>
   );
 it("actual HTTP uploads chunks and exactly preserves all event fields, Unicode and independent observations", async () => {
   const remote = client(),
-    source =
-      "﻿/*" + "字😀".repeat(500000) + '*/\nfetch("/api?empty=&x=0")';
+    source = "﻿/*" + "字😀".repeat(500000) + '*/\nfetch("/api?empty=&x=0")';
   const first = sample("unicode-1", {
     source_bytes: new TextEncoder().encode(source).length,
     url: "https://site.test/字.js",
@@ -59,13 +58,23 @@ it("actual HTTP uploads chunks and exactly preserves all event fields, Unicode a
   expect(first.object_id).toMatch(/^[a-f0-9]{64}$/);
   expect(first.data.source_bytes).toBe(new TextEncoder().encode(source).length);
   await remote.send(
-    { ...first, id: "unicode-2", session_id: "different-child" },
+    {
+      ...first,
+      id: "unicode-2",
+      session_id: "different-child",
+      transport: { ...first.transport!, sequence: 2 },
+    },
     source,
   );
   const events = (await remote.page(first.scan_id)).events;
   expect(events.slice(0, 2)).toEqual([
     first,
-    { ...first, id: "unicode-2", session_id: "different-child" },
+    {
+      ...first,
+      id: "unicode-2",
+      session_id: "different-child",
+      transport: { ...first.transport!, sequence: 2 },
+    },
   ]);
   expect((await remote.source(first.object_id!)) === source).toBe(true);
 });

@@ -1,3 +1,4 @@
+import type { DeliveryStatus } from "./remote-capture";
 import { DEFAULT_SLS_FIELDS } from "./sls-fields";
 export type Quality = {
   state: "complete" | "partial" | "missing" | "unsupported" | "unparseable";
@@ -58,7 +59,7 @@ export type Config = {
   /** Opt-in; legacy tasks never collect JS implicitly. */
   collect_js?: boolean;
   /** Remote-only payload mode; settings only, never store its token here. */
-  remote_capture?: {url: string; project: string};
+  remote_capture?: { url: string; project: string };
   filter: Filter;
   retention: "matching" | "all";
   /** Missing on legacy tasks means truncate. */
@@ -252,6 +253,7 @@ export type Scan = {
   started_at: string;
   ended_at?: string;
   heartbeat: string;
+  delivery?: DeliveryStatus;
   /** Missing on legacy tasks: keep their explicitly selected scope. */
   tab_scope?: "all" | "selected";
   tabs: { id: number; url: string }[];

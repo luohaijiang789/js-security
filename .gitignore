@@ -2,4 +2,8 @@ node_modules/
 dist/
 work/
 *.tsbuildinfo
-backend/data/
+__pycache__/
+*.egg-info/
+.venv/
+build/
+data/

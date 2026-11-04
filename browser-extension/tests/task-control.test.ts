@@ -162,6 +162,36 @@ afterEach(() => {
 });
 
 describe("background task identity and control ordering", () => {
+  it("failed remote startup persists its task event and never attaches pages before recovery", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        throw Error("receiver offline");
+      }),
+    );
+    await loadBackground();
+    const result = await rpc("start", {
+      name: "offline startup",
+      tab_scope: "selected",
+      tabs: [1],
+      config: {
+        ...config(),
+        collect_js: true,
+        remote_capture: {
+          url: "http://receiver.test:8379",
+          project: "default",
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.result.state).toBe("paused");
+    expect(chromeMock.debugger.attach).not.toHaveBeenCalled();
+    expect((await rpc("state")).result.scan.delivery).toMatchObject({
+      pending: 1,
+      acknowledged: 0,
+    });
+  });
+
   it("toolbar action opens the browser-wide management tab", async () => {
     await loadBackground();
     actionListener({ id: 42, url: "https://fixture.test/page" });
@@ -384,10 +414,13 @@ describe("background task identity and control ordering", () => {
       // Wait for the observable timer result: shared CI CPU/IndexedDB scheduling
       // can exceed a fixed 150ms margin. Transfer stays unresolved throughout;
       // this never issues a flush RPC or releases the mocked transfer.
-      await vi.waitFor(async()=>{
-        expect((await rpc("state")).result.scan.stats.persisted).toBe(1);
-        expect(await store.all("active",scan.id)).toHaveLength(1);
-      },{timeout:3000,interval:25});
+      await vi.waitFor(
+        async () => {
+          expect((await rpc("state")).result.scan.stats.persisted).toBe(1);
+          expect(await store.all("active", scan.id)).toHaveLength(1);
+        },
+        { timeout: 3000, interval: 25 },
+      );
       const state = (await rpc("state")).result;
       expect(state.scan.id).toBe(scan.id);
       expect(state.scan.stats.persisted).toBe(1);

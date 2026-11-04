@@ -1121,64 +1121,239 @@ it("在途长连接完成前可查看已取得字段，完成后已打开详情�
   }
 }, 20000);
 
-it('JS探索导入静态交付并独立显示字段、证据和缺口，不改写实测任务',async()=>{
- const {context,page,errors}=await openWorkspace();
- try{
-  await page.getByRole('button',{name:'JS 探索',exact:true}).click();
-  const document={schemaVersion:'2.0.0',scope:{complete:false},records:[{id:'static-r',sourceKind:'website-js-static',linkState:'function-inventory',method:'POST',host:'api.example.test',url:'/api/items',sourceFile:'https://cdn.example.test/deep.js',sourceLine:12,sourceColumn:4,evidenceId:'static-e',gapIds:['static-g'],stage:'call-site'}],parameters:[{id:'static-f',recordId:'static-r',carrier:'body',path:['account','id'],stage:'constructed',state:'known-field'}],gaps:[{id:'static-g',recordId:'static-r',reason:'运行配置未知'}],evidence:[{id:'static-e',raw:{url:'/api/items',body:{account:{id:7}}}}]};
-  await page.getByLabel('导入JS分析结果').setInputFiles({name:'analysis.json',mimeType:'application/json',buffer:Buffer.from(JSON.stringify(document))});
-  const explorer=page.getByRole('region',{name:'JS探索工作台'});await explorer.getByText('api.example.test',{exact:true}).waitFor();expect(await explorer.textContent()).toContain('body.account.id');expect(await explorer.textContent()).toContain('函数候选（未连通入口）');await explorer.getByText('api.example.test',{exact:true}).click();await page.getByRole('complementary',{name:'JS请求证据'}).waitFor();expect(await page.getByRole('complementary',{name:'JS请求证据'}).textContent()).toContain('运行配置未知');await page.getByRole('button',{name:'请求工作台',exact:true}).click();expect(await page.locator('[data-request-id="ui-request-100"]').count()).toBe(1);expect(errors).toEqual([]);
- }finally{await context.close();}
-},20000);
+it("远端任务查询远端证据和源码，不保存已确认正文档案", async () => {
+  const { context, page, errors } = await openWorkspace();
+  try {
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const r = indexedDB.open("js-security-recorder");
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+      const tx = db.transaction("scans", "readwrite");
+      const request = tx.objectStore("scans").get("ui-latest");
+      request.onsuccess = () => {
+        tx.objectStore("scans").put({
+          ...request.result,
+          config: {
+            ...request.result.config,
+            collect_js: true,
+            remote_capture: {
+              url: "https://receiver.test",
+              project: "default",
+            },
+          },
+        });
+      };
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(tx.error);
+      });
+      db.close();
+    });
+    await page.reload();
+    await page.evaluate(async () => {
+      const original = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        if (String(input).startsWith("https://receiver.test/")) {
+          if (String(input).includes("/objects/"))
+            return new Response("fetch('/ui-api')");
+          return Response.json({
+            events: [
+              {
+                id: "remote-event",
+                scan_id: "ui-latest",
+                kind: "Debugger.scriptParsed",
+                category: "js_source",
+                status: "captured",
+                object_id:
+                  "4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5",
+                data: { url: "https://fixture.test/app.js" },
+              },
+            ],
+            count: 1,
+            next: 1,
+            has_more: false,
+          });
+        }
+        return original(input, init);
+      };
+    });
+    await page.getByRole("button", { name: "JS 探索", exact: true }).click();
+    await page
+      .getByText(
+        "4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5",
+        { exact: false },
+      )
+      .waitFor();
+    expect(
+      await page.getByText("远端已确认 1 条证据", { exact: false }).count(),
+    ).toBe(1);
+    await page.getByRole("button", { name: "源码预览", exact: true }).click();
+    await page.getByText("fetch('/ui-api')", { exact: true }).waitFor();
+    expect(
+      await page.evaluate(async () =>
+        (await indexedDB.databases()).some(
+          (db) => db.name === "js-security-js-outbox",
+        ),
+      ),
+    ).toBe(false);
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+}, 15000);
 
-it('远端任务只查询远端证据和源码，不创建本地JS库', async () => {
- const {context,page,errors}=await openWorkspace();
- try {
-  await page.evaluate(async()=>{
-   const db=await new Promise<IDBDatabase>((resolve,reject)=>{const r=indexedDB.open('js-security-recorder');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error);});
-   const tx=db.transaction('scans','readwrite');const request=tx.objectStore('scans').get('ui-latest');request.onsuccess=()=>{tx.objectStore('scans').put({...request.result,config:{...request.result.config,collect_js:true,remote_capture:{url:'https://receiver.test',project:'default'}}});};
-   await new Promise<void>((resolve,reject)=>{tx.oncomplete=()=>resolve();tx.onabort=()=>reject(tx.error);});db.close();
-  });
-  await page.reload();
-  await page.evaluate(async()=>{
-   const original=window.fetch.bind(window);
-   window.fetch=async(input,init)=>{
-    if(String(input).startsWith('https://receiver.test/')) {
-     if(String(input).includes('/objects/'))return new Response("fetch('/ui-api')");
-     return Response.json({events:[{id:'remote-event',scan_id:'ui-latest',kind:'Debugger.scriptParsed',category:'js_source',status:'captured',object_id:'4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5',data:{url:'https://fixture.test/app.js'}}],count:1,next:1,has_more:false});
-    }
-    return original(input,init);
-   };
-  });
-  await page.getByRole('button',{name:'JS 探索',exact:true}).click();
-  await page.getByText('4793c8c044969bbfad25725b7e245dff22a204c0cde47c814de6c8b9a46ecde5',{exact:false}).waitFor();
-  expect(await page.getByText('远端已确认 1 条证据',{exact:false}).count()).toBe(1);
-  await page.getByRole('button',{name:'源码预览',exact:true}).click();
-  await page.getByText("fetch('/ui-api')",{exact:true}).waitFor();
-  expect(await page.evaluate(async()=> (await indexedDB.databases()).some(db=>db.name==='js-security-js-outbox'))).toBe(false);
-  expect(errors).toEqual([]);
- }finally{await context.close();}
-},15000);
+it("新任务只填写HTTP服务器地址，内置code并关闭旧本地转存", async () => {
+  const { context, page, errors } = await openWorkspace();
+  try {
+    await page
+      .getByRole("button", { name: "新建采集任务", exact: true })
+      .first()
+      .click();
+    const dialog = page.getByRole("dialog", {
+      name: "新建采集任务",
+      exact: true,
+    });
+    await dialog.getByLabel(/远端采集 JS 和请求/).check();
+    await dialog
+      .getByLabel("远端接收地址", { exact: true })
+      .fill("http://192.0.2.1:8379");
+    expect(await dialog.getByLabel("远端项目", { exact: true }).count()).toBe(
+      0,
+    );
+    expect(
+      await dialog.getByLabel("远端会话令牌", { exact: true }).count(),
+    ).toBe(0);
+    await page.evaluate(() => {
+      const original = window.fetch.bind(window);
+      window.fetch = async (input, init) =>
+        String(input).startsWith("http://192.0.2.1:8379/")
+          ? Response.json({ events: [], count: 0, next: 0, has_more: false })
+          : original(input, init);
+    });
+    await dialog.getByRole("button", { name: "开始采集", exact: true }).click();
+    await dialog.waitFor({ state: "hidden" });
+    const message = await page.evaluate(() =>
+      (window as any).messages.find((m: any) => m.type === "start"),
+    );
+    expect(message.config.remote_capture).toEqual({
+      url: "http://192.0.2.1:8379",
+      project: "default",
+    });
+    expect(message.config.archive.enabled).toBe(false);
+    expect(message.config.service.enabled).toBe(false);
+    expect(message.config.sls.enabled).toBe(false);
+    expect(JSON.stringify(message.config)).not.toContain("ui-session-token");
+    expect(message.remote_token).toBeUndefined();
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+}, 15000);
 
-it('新任务只填写HTTP服务器地址，内置code并关闭旧本地转存',async()=>{
- const {context,page,errors}=await openWorkspace();
- try {
-  await page.getByRole('button',{name:'新建采集任务',exact:true}).first().click();
-  const dialog=page.getByRole('dialog',{name:'新建采集任务',exact:true});
-  await dialog.getByLabel(/远端采集 JS 和请求/).check();
-  await dialog.getByLabel('远端接收地址',{exact:true}).fill('http://192.0.2.1:8379');
-  expect(await dialog.getByLabel('远端项目',{exact:true}).count()).toBe(0);
-  expect(await dialog.getByLabel('远端会话令牌',{exact:true}).count()).toBe(0);
-  await page.evaluate(()=>{const original=window.fetch.bind(window);window.fetch=async(input,init)=>String(input).startsWith('http://192.0.2.1:8379/')?Response.json({events:[],count:0,next:0,has_more:false}):original(input,init);});
-  await dialog.getByRole('button',{name:'开始采集',exact:true}).click();
-  await dialog.waitFor({state:'hidden'});
-  const message=await page.evaluate(()=> (window as any).messages.find((m:any)=>m.type==='start'));
-  expect(message.config.remote_capture).toEqual({url:'http://192.0.2.1:8379',project:'default'});
-  expect(message.config.archive.enabled).toBe(false);
-  expect(message.config.service.enabled).toBe(false);
-  expect(message.config.sls.enabled).toBe(false);
-  expect(JSON.stringify(message.config)).not.toContain('ui-session-token');
-  expect(message.remote_token).toBeUndefined();
-  expect(errors).toEqual([]);
- }finally{await context.close();}
-},15000);
+it("后端分析结果在统一插件展示API、参数、JS证据与缺口", async () => {
+  const { context, page, errors } = await openWorkspace();
+  try {
+    await page.evaluate(async () => {
+      const db = await new Promise<IDBDatabase>((resolve, reject) => {
+        const r = indexedDB.open("js-security-recorder");
+        r.onsuccess = () => resolve(r.result);
+        r.onerror = () => reject(r.error);
+      });
+      const tx = db.transaction("scans", "readwrite");
+      const request = tx.objectStore("scans").get("ui-latest");
+      request.onsuccess = () =>
+        tx
+          .objectStore("scans")
+          .put({
+            ...request.result,
+            config: {
+              ...request.result.config,
+              collect_js: true,
+              remote_capture: {
+                url: "https://receiver.test",
+                project: "default",
+              },
+            },
+          });
+      await new Promise<void>((resolve, reject) => {
+        tx.oncomplete = () => resolve();
+        tx.onabort = () => reject(tx.error);
+      });
+      db.close();
+    });
+    await page.reload();
+    await page.evaluate(() => {
+      const original = window.fetch.bind(window);
+      window.fetch = async (input, init) => {
+        const url = String(input);
+        if (!url.startsWith("https://receiver.test/"))
+          return original(input, init);
+        if (url.includes("/analyses?"))
+          return Response.json({
+            pending: false,
+            jobs: [
+              {
+                id: "a".repeat(32),
+                status: "completed_with_gaps",
+                watermark: 27,
+              },
+            ],
+          });
+        if (url.endsWith("/result"))
+          return Response.json({
+            status: "completed_with_gaps",
+            result: {
+              statistics: { static_candidates: 1 },
+              observed_requests: [],
+              gaps: [
+                {
+                  kind: "missing_worker",
+                  message: "Worker context unavailable",
+                },
+              ],
+              api_inventory: [
+                {
+                  id: "api-one",
+                  host: "api.fixture.test",
+                  method: "POST",
+                  path_template: "/api/new",
+                  status: "static-only",
+                  observed_request_count: 0,
+                  parameters: { static: [{ name: "account" }] },
+                  js_files: ["https://fixture.test/compiled.js"],
+                },
+              ],
+            },
+          });
+        return Response.json({
+          events: [],
+          count: 0,
+          next: 0,
+          has_more: false,
+        });
+      };
+    });
+    await page.getByRole("button", { name: "JS 探索", exact: true }).click();
+    const region = page.getByRole("region", { name: "后端分析结果" });
+    await region.getByText("api.fixture.test", { exact: false }).waitFor();
+    expect(await region.textContent()).toContain("输入水位 27");
+    await region
+      .getByRole("button", { name: "查看参数与JS证据", exact: true })
+      .click();
+    expect(await page.locator("pre").last().textContent()).toContain(
+      "compiled.js",
+    );
+    expect(await page.locator("pre").last().textContent()).toContain("account");
+    await region
+      .getByRole("button", { name: "查看分析缺口", exact: true })
+      .click();
+    expect(await page.locator("pre").last().textContent()).toContain(
+      "Worker context unavailable",
+    );
+    expect(errors).toEqual([]);
+  } finally {
+    await context.close();
+  }
+}, 20000);

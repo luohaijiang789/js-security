@@ -1,5 +1,5 @@
-import { removeJSScan } from "./legacy-js-cleanup";
-import {captureLoadedScripts} from "./capture-scripts";
+import { RemoteCapture } from "./remote-capture";
+import { removeJSScan } from "./task-storage-cleanup";
 import { Recorder } from "./recorder";
 import * as db from "./store";
 import {
@@ -90,7 +90,6 @@ let eventTail = Promise.resolve(),
 let controlTail: Promise<void> = Promise.resolve();
 const controlMessages = new Set([
   "start",
-  "capture_scripts",
   "pause",
   "resume",
   "stop",
@@ -124,7 +123,12 @@ function requireCurrent(id: unknown, states: Scan["state"][]) {
   return scan;
 }
 async function requireTransferPermissions(config: Config) {
-  if (config.remote_capture && !(await chrome.permissions.contains({origins: [new URL(config.remote_capture.url).origin + "/*"]})))
+  if (
+    config.remote_capture &&
+    !(await chrome.permissions.contains({
+      origins: [new URL(config.remote_capture.url).origin + "/*"],
+    }))
+  )
     throw Error("请先授权远端接收服务");
   if (
     config.service.enabled &&
@@ -148,7 +152,7 @@ const ready = (async () => {
     const g = gap(
       scan,
       "background_restart",
-      "扩展后台重启：上次持久化至重新启动之间可能丢失；须手动恢复",
+      "扩展后台重启：已持久化未确认内容保留待传；中断期间的新浏览器事件可能缺失，恢复后补传",
     );
     g.timestamp = scan.heartbeat;
     g.end = now();
@@ -239,7 +243,11 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     unavailableTabs.get(source.tabId) === current?.id
   )
     return;
-  if ((method.startsWith("Debugger.") || method.startsWith("Runtime.")) && !current.config.collect_js) return;
+  if (
+    (method.startsWith("Debugger.") || method.startsWith("Runtime.")) &&
+    !current.config.collect_js
+  )
+    return;
   const config = current?.config;
   const bytes = new TextEncoder().encode(JSON.stringify(params ?? {})).length;
   if (
@@ -377,8 +385,7 @@ async function attach(
   for (const tab of targets) {
     if (
       recorder.scan !== scan ||
-      scan.state === "ended" ||
-      scan.state === "draining"
+      ["ended", "draining", "paused"].includes(scan.state)
     )
       break;
     if (attachedTabs.get(tab.id) === scan.id) continue;
@@ -528,9 +535,6 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           pending: recorder.pendingCount(),
           failure: recorder.failure,
         };
-      case "capture_scripts":
-        if(recorder.scan&&recorder.scan.state!=="ended")throw Error("请先停止实测采集，再读取已加载JS");
-        return await captureLoadedScripts();
       case "start": {
         validateConfig(message.config);
         const scope = message.tab_scope === "selected" ? "selected" : "all";
@@ -561,8 +565,10 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
         manualDetachedTabs.clear();
         closedTabs.clear();
         failedTabURLs.clear();
-        await attach(s);
-        if (scope === "all") await rescanBrowser(s);
+        if (s.state === "recording") {
+          await attach(s);
+          if (scope === "all") await rescanBrowser(s);
+        }
         await chrome.storage.local.set({ last_config: message.config });
         return s;
       }
@@ -580,21 +586,24 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           recorder.scan = s;
         }
         const s = recorder.scan!;
+        await requireTransferPermissions(s.config);
+        await recorder.resume(); // Replay the durable outbox before admitting new browser events.
+        if (s.state === "ended") {
+          for (const tab of s.tabs) await detachIntentionally(tab.id);
+          return true;
+        }
         if (s.tab_scope === "all") {
-          if (!["paused", "interrupted"].includes(s.state))
-            throw Error("当前任务不可恢复");
           manualDetachedTabs.clear();
           failedTabURLs.clear();
           await rescanBrowser(s);
-        } else if (s.state === "interrupted") {
+        } else {
           const failed = await attach(s, true);
-          if (failed.length)
-            throw Error(
-              `仍有 ${failed.length} 个标签页无法附加，请停止后重新选择页面`,
-            );
+          if (failed.length) {
+            s.state = "interrupted";
+            await recorder.flush();
+            throw Error(`仍有 ${failed.length} 个标签页无法附加`);
+          }
         }
-        await recorder.resume();
-        if (s.tab_scope === "all") await rescanBrowser(s);
         return true;
       }
       case "stop": {
@@ -697,6 +706,15 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           recorder.scan.state !== "ended"
         )
           throw Error("请先停止任务");
+        {
+          const saved = await db.get<Scan>("scans", message.id);
+          if (saved?.config.remote_capture) {
+            const queue = new RemoteCapture(() => saved.config.remote_capture);
+            await queue.restore(saved.id);
+            if (queue.status(saved.id)?.pending || queue.failed)
+              throw Error("该任务仍有未确认正文，先恢复补传，不能删除待传证据");
+          }
+        }
         await removeJSScan(message.id);
         await db.removeScan(message.id);
         if (recorder.scan?.id === message.id) recorder.scan = null;
