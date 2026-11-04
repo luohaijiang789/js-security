@@ -1,0 +1,41 @@
+{
+  "source_repository": "https://github.com/luohaijiang789/js-security",
+  "source_commit": "25f46fc03ea6084f6079f524d06c970b88b8f9fe",
+  "source_prefix": "frontend-api-extractor",
+  "migration_date": "2026-11-04",
+  "history": "Fresh independent history; original history retained in source repository.",
+  "files": [
+    {
+      "path": ".gitignore",
+      "sha256": "612f896573e98177a14f055d4a6a1ec9c5dd48cfa1425a890fafbfbc41be7f1c"
+    },
+    {
+      "path": "README.md",
+      "sha256": "cec727742f5a83a31b1270d5f330abdbf59d2a042bd1903a0140e845109c76c6"
+    },
+    {
+      "path": "docs/README.md",
+      "sha256": "7069858340c23944448a331ddde9275efe4c55bcaf5c161ce2bfec703eaa2167"
+    },
+    {
+      "path": "docs/analysis.md",
+      "sha256": "451838b16691bfa901941ae226e98d97bffa91f8fdd8d5402e6a03545cd2eca1"
+    },
+    {
+      "path": "docs/architecture.md",
+      "sha256": "5979f0449ad70a993a98afae03ba0858d3109f565dcf7ead2d1bddec97c596ae"
+    },
+    {
+      "path": "docs/plan.md",
+      "sha256": "8c1e2a381313d07ce2577d8e5416e338fd1eab9d9b5a0549a114a848fdfbe5af"
+    },
+    {
+      "path": "docs/requirements.md",
+      "sha256": "c3f7bdd2130e90c2013488ec6040f5f03da65f62ae83ef32890bf20658911d68"
+    },
+    {
+      "path": "docs/testing.md",
+      "sha256": "59d9de9eb94f8634f481f93529c324c120101c8dc026d3511e6d415c7921ba74"
+    }
+  ]
+}
