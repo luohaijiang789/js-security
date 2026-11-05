@@ -9,7 +9,9 @@ import unittest
 import uuid
 
 from website_js_extractor.cli import main
-from website_js_extractor.receiver import CHUNK_BYTES, Receiver, SCHEMA, make_server
+from website_js_extractor.domain.protocol import CHUNK_BYTES, SCHEMA
+from website_js_extractor.storage.capture_store import Receiver
+from website_js_extractor.api.server import make_server
 
 ROOT = Path(__file__).resolve().parents[1]
 ENGINE = ROOT/'references/repos/jshound'

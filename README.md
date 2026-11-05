@@ -1,6 +1,6 @@
 # 黑盒 API 与 JS 采集分析后端
 
-后端是本仓库主工程，浏览器只有一个生产插件。插件填写服务器地址，分类上传API实测、JS、上下文和加载证据；后端持久接收、核对传输账目、自动离线分析，插件查看API清单、参数/JS证据及缺口。
+后端是本仓库主工程，浏览器只有一个生产插件。插件填写服务器地址，分类上传API实测、JS、上下文和加载证据；后端持久接收、核对传输账目、递归收集后统一分析，插件查看API清单、参数/JS证据及缺口。
 
 ## 快速运行
 
@@ -26,7 +26,7 @@ npm run build
 ## 传输如何核对
 
 1. 分类事件与完整正文先原子写入临时IndexedDB待传队列，再上传；未写成功不发送，保留内存重试并暂停。
-2. 正文分块，服务端计算SHA-256、完整校验并持久ACK；事件按任务传输流连续编号，重复提交幂等。
+2. 正文分块，发送端计算块/完整正文/事件SHA-256，服务端独立校验并持久ACK，插件逐项核对回执；事件按任务传输流连续编号，重复提交幂等。
 3. 仅在有效ACK后，以同一浏览器事务更新确认账目并删除临时正文。浏览器重启后点击恢复，先补传，再重新接入页面。
 4. 停止时后端核对连续序号、分类数量、事件字节数和对象存在性，封账成功才结束任务；核对不一致不显示完成。
 5. JS每个解析观察都读取正文，不再按项目+URL跳过。同URL换版不会漏读；服务端按完整内容去重、保留独立观察。
@@ -35,11 +35,14 @@ npm run build
 
 ## 后端流程与目录
 
-接收与分析解耦；已持久事件合并触发固定数据库快照，单作业静态提取、实测关联，新增事件进入下一批。当前按批次重算，不声称已实现依赖增量索引；模型未配置，不默认向AI发送采集数据。
+接收与分析解耦；已持久事件合并触发选中任务/水位的证据导出，不再备份整库。以已捕获JS为种子D1，默认递归至D5，收集结算后写入不可变资产清单，再统一静态提取、实测关联；新增浏览器事件进入下一批。插件可配置深度、关闭补取、增加允许的CDN来源。后端不自动继承浏览器登录Cookie，缺失资源和预算耗尽保留缺口。当前按批次重算，不声称已实现依赖增量索引；模型未配置，不默认向AI发送采集数据。
 
 ```text
 server.py / pyproject.toml        后端入口和独立Python包
-src/website_js_extractor/         接收/分类账、作业、输入适配和分析核心
+src/website_js_extractor/
+  domain/ storage/ api/           领域、证据持久存储、HTTP
+  application/ ingestion/        作业编排、浏览器证据适配
+  collection/ analysis/          递归收集、冻结输入、jshound分析
 browser-extension/               唯一Chrome插件、临时待传队列和结果工作台
 tests/                          后端单元、真实HTTP及自动分析验证
 docs/                           架构、协议、使用边界与唯一计划
@@ -51,4 +54,4 @@ legacy、旧独立JS插件、旧探索导入页、独占取源RPC与/v0配对服
 
 验证：`PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py'`；插件目录执行`npm test`。真实MV3现场检查使用`npm run test:extension`，企业策略禁止时不绕过。
 
-细节：[架构](docs/architecture.md)、[传输协议](docs/protocol.md)、[模块](docs/modules.md)、[唯一计划](docs/plan.md)、[测试](docs/testing.md)、[第三方许可](THIRD_PARTY_NOTICES.md)。
+细节：[代码架构与目录](docs/code-architecture.md)、[架构](docs/architecture.md)、[传输协议](docs/protocol.md)、[模块](docs/modules.md)、[唯一计划](docs/plan.md)、[测试](docs/testing.md)、[第三方许可](THIRD_PARTY_NOTICES.md)。

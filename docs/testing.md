@@ -27,3 +27,9 @@ tests/test_delivery.py覆盖服务端分类账/封账，test_jobs.py覆盖真实
 ## 当前验证结果
 
 根目录后端全套90项通过；插件全套181项通过，另新增后端API/参数/JS证据/缺口结果界面用例单独通过。插件0.8.0构建及后端0.6.0 wheel构建通过。真实MV3脚本已执行，但当前Chromium企业策略禁止自定义扩展，因此该项仍未验收；没有修改策略。
+
+本轮新增：test_recursive_pipeline.py以真实本地HTTP链验证默认5层、循环/超层、显式CDN、离线缺口及分析前冻结；test_snapshot_export.py验证导出期间新增接收不受整库锁阻塞且固定水位不变；test_delivery.py验证坏块/完整摘要/事件摘要拒绝。插件evidence-db.test.ts验证v1待传迁移、索引不带正文、ACK清理；capture-accounting.test.ts验证突发批量持久计数及实例重建恢复；delivery-recovery.test.ts覆盖错误摘要回执拒绝。
+
+## 2026-11-05 本轮验证
+
+后端完整回归97项通过；插件22个测试文件、187项通过（含真实HTTP、Chromium CDP和替代扩展API的UI），TypeScript/Vue构建通过。后端0.7.0 wheel构建与入口/必需资源检查通过，插件版本0.9.0；wire保持capture-stream-2。真实MV3 test:extension被当前Chromium企业策略阻止，未绕过；尚无目标环境长期压力/配额验收。

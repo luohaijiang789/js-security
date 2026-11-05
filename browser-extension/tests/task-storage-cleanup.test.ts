@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { expect, it } from "vitest";
-import { removeJSScan } from "../src/task-storage-cleanup";
+import { removeJSScan } from "../src/storage/cleanup";
 it("new tasks create no JS database; explicit deletion cleans old observations and preserves other task references", async () => {
   await removeJSScan("missing");
   expect(

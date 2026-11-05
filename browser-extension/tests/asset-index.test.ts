@@ -1,6 +1,6 @@
 import "fake-indexeddb/auto";
 import { expect, it } from "vitest";
-import { AssetIndex, listAssets } from "../src/asset-index";
+import { AssetIndex, listAssets } from "../src/storage/assets";
 
 it("keeps only lightweight project+URL metadata and reuses the sent marker", async () => {
   const index = new AssetIndex();

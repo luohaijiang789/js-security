@@ -1,17 +1,17 @@
 import "fake-indexeddb/auto";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { defaults, type RecordEntry, type Rule } from "../src/model";
-import { evaluate, matchFilter, validateFilter } from "../src/filter";
+import { defaults, type RecordEntry, type Rule } from "../src/domain/model";
+import { evaluate, matchFilter, validateFilter } from "../src/requests/filter";
 import {
   MAX_STRING_CHARS,
   parseBody,
   parseResponseBody,
   protectRecord,
-} from "../src/privacy";
-import { fingerprint } from "../src/group";
-import { Recorder } from "../src/recorder";
-import { csvCell, packageFiles } from "../src/export";
-import * as db from "../src/store";
+} from "../src/requests/privacy";
+import { fingerprint } from "../src/requests/groups";
+import { Recorder } from "../src/capture/recorder";
+import { csvCell, packageFiles } from "../src/export/archive";
+import * as db from "../src/storage/tasks";
 import { unzipSync, strFromU8 } from "fflate";
 const record = (overrides: Partial<RecordEntry> = {}): RecordEntry => ({
   scan_id: "scan",

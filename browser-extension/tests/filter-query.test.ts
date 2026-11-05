@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { parseSimpleQuery, simpleQueryFromFilter } from "../src/filter-query";
-import { matchFilter } from "../src/filter";
-import type { Filter, RecordEntry } from "../src/model";
+import { parseSimpleQuery, simpleQueryFromFilter } from "../src/requests/query";
+import { matchFilter } from "../src/requests/filter";
+import type { Filter, RecordEntry } from "../src/domain/model";
 
 const record = (overrides: Partial<RecordEntry> = {}) =>
   ({

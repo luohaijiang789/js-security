@@ -1,7 +1,8 @@
 import "fake-indexeddb/auto";
 import { afterAll, beforeAll, expect, it, vi } from "vitest";
-import { RemoteCapture, type CaptureEvent } from "../src/remote-capture";
-import { deliveryOutbox } from "../src/delivery-outbox";
+import { RemoteCapture } from "../src/transport/client";
+import { type CaptureEvent } from "../src/domain/evidence";
+import { deliveryOutbox } from "../src/transport/outbox";
 import { receiverFixture } from "./receiver-fixture";
 let receiver: Awaited<ReturnType<typeof receiverFixture>>;
 beforeAll(async () => {
@@ -184,4 +185,19 @@ it("disk admission failure keeps the payload and retries persistence before send
   expect((await remote.page(scan)).events).toEqual([original]);
   expect((await deliveryOutbox.load(scope(), scan)).entries).toEqual([]);
   expect((await remote.seal(scan))?.count).toBe(1);
+});
+it("a syntactically valid but incorrect event digest never clears a durable payload", async () => {
+  const scan = crypto.randomUUID(); let corrupt = true;
+  const remote = new RemoteCapture(() => receiver.settings, undefined, async (input, init) => {
+    const response = await fetch(input, init);
+    if (String(input).endsWith('/events') && corrupt)
+      return Response.json({ ...await response.json(), event_sha256: 'f'.repeat(64) });
+    return response;
+  });
+  const original = event(scan, 1);
+  await expect(remote.send(original)).rejects.toThrow('确认无效');
+  expect((await deliveryOutbox.load(scope(), scan)).entries).toHaveLength(1);
+  corrupt = false; await remote.retry();
+  expect((await deliveryOutbox.load(scope(), scan)).entries).toEqual([]);
+  expect((await remote.page(scan)).events).toEqual([original]);
 });

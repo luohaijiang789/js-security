@@ -5,7 +5,7 @@ import {
   type Config,
   type RecordEntry,
   type Scan,
-} from "../src/model";
+} from "../src/domain/model";
 
 type Listener = (...args: any[]) => unknown;
 let onMessage: Listener,
@@ -48,7 +48,7 @@ async function until(check: () => Promise<boolean> | boolean) {
   throw Error("Browser scope condition did not settle");
 }
 async function load() {
-  await import("../src/background");
+  await import("../src/background/index");
   await rpc("state");
 }
 function emitRequest(tabId: number, id: string, path: string) {
@@ -241,7 +241,7 @@ describe("browser-wide capture through public background RPC and Chrome events",
     emitRequest(1, "closed-event", "/must-not-save");
     emitRequest(2, "continuing", "/business");
     expect((await rpc("flush", { id: scan.id })).ok).toBe(true);
-    const db = await import("../src/store");
+    const db = await import("../src/storage/tasks");
     const records = await db.page(scan.id);
     expect(records.map((r) => r.cdp_request_id)).toEqual(["continuing"]);
     expect(records[0].tab_id).toBe(2);
@@ -301,7 +301,7 @@ describe("browser-wide capture through public background RPC and Chrome events",
     emitRequest(2, "excluded-telemetry", "/telemetry/ping");
     emitRequest(2, "second-business", "/profile");
     expect((await rpc("flush", { id: scan.id })).ok).toBe(true);
-    const db = await import("../src/store");
+    const db = await import("../src/storage/tasks");
     const records = (await db.page(scan.id)) as RecordEntry[];
     expect(records.map((r) => r.cdp_request_id).sort()).toEqual([
       "first-business",

@@ -3,7 +3,8 @@ from pathlib import Path
 import tempfile
 import unittest
 import uuid
-from website_js_extractor.receiver import Receiver, Invalid, SCHEMA
+from website_js_extractor.storage.capture_store import Receiver
+from website_js_extractor.domain.protocol import Invalid, SCHEMA
 
 
 class DeliveryLedgerTest(unittest.TestCase):
@@ -54,3 +55,20 @@ class DeliveryLedgerTest(unittest.TestCase):
         one = self.send(1)
         with self.store.db: self.store.db.execute('DELETE FROM events')
         with self.assertRaises(Invalid): self.store.seal('default', self.stream, self.expected(one))
+
+    def test_checksums_reject_corrupted_chunks_objects_and_events_without_success(self):
+        import hashlib
+        upload = uuid.uuid4().hex
+        right = hashlib.sha256(b'abc').hexdigest()
+        with self.assertRaises(Invalid): self.store.chunk('default', upload, 0, 3, b'bad', right)
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM uploads').fetchone()[0], 0)
+        self.store.chunk('default', upload, 0, 3, b'abc', right)
+        with self.assertRaises(Invalid): self.store.commit('default', upload, 3, None, 'js', 'f'*64)
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM bodies').fetchone()[0], 0)
+        ack = self.store.commit('default', upload, 3, None, 'js', right)
+        self.assertEqual(ack['object_id'], right)
+        value = dict(id='checksum-event',scan_id='scan',kind='ObservedRequest',category='api_request',
+                     time='now',session_id='root',epoch='1',status='captured',data={})
+        with self.assertRaises(Invalid):
+            self.store.event('default', dict(schema=SCHEMA,event_json=json.dumps(value),event_sha256='f'*64))
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)

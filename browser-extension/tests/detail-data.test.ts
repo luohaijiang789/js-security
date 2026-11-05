@@ -1,9 +1,9 @@
 import "fake-indexeddb/auto";
 import { IDBFactory } from "fake-indexeddb";
 import { describe, it, expect, vi } from "vitest";
-import * as db from "../src/store";
-import type { Group, RecordEntry } from "../src/model";
-import { stackFrames, protectRecord } from "../src/privacy";
+import * as db from "../src/storage/tasks";
+import type { Group, RecordEntry } from "../src/domain/model";
+import { stackFrames, protectRecord } from "../src/requests/privacy";
 import {
   bodyContentAvailable,
   frames,
@@ -15,7 +15,7 @@ import {
   statusTone,
   unresolvedStackParent,
   timeText,
-} from "../src/presentation";
+} from "../src/requests/presentation";
 
 describe("Chrome 风格 Request initiator chain", () => {
   it("保留动态查询结果的树层级和当前请求标记", () => {
@@ -391,7 +391,7 @@ describe("请求查看分页与兼容历史数据", () => {
     vi.stubGlobal("indexedDB", factory);
     vi.resetModules();
     try {
-      const freshStore = await import("../src/store");
+      const freshStore = await import("../src/storage/tasks");
       const result = await freshStore.queryRequests("legacy");
       expect(result.rows.map((r) => r.request_id)).toEqual([row.request_id]);
     } finally {

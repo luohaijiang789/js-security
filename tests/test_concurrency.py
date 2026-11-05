@@ -8,10 +8,10 @@ import threading
 import time
 import unittest
 
-from website_js_extractor.acquisition import FetchError, StaticFetcher
-from website_js_extractor.assets import Snapshot
-from website_js_extractor.collection import ReferenceGraph, restore_snapshot
-from website_js_extractor.engine import default_engine_root
+from website_js_extractor.collection.fetcher import FetchError, StaticFetcher
+from website_js_extractor.domain.assets import Snapshot
+from website_js_extractor.collection.graph import ReferenceGraph, restore_snapshot
+from website_js_extractor.analysis.engine import default_engine_root
 
 
 class ConcurrencyTest(unittest.TestCase):

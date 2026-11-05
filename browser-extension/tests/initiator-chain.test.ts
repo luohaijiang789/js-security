@@ -1,8 +1,8 @@
 import "fake-indexeddb/auto";
 import { beforeEach, describe, expect, it } from "vitest";
-import { defaults, type RecordEntry } from "../src/model";
-import { Recorder } from "../src/recorder";
-import * as db from "../src/store";
+import { defaults, type RecordEntry } from "../src/domain/model";
+import { Recorder } from "../src/capture/recorder";
+import * as db from "../src/storage/tasks";
 
 const source = { tabId: 71 };
 const request = (

@@ -5,7 +5,8 @@ import tempfile
 import threading
 import time
 import unittest
-from website_js_extractor.receiver import make_server, DEFAULT_CODE
+from website_js_extractor.api.server import make_server
+from website_js_extractor.domain.protocol import DEFAULT_CODE
 from test_stream import context, script, upload, SOURCE, SCAN, envelope
 
 

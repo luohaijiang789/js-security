@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/domain/config";
 import {
   OPTIONAL_FIELDS,
   savedFieldSet,
   selectRecordFields,
-} from "../src/field-selection";
-import { defaults } from "../src/model";
+} from "../src/requests/fields";
+import { defaults } from "../src/domain/model";
 import { workspaceFixture } from "./fixtures";
 
 describe("optional saved fields", () => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { evaluate, matchFilter, validateFilter } from "../src/filter";
-import { parseSimpleQuery, simpleQueryFromFilter } from "../src/filter-query";
-import type { Filter, RecordEntry } from "../src/model";
+import { evaluate, matchFilter, validateFilter } from "../src/requests/filter";
+import { parseSimpleQuery, simpleQueryFromFilter } from "../src/requests/query";
+import type { Filter, RecordEntry } from "../src/domain/model";
 
 const record = (method: string) =>
   ({

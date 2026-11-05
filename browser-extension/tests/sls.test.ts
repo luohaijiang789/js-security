@@ -1,13 +1,13 @@
-import { compactBody, compactStack, slsProjection } from "../src/sls-fields";
+import { compactBody, compactStack, slsProjection } from "../src/integrations/sls-fields";
 import { createHash, createHmac } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
-import { validateConfig } from "../src/config";
+import { validateConfig } from "../src/domain/config";
 import {
   defaults,
   type Batch,
   type RecordEntry,
   type Scan,
-} from "../src/model";
+} from "../src/domain/model";
 import {
   signSlsRequest,
   slsBaseURL,
@@ -16,7 +16,7 @@ import {
   slsPayloads,
   slsWriteURL,
   testSlsConnection,
-} from "../src/sls";
+} from "../src/integrations/sls";
 import { workspaceFixture } from "./fixtures";
 
 describe("Alibaba Cloud SLS target and signing", () => {

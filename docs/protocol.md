@@ -1,6 +1,6 @@
 # 分类接收、持久待传与封账协议
 
-当前wire schema为`capture-stream-2`，本轮增加`delivery-ledger-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
+当前wire schema为`capture-stream-2`，支持`delivery-ledger-1`、`content-integrity-1`、`recursive-analysis-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
 
 ## 地址与分类
 
@@ -18,9 +18,9 @@
 
 ## 临时待传
 
-数据库js-security-delivery-outbox的entries只保存未确认正文/事件，ledgers保存非正文计数。事件快照、上传ID、接收地址作用域、连续序号与入队账目先提交，之后才联网；ACK后的条目删除与账目更新为同一严格事务。暂停/重启后先恢复补传，不将正文写入原requests/active档案。最多4096项/256MiB待确认数据，达到上限拒绝并记录Gap，不静默淘汰。
+数据库js-security-delivery-outbox当前版本3：entries保存未确认元数据，payloads保存对应完整事件/正文，ledgers保存传输计数，capture_counters保存按CDP事件种类的observed/dispatched/rejected计数。v1未确认数据升级时事务迁移；恢复只读entries索引，逐项取payloads，不把全部正文装进内存。采集计数不能重放原始CDP事件，持久化前崩溃仍可能丢失最后一小批计数，不能据此宣称全采集。事件快照、上传ID、接收地址作用域、连续序号与入队账目先提交，之后才联网；ACK后的条目删除与账目更新为同一严格事务。暂停/重启后先恢复补传，不将正文写入原requests/active档案。最多4096项/256MiB待确认数据，达到上限拒绝并记录Gap，不静默淘汰。
 
-每个事件附`transport={stream_id,sequence}`；每任务/服务器唯一流，序号从1连续增长。接收ACK包含schema、event_id、event_sha256、object_id、durable:true及transport的stream_id/sequence/event_bytes，客户端逐项校验。正文哈希由服务端计算，浏览器不另做正文哈希。
+每个事件附`transport={stream_id,sequence}`；每任务/服务器唯一流，序号从1连续增长。接收ACK包含schema、event_id、event_sha256、object_id、durable:true及transport的stream_id/sequence/event_bytes，客户端逐项校验。正文/事件SHA-256由浏览器先计算，服务端独立复算：块请求X-Chunk-SHA256，commit.expected_sha256，事件信封event_sha256。错误摘要返回422；客户端也拒绝格式合法但值不符的回执，保留待传。旧客户端可省略摘要，但不能据此声称端到端校验。
 
 ## HTTP路由
 
@@ -30,8 +30,8 @@
 | --- | --- |
 | GET /health（无前缀） | 存活、schema与能力 |
 | PUT /uploads/{upload}/chunks/{offset} | 256KiB块，X-Object-Bytes声明总长；相同块幂等，冲突409 |
-| POST /uploads/{upload}/commit | bytes/url/kind；完整校验后返回object_id/bytes/committed/durable |
-| POST /events | schema+event_json；大事件用event_object_id；身份/序号/对象引用原子持久 |
+| POST /uploads/{upload}/commit | bytes/url/kind/expected_sha256；完整校验后返回object_id/bytes/committed/durable |
+| POST /events | schema+event_json+event_sha256；大事件用event_object_id；身份/序号/对象引用原子持久 |
 | GET /events?scan_id=…&after=…&limit=…&summary=1 | 持久事件分页，next/has_more；摘要不代替原始事件 |
 | GET /objects/{object_id} | 完整UTF-8正文；?status查询存在/长度 |
 | POST /streams/{stream}/seal | scan_id/count/categories/bytes；核对连续序号、分类、字节及事件/对象后封账 |
@@ -45,8 +45,8 @@
 
 ## 分析与输出
 
-默认静默2秒/最长10秒触发固定批次；任务结束立即排队。每run保留project/scan、水位manifest、引擎锁版本、原始输出和analysis.json。当前结果schema仍0.5，使用文件级候选；confirmed_api_groups/精确调用数未实现时保持null。
+默认静默2秒/最长10秒触发固定批次；任务结束立即排队。每run保留project/scan、水位种子manifest、资产analysis-manifest、引擎锁版本、原始输出和analysis.json。当前结果schema仍0.5，使用文件级候选；confirmed_api_groups/精确调用数未实现时保持null。
 
 输出analysis.json、api_inventory.json/csv、observed_requests.json/csv、candidates/parameters/assets/references/gaps.csv及正文证据；Excel未实现。静态/实测匹配状态matched/static-only/observed-only只是保守关联，不证明同一次运行调用。
 
-离线CLI继续支持HAR、JS/HTML目录、capture快照和可校验collection恢复。静态补取仅在显式CLI允许origin/预算时开启；自动服务器作业不主动访问站点。Node/固定jshound缺失时作业失败可见，不伪装空成功。
+离线CLI继续支持HAR、JS/HTML目录、capture快照和可校验collection恢复。自动作业从TaskStarted/TaskCheckpoint.scan.config.analysis读取统一策略（缺省5层/补取开启），CLI ingest可用--max-js-depth、--offline、--allow-origin覆盖。后端仅递归获取JS资源，允许来源合并已观察来源与显式allowed_origins；未知CDN、登录资源、非字面量动态引用、超预算保留缺口。先生成analysis-manifest.json冻结正文/引用，再统一提取API；不访问分析所得业务API。Node/固定jshound缺失时作业失败可见，不伪装空成功。

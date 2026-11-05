@@ -1,14 +1,11 @@
 import "fake-indexeddb/auto";
 import { expect, it, vi } from "vitest";
-import { Recorder } from "../src/recorder";
-import { defaults } from "../src/model";
-import {
-  RemoteCapture,
-  SCHEMA,
-  type CaptureEvent,
-  type DeliveryAck,
-} from "../src/remote-capture";
-import * as db from "../src/store";
+import { Recorder } from "../src/capture/recorder";
+import { defaults } from "../src/domain/model";
+import { RemoteCapture } from "../src/transport/client";
+import { SCHEMA } from "../src/transport/protocol";
+import { type CaptureEvent, type DeliveryAck } from "../src/domain/evidence";
+import * as db from "../src/storage/tasks";
 class MemoryReceiver extends RemoteCapture {
   events: CaptureEvent[] = [];
   sources = new Map<string, string>();

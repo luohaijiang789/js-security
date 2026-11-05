@@ -2,11 +2,12 @@ import "fake-indexeddb/auto";
 import { expect, it } from "vitest";
 import { chromium } from "playwright";
 import { createServer } from "node:http";
-import { Recorder } from "../src/recorder";
-import { defaults } from "../src/model";
-import { RemoteCapture, type CaptureEvent } from "../src/remote-capture";
+import { Recorder } from "../src/capture/recorder";
+import { defaults } from "../src/domain/model";
+import { RemoteCapture } from "../src/transport/client";
+import { type CaptureEvent } from "../src/domain/evidence";
 import { receiverFixture, receiverToken } from "./receiver-fixture";
-import * as db from "../src/store";
+import * as db from "../src/storage/tasks";
 it("real Chromium CDP collects duplicate multi-MiB external JS and network provenance through the request recorder session", async () => {
   const source = `/*${"a".repeat(3 * 1048576)}*/\nglobalThis.jsRuns = (globalThis.jsRuns || 0) + 1; fetch('/api?item=1&item=2&empty=',{method:'POST',headers:{'Content-Type':'application/json','X-Exact':'unchanged'},body:JSON.stringify({id:0,active:false,text:'字😀',empty:'',nested:{values:[0,null,false]}})});`;
   const server = createServer((req, res) => {

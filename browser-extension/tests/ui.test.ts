@@ -4,7 +4,7 @@ import { preview } from "vite";
 import { mkdir } from "node:fs/promises";
 import { strFromU8, unzipSync } from "fflate";
 import { workspaceFixture } from "./fixtures";
-import { matchFilter } from "../src/filter";
+import { matchFilter } from "../src/requests/filter";
 
 // Real rendering and IndexedDB; privileged extension APIs are replaced. This
 // suite is not evidence of MV3 installation or debugger/worker coverage.

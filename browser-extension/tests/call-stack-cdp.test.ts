@@ -6,10 +6,10 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { strFromU8, unzipSync } from "fflate";
-import { Recorder } from "../src/recorder";
-import { defaults } from "../src/model";
-import * as db from "../src/store";
-import { jsonl, packageFiles } from "../src/export";
+import { Recorder } from "../src/capture/recorder";
+import { defaults } from "../src/domain/model";
+import * as db from "../src/storage/tasks";
+import { jsonl, packageFiles } from "../src/export/archive";
 
 type ProtocolEvent = { method: string; params: any; sessionId?: string };
 // Playwright newPage() enables Runtime itself and hides the one-frame production bug.

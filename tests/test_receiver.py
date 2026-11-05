@@ -7,7 +7,9 @@ import threading
 import unittest
 import uuid
 
-from website_js_extractor.receiver import make_server, CHUNK_BYTES, Receiver, SCHEMA
+from website_js_extractor.api.server import make_server
+from website_js_extractor.domain.protocol import CHUNK_BYTES, SCHEMA
+from website_js_extractor.storage.capture_store import Receiver
 
 TOKEN = 'receiver-test-token-123456789'
 

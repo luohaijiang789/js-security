@@ -7,11 +7,11 @@ import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from website_js_extractor.acquisition import FetchError, StaticFetcher
-from website_js_extractor.assets import Snapshot
+from website_js_extractor.collection.fetcher import FetchError, StaticFetcher
+from website_js_extractor.domain.assets import Snapshot
 from website_js_extractor.cli import main
-from website_js_extractor.collection import ReferenceGraph, mapped_specifier, restore_snapshot
-from website_js_extractor.engine import default_engine_root
+from website_js_extractor.collection.graph import ReferenceGraph, mapped_specifier, restore_snapshot
+from website_js_extractor.analysis.engine import default_engine_root
 
 
 class CollectionTest(unittest.TestCase):
@@ -195,7 +195,7 @@ class CollectionTest(unittest.TestCase):
                             '/level3.js':self.js("import './level4.js'; export function c(){fetch('/api/three')}"),
                             '/level4.js':self.js("import './level2.js'; export function d(){fetch('/api/four')}")})
         base,requests=self.serve();source=self.seed_har(base)
-        code,report=self.cli('--har',source,'--fetch-js','--allow-origin',base)
+        code,report=self.cli('--har',source,'--fetch-js','--allow-origin',base,'--max-js-depth','3')
         self.assertEqual(code,4)
         self.assertEqual([path for path,_ in requests],['/level2.js','/level3.js'])
         self.assertEqual(report['statistics']['request_candidates'],3)
@@ -222,7 +222,7 @@ class CollectionTest(unittest.TestCase):
     def test_resume_reuses_verified_bodies_and_unlocks_deeper_reference(self):
         self.routes.update({'/level2.js':self.js("import './level3.js';"),'/level3.js':self.js("import './level4.js';"),'/level4.js':self.js("fetch('/api/deep');")})
         base,requests=self.serve();source=self.seed_har(base)
-        code,_=self.cli('--har',source,'--fetch-js','--allow-origin',base)
+        code,_=self.cli('--har',source,'--fetch-js','--allow-origin',base,'--max-js-depth','3')
         self.assertEqual(code,4)
         requests.clear()
         code,report=self.cli('--resume',self.out,'--fetch-js','--allow-origin',base,'--max-js-depth','4',output=self.root/'resumed')

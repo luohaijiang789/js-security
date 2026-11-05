@@ -9,9 +9,9 @@ import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from website_js_extractor.assets import Snapshot
-from website_js_extractor.collection import ReferenceGraph
-from website_js_extractor.engine import default_engine_root
+from website_js_extractor.domain.assets import Snapshot
+from website_js_extractor.collection.graph import ReferenceGraph
+from website_js_extractor.analysis.engine import default_engine_root
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -65,7 +65,7 @@ def main():
     summary=[]
     try:
         configurations=[('offline',['--har',str(seed)]),
-                        ('depth3',['--har',str(seed),'--fetch-js','--allow-origin',base]),
+                        ('depth3',['--har',str(seed),'--fetch-js','--allow-origin',base,'--max-js-depth','3']),
                         ('resume4',['--resume',str(target/'depth3'),'--fetch-js','--allow-origin',base,'--max-js-depth','4'])]
         for name,arguments in configurations:
             traffic.clear()

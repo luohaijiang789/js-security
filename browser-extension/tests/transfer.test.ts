@@ -1,14 +1,14 @@
 import "fake-indexeddb/auto";
 import { beforeEach, afterEach, it, expect, vi } from "vitest";
-import { Recorder } from "../src/recorder";
-import { defaults, type Batch } from "../src/model";
-import * as db from "../src/store";
+import { Recorder } from "../src/capture/recorder";
+import { defaults, type Batch } from "../src/domain/model";
+import * as db from "../src/storage/tasks";
 import {
   sendBatch,
   transfer,
   downloadChanged,
   retargetFailedSls,
-} from "../src/transfer";
+} from "../src/integrations/transfer";
 let recorder: Recorder;
 beforeEach(async () => {
   vi.stubGlobal("chrome", {

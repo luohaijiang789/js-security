@@ -3,9 +3,9 @@ import { it, expect } from "vitest";
 import { chromium } from "playwright";
 import { createServer } from "node:http";
 import { mkdir, writeFile } from "node:fs/promises";
-import { Recorder } from "../src/recorder";
-import { defaults } from "../src/model";
-import * as db from "../src/store";
+import { Recorder } from "../src/capture/recorder";
+import { defaults } from "../src/domain/model";
+import * as db from "../src/storage/tasks";
 it("真实 Chromium CDP：受控请求、重定向、原值留存、在途停止和标签页隔离", async () => {
   const received: { url: string; method: string }[] = [];
   const server = createServer(async (req, res) => {

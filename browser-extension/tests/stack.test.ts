@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { StackCapture, STACK_LIMITS } from "../src/stack";
+import { StackCapture, STACK_LIMITS } from "../src/capture/stacks";
 const root = { tabId: 1 },
   child = { tabId: 1, sessionId: "worker" };
 const frame = (name = "fetcher") => ({

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
-import { defaults, type Scan } from "../src/model";
+import { defaults, type Scan } from "../src/domain/model";
 
 type Listener = (...args: any[]) => unknown;
 let messageListener: Listener,
@@ -46,7 +46,7 @@ async function waitFor(check: () => Promise<boolean>) {
   throw Error("condition not reached");
 }
 async function loadBackground() {
-  await import("../src/background");
+  await import("../src/background/index");
   await rpc("state");
 }
 
@@ -296,8 +296,8 @@ describe("background task identity and control ordering", () => {
     expect((await rpc("stop", { id: scan.id })).ok).toBe(true);
   });
   it("restart keeps historical data and exposes interrupted task without a ready deadlock", async () => {
-    const { Recorder } = await import("../src/recorder");
-    const { get } = await import("../src/store");
+    const { Recorder } = await import("../src/capture/recorder");
+    const { get } = await import("../src/storage/tasks");
     const previous = new Recorder(async () => ({}));
     const scan = await previous.create(
       "previous background",
@@ -311,8 +311,8 @@ describe("background task identity and control ordering", () => {
     expect((await rpc("state")).result.scan.id).toBe(scan.id);
   });
   it("recovery write failure keeps state readable and pending records can be flushed again", async () => {
-    const { Recorder } = await import("../src/recorder");
-    const store = await import("../src/store");
+    const { Recorder } = await import("../src/capture/recorder");
+    const store = await import("../src/storage/tasks");
     const previous = new Recorder(async () => ({}));
     const scan = await previous.create(
       "recover quota failure",
@@ -344,7 +344,7 @@ describe("background task identity and control ordering", () => {
   it("slow transfer acknowledgement does not block completed local stop or the next task", async () => {
     await loadBackground();
     const scan = await started();
-    const transfers = await import("../src/transfer");
+    const transfers = await import("../src/integrations/transfer");
     let release!: () => void;
     const waiting = new Promise<void>((resolve) => {
       release = resolve;
@@ -375,8 +375,8 @@ describe("background task identity and control ordering", () => {
   it("one-second local writes and active snapshots continue while transfer is unresolved", async () => {
     await loadBackground();
     const scan = await started();
-    const transfers = await import("../src/transfer");
-    const store = await import("../src/store");
+    const transfers = await import("../src/integrations/transfer");
+    const store = await import("../src/storage/tasks");
     let release!: () => void;
     const waiting = new Promise<void>((resolve) => {
       release = resolve;
@@ -498,7 +498,7 @@ describe("background task identity and control ordering", () => {
     expect(result.result.state).toBe("recording");
     expect(result.result.stats.pending).toBe(0);
     expect(owned.has(1)).toBe(false);
-    const store = await import("../src/store");
+    const store = await import("../src/storage/tasks");
     const records = await store.page(result.result.id);
     expect(records).toHaveLength(1);
     expect(records[0].request_state).toBe("incomplete");
@@ -519,7 +519,7 @@ describe("background task identity and control ordering", () => {
     await waitFor(
       async () => (await rpc("state")).result.scan.stats.persisted === 1,
     );
-    const store = await import("../src/store");
+    const store = await import("../src/storage/tasks");
     const records = await store.page(scan.id);
     expect(records[0].request_state).toBe("complete");
     expect(records[0].error).toBeUndefined();
@@ -569,7 +569,7 @@ describe("background task identity and control ordering", () => {
       requestId: "after-reconnect",
     });
     await rpc("flush", { id });
-    const store = await import("../src/store");
+    const store = await import("../src/storage/tasks");
     const records = await store.page(id);
     expect(records).toHaveLength(2);
     expect(records.map((r) => r.request_state).sort()).toEqual([

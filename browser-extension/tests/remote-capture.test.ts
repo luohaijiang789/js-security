@@ -1,12 +1,10 @@
 import "fake-indexeddb/auto";
-import { Recorder } from "../src/recorder";
-import { defaults } from "../src/model";
+import { Recorder } from "../src/capture/recorder";
+import { defaults } from "../src/domain/model";
 import { afterAll, beforeAll, expect, it } from "vitest";
-import {
-  RemoteCapture,
-  SCHEMA,
-  type CaptureEvent,
-} from "../src/remote-capture";
+import { RemoteCapture } from "../src/transport/client";
+import { SCHEMA } from "../src/transport/protocol";
+import { type CaptureEvent } from "../src/domain/evidence";
 import { receiverFixture, receiverToken } from "./receiver-fixture";
 let receiver: Awaited<ReturnType<typeof receiverFixture>>;
 beforeAll(async () => {
@@ -54,7 +52,7 @@ it("actual HTTP uploads chunks and exactly preserves all event fields, Unicode a
     },
   });
   await remote.send(first, source);
-  // The browser never hashes; the receiver returns the content-addressed ID.
+  // Sender and receiver independently hash the body; the validated ID is content-addressed.
   expect(first.object_id).toMatch(/^[a-f0-9]{64}$/);
   expect(first.data.source_bytes).toBe(new TextEncoder().encode(source).length);
   await remote.send(
@@ -309,4 +307,33 @@ it("default code works with no setup, any extension ID and an ordinary HTTP addr
   expect(
     (await remote.page(event.scan_id)).events.find((e) => e.id === event.id),
   ).toEqual(event);
+});
+
+it("publishes updated recursive collection policy as a durable task checkpoint", async () => {
+  const remote = client();
+  const recorder = new Recorder(async () => ({}), remote);
+  const config = {
+    ...defaults(),
+    remote_capture: receiver.settings,
+    collect_js: true,
+    archive: { ...defaults().archive, enabled: false },
+  };
+  const scan = await recorder.create("policy checkpoint", [], config);
+  await recorder.update({
+    ...config,
+    analysis: {
+      max_js_depth: 2,
+      fetch_js: false,
+      allowed_origins: ["https://cdn.test"],
+    },
+  });
+  const events = (await remote.page(scan.id)).events;
+  const checkpoint = events.find((e) => e.kind === "TaskCheckpoint")!;
+  expect(checkpoint.data.phase).toBe("configuration");
+  expect(checkpoint.data.scan.config.analysis).toEqual({
+    max_js_depth: 2,
+    fetch_js: false,
+    allowed_origins: ["https://cdn.test"],
+  });
+  await recorder.stop();
 });

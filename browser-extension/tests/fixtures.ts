@@ -3,7 +3,7 @@ import {
   type Group,
   type RecordEntry,
   type Scan,
-} from "../src/model";
+} from "../src/domain/model";
 
 /** Synthetic observations for UI checks, never user scan results. */
 export function workspaceFixture(options: { pending?: boolean } = {}) {

@@ -7,10 +7,10 @@ import unittest
 from contextlib import redirect_stdout, redirect_stderr
 from unittest.mock import patch
 
-from website_js_extractor.assets import Snapshot
+from website_js_extractor.domain.assets import Snapshot
 from website_js_extractor.cli import main
-from website_js_extractor.engine import verify_engine, LOCK
-from website_js_extractor.results import build_candidates, safe_cell
+from website_js_extractor.analysis.engine import verify_engine, LOCK
+from website_js_extractor.analysis.results import build_candidates, safe_cell
 
 ROOT = Path(__file__).resolve().parents[1]
 

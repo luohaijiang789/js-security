@@ -9,12 +9,12 @@ from pathlib import Path
 import sys
 import uuid
 
-from . import __version__
-from .assets import Snapshot, digest, http_url
-from .acquisition import StaticFetcher
-from .collection import ReferenceGraph, restore_snapshot
-from .engine import LOCK, analyze, default_engine_root
-from .results import build_candidates, write_report
+from website_js_extractor import __version__
+from website_js_extractor.domain.assets import Snapshot, digest, http_url
+from website_js_extractor.collection.fetcher import StaticFetcher
+from website_js_extractor.collection.graph import ReferenceGraph, restore_snapshot
+from website_js_extractor.analysis.engine import LOCK, analyze, default_engine_root
+from website_js_extractor.analysis.results import build_candidates, write_report
 
 
 def parser():
@@ -26,7 +26,7 @@ def parser():
     service.add_argument('--host', default='0.0.0.0')
     service.add_argument('--data-dir', type=Path, default=Path(__file__).resolve().parents[2]/'data/capture')
     service.add_argument('--no-analysis', action='store_true')
-    ingest = commands.add_parser('ingest', help='Analyze capture-stream-2 receiver data offline.')
+    ingest = commands.add_parser('ingest', help='Collect recursive JS dependencies, freeze assets and analyze receiver evidence.')
     ingest.add_argument('--data-dir', type=Path, required=True, help='Receiver data directory containing capture.sqlite3.')
     ingest.add_argument('--project', default='default')
     ingest.add_argument('--scan', help='Scan id; defaults to the most recently active scan.')
@@ -37,7 +37,9 @@ def parser():
     ingest.add_argument('--max-files', type=int, default=1000)
     ingest.add_argument('--max-asset-mib', type=int, default=64)
     ingest.add_argument('--max-total-mib', type=int, default=128)
-    ingest.add_argument('--max-js-depth', type=int, default=3)
+    ingest.add_argument('--max-js-depth', type=int, default=None, help='Override task depth; default is 5.')
+    ingest.add_argument('--offline', action='store_true', help='Discover dependencies without downloading missing JS.')
+    ingest.add_argument('--allow-origin', action='append', default=[], help='Additional exact JS/CDN origin.')
     run = commands.add_parser('analyze')
     inputs = run.add_mutually_exclusive_group(required=True)
     inputs.add_argument('--har', type=Path)
@@ -51,7 +53,7 @@ def parser():
     run.add_argument('--max-files', type=int, default=1000)
     run.add_argument('--max-asset-mib', type=int, default=20)
     run.add_argument('--max-total-mib', type=int, default=128)
-    run.add_argument('--max-js-depth', type=int, default=3)
+    run.add_argument('--max-js-depth', type=int, default=5)
     run.add_argument('--seed-js', action='append', default=[], help='Explicit imported JS URL/location at depth 1.')
     run.add_argument('--discovery-timeout', type=float, default=60)
     run.add_argument('--fetch-js', action='store_true', help='Supplement certain JS references within the explicit origin allowlist.')
@@ -72,11 +74,11 @@ def _interrupt(signum, frame):
 def main(argv=None):
     args = parser().parse_args(argv)
     if args.command == 'serve':
-        from .receiver import main as receive
+        from website_js_extractor.api.server import main as receive
         options = ['--port', str(args.port), '--host', args.host, '--data-dir', str(args.data_dir)]
         return receive(options + (['--no-analysis'] if args.no_analysis else []))
     if args.command == 'ingest':
-        from .stream import ingest
+        from website_js_extractor.ingestion.stream import ingest
         return ingest(args)
     if os.environ.get('WEBSITE_JS_MANAGED_JOB') == '1':
         signal.signal(signal.SIGTERM, _interrupt)
@@ -117,7 +119,7 @@ def main(argv=None):
     try:
         print('Importing local snapshot...', file=sys.stderr)
         if args.capture:
-            from .capture import import_capture
+            from website_js_extractor.ingestion.capture import import_capture
             import_capture(snapshot, source)
         elif args.har:
             snapshot.import_har(source)

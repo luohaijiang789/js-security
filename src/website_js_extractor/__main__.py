@@ -1,3 +1,3 @@
-from .cli import main
+from website_js_extractor.cli import main
 
 raise SystemExit(main())
