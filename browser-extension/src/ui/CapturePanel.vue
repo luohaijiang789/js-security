@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onUnmounted } from "vue";
 import { RemoteCapture } from "../transport/client";
-import { type CaptureEvent, type RemoteSettings, type DeliveryStatus } from "../domain/evidence";
+import {
+  type CaptureEvent,
+  type RemoteSettings,
+  type DeliveryStatus,
+} from "../domain/evidence";
 import { listAssets, assetScope, type AssetRow } from "../storage/assets";
 const props = defineProps<{
   scanId: string;
@@ -9,6 +13,7 @@ const props = defineProps<{
   enabled?: boolean;
   remote?: RemoteSettings;
   delivery?: DeliveryStatus;
+  journal?: import("../domain/evidence").JournalStatus;
 }>();
 const rows = ref<CaptureEvent[]>([]),
   assets = ref<AssetRow[]>([]),
@@ -20,8 +25,19 @@ const error = ref(""),
   preview = ref("");
 const client = new RemoteCapture(() => props.remote);
 const jobs = ref<
-  Array<{ id: string; status: string; watermark: number; phase?: string; error?: string }>
+  Array<{
+    id: string;
+    status: string;
+    watermark: number;
+    phase?: string;
+    error?: string;
+  }>
 >([]);
+const phaseNames: Record<string, string> = {
+  collecting: "递归收集",
+  frozen: "资产已冻结",
+  analyzing: "统一分析",
+};
 const analysis = ref<any>(null),
   analysisError = ref("");
 let resultIdentity = "",
@@ -115,6 +131,30 @@ function download(text: string, name: string) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
+async function details(row: CaptureEvent, save = false) {
+  if (row.kind !== "RawCdpEvent") {
+    preview.value = JSON.stringify(row, null, 2);
+    return;
+  }
+  const scan = props.scanId;
+  try {
+    const detail = await client.eventInfo(scan, row.id);
+    if (scan !== props.scanId) return;
+    const text = detail.event?.data.capture_json;
+    if (typeof text !== "string")
+      throw Error("后端未返回原始通知，请检查后端版本");
+    if (save)
+      download(text, `${row.id.replace(/[^A-Za-z0-9_.-]/g, "_")}.raw.json`);
+    else
+      preview.value =
+        text.slice(0, 200000) +
+        (text.length > 200000
+          ? "\n\n[仅预览前200000字符，完整内容请下载原始通知]"
+          : "");
+  } catch (e) {
+    if (scan === props.scanId) error.value = String(e);
+  }
+}
 async function source(row: CaptureEvent, save = false) {
   const scan = props.scanId;
   try {
@@ -153,7 +193,10 @@ watch(
         已接纳 {{ delivery.admitted }} · 持久确认 {{ delivery.acknowledged }} ·
         待补传 {{ delivery.pending }} · 未接纳 {{ delivery.rejected }}
       </p>
-      <p v-if="delivery.contiguous_sequence !== undefined">连续到齐序号 {{ delivery.contiguous_sequence }} / {{ delivery.admitted }}；后到事件可以先确认，分析只读取连续到齐的前缀。</p>
+      <p v-if="delivery.contiguous_sequence !== undefined">
+        连续到齐序号 {{ delivery.contiguous_sequence }} /
+        {{ delivery.admitted }}；后到事件可以先确认，分析只读取连续到齐的前缀。
+      </p>
       <p>
         {{
           delivery.sealed
@@ -162,6 +205,11 @@ watch(
         }}；待传 {{ delivery.pending_bytes }} 字节。
       </p>
     </div>
+    <p v-if="journal">
+      原始日志：已持久 {{ journal.admitted }} · 已移交待传
+      {{ journal.handed_off }} · 待移交
+      {{ journal.pending }}。移交不代表后端已确认。
+    </p>
     <p v-if="enabled && !remote">此旧任务没有远端配置，请新建远端任务。</p>
     <p>
       Debugger 源码不是 HTTP 原始字节；加载栈不是 API 发送栈。Network
@@ -179,7 +227,9 @@ watch(
           导出分析JSON
         </button>
         <p v-if="jobs[0]">
-          最新作业：{{ jobs[0].status }} · {{ ({ collecting: "递归收集", frozen: "资产已冻结", analyzing: "统一分析" } as Record<string, string>)[jobs[0].phase ?? ""] ?? jobs[0].phase ?? "排队" }} · 输入水位 {{ jobs[0].watermark }} ·
+          最新作业：{{ jobs[0].status }} ·
+          {{ phaseNames[jobs[0].phase ?? ""] ?? jobs[0].phase ?? "排队" }} ·
+          输入水位 {{ jobs[0].watermark }} ·
           {{ jobs[0].error || "" }}
         </p>
         <p v-else>等待后端生成固定批次；接收成功不等于分析完成。</p>
@@ -194,7 +244,14 @@ watch(
         <p v-if="analysis?.collection_summary">
           资源收集：{{ analysis.collection_summary.status }} · 最大深度
           {{ analysis.collection_summary.max_depth }} · 未解决引用
-          {{ analysis.collection_summary.unresolved_reference_ids?.length ?? 0 }}
+          {{
+            analysis.collection_summary.unresolved_reference_ids?.length ?? 0
+          }}
+        </p>
+        <p v-if="analysis?.raw_capture?.events">
+          原始通知 {{ analysis.raw_capture.events }} · 恢复请求
+          {{ analysis.raw_capture.recovered_requests }} · 已关联整理记录
+          {{ analysis.raw_capture.linked_requests }}；未取得正文仍显示缺口。
         </p>
         <p v-if="analysis?.api_inventory?.length > 200">
           显示前200组，完整结果请导出JSON。
@@ -314,8 +371,12 @@ watch(
               }}<br />{{ row.object_id || "无正文" }}
             </td>
             <td>
-              <button @click="preview = JSON.stringify(row, null, 2)">
-                详情</button
+              <button @click="details(row)">详情</button
+              ><button
+                v-if="row.kind === 'RawCdpEvent'"
+                @click="details(row, true)"
+              >
+                下载原始通知</button
               ><button v-if="row.object_id" @click="source(row)">
                 源码预览</button
               ><button v-if="row.object_id" @click="source(row, true)">

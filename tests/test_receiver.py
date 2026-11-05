@@ -222,5 +222,17 @@ class ReceiverTest(unittest.TestCase):
         self.assertEqual(self.upload(data, 'https://site.test/a.js'), identity)
 
 
+    def test_event_detail_is_exact_and_scoped_to_scan(self):
+        original=event('detail')
+        status,_=self.request('POST','/events',self.envelope(original))
+        self.assertEqual(status,200)
+        status,body=self.request('GET','/events?scan_id=scan-1&event_id=detail')
+        self.assertEqual(status,200)
+        detail=json.loads(body)
+        self.assertEqual(detail['event'],original)
+        self.assertRegex(detail['event_sha256'],r'^[a-f0-9]{64}$')
+        self.assertEqual(self.request('GET','/events?scan_id=other&event_id=detail')[0],404)
+
+
 if __name__ == '__main__':
     unittest.main()

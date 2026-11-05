@@ -50,7 +50,23 @@ export type DeliveryStatus = {
   bytes: number;
   sealed: boolean;
 };
+export type CaptureManifest = {
+  count: number;
+  bytes: number;
+  by_kind: Record<string, number>;
+};
+export type JournalStatus = {
+  scan_id: string;
+  scope: string;
+  admitted: number;
+  handed_off: number;
+  pending: number;
+  pending_bytes: number;
+  bytes: number;
+  by_kind: Record<string, number>;
+};
 export type StreamReceipt = {
+  capture_journal?: CaptureManifest;
   schema: string;
   stream_id: string;
   scan_id: string;

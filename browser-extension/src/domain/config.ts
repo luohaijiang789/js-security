@@ -56,6 +56,8 @@ export function validateSlsConfig(sls: SlsConfig | undefined) {
     throw Error("SLS Topic 和 Source 必须是不超过 128 字符的字符串");
 }
 export function validateConfig(c: Config) {
+  if (c.raw_capture !== undefined && typeof c.raw_capture !== "boolean")
+    throw Error("原始日志开关无效");
   if (c.analysis) {
     if (
       !Number.isInteger(c.analysis.max_js_depth) ||

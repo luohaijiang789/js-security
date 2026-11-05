@@ -12,7 +12,7 @@ EVENT_BYTES = 128 * 1024 * 1024
 HASH = re.compile(r'[a-f0-9]{64}')
 PROJECT = re.compile(r'[A-Za-z0-9_-]{1,64}')
 UPLOAD = re.compile(r'[A-Za-z0-9_-]{8,64}')
-CATEGORIES = {'js_source', 'script_load', 'api_request', 'page_context', 'task'}
+CATEGORIES = {'js_source', 'script_load', 'api_request', 'page_context', 'task', 'raw_cdp'}
 
 
 class Invalid(ValueError):

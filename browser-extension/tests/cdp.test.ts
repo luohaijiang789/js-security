@@ -57,6 +57,9 @@ it("真实 Chromium CDP：受控请求、重定向、原值留存、在途停止
       },
     );
     await recorder.configure({ tabId: 1 });
+    // This assertion covers truncation of browser-provided inline data.
+    // Chrome can evict fallback POST data; success/missing fallback states have separate tests.
+    await session.send("Network.enable", { maxPostDataSize: 65536 });
     let tail = Promise.resolve();
     for (const method of [
       "Network.requestWillBeSent",

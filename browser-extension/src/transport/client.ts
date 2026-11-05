@@ -1,3 +1,4 @@
+import { journalSnapshot } from "../storage/capture-journal";
 import {
   type CaptureEvent,
   type RemoteSettings,
@@ -19,6 +20,7 @@ type Delivery = {
   original?: WeakRef<CaptureEvent>;
   event: CaptureEvent;
   source?: string;
+  journal_id?: string;
   persisted?: boolean;
   hydrated?: boolean;
   payload?: string;
@@ -31,6 +33,7 @@ type Ledger = DeliveryStatus & {
   scan_id: string;
   scope: string;
   closing?: boolean;
+  capture_journal?: import("../domain/evidence").CaptureManifest;
   acknowledged_ahead?: number[];
 };
 
@@ -55,6 +58,7 @@ export class RemoteCapture {
   private negotiation?: Promise<void>;
   private negotiatedScope?: string;
   private parallel = false;
+  private rawSupported = false;
   private pending = new Map<string, Delivery>();
   private ledgers = new Map<string, Ledger>();
   private retrying?: Promise<void>;
@@ -182,6 +186,9 @@ export class RemoteCapture {
     if (!this.negotiation) {
       const operation = (async () => {
         const health = await (await this.request("/health")).json();
+        this.rawSupported =
+          Array.isArray(health.capabilities) &&
+          health.capabilities.includes("raw-cdp-journal-1");
         this.parallel =
           Array.isArray(health.capabilities) &&
           health.capabilities.includes("delivery-window-1") &&
@@ -325,7 +332,11 @@ export class RemoteCapture {
     }
     throw error;
   }
-  send(event: CaptureEvent, source?: string): Promise<DeliveryAck> {
+  send(
+    event: CaptureEvent,
+    source?: string,
+    journal_id?: string,
+  ): Promise<DeliveryAck> {
     const copy = structuredClone(event);
     return new Promise((resolve, reject) => {
       const admission = this.admissionTail.then(async () => {
@@ -361,6 +372,7 @@ export class RemoteCapture {
           stream_id: ledger.stream_id,
           scope: ledger.scope,
           original: new WeakRef(event),
+          journal_id,
           event: copy,
           source,
           size,
@@ -426,6 +438,8 @@ export class RemoteCapture {
         );
         entry.persisted = true;
       }
+      if (entry.event.kind === "RawCdpEvent" && !this.rawSupported)
+        throw Error("后端不支持原始日志，请更新后端后恢复补传");
       const ack = await this.deliver(entry);
       const commit = this.admissionTail.then(async () => {
         const ledger = this.ledger(entry.event.scan_id);
@@ -480,6 +494,7 @@ export class RemoteCapture {
     const operation = (async () => {
       await this.drain();
       this.failure = "";
+      this.negotiation = undefined; // A resumed task may be talking to an upgraded receiver.
       this.schedule();
       await this.drain();
       if (this.failed) throw Error(this.failure);
@@ -503,6 +518,15 @@ export class RemoteCapture {
       row.acknowledged_ahead?.length
     )
       throw Error("已确认序号仍有缺口，不能封账");
+    const journal = await journalSnapshot(scan);
+    if (journal.pending || journal.handed_off !== journal.admitted)
+      throw Error("原始日志尚未移交，不能封账");
+    if (journal.admitted)
+      row.capture_journal = {
+        count: journal.admitted,
+        bytes: journal.bytes,
+        by_kind: journal.by_kind,
+      };
     row.closing = true;
     await deliveryOutbox.ledger(row);
     this.unsealed.add(scan);
@@ -517,6 +541,7 @@ export class RemoteCapture {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             scan_id: scan,
+            capture_journal: row.capture_journal,
             count: row.admitted,
             categories: row.categories,
             bytes: row.bytes,
@@ -539,6 +564,19 @@ export class RemoteCapture {
         categories.some((k) => receipt.categories[k] !== row.categories[k])
       )
         throw Error("服务器分类账与客户端不一致，不能标记传输完成");
+      if (row.capture_journal) {
+        const actual = receipt.capture_journal,
+          expected = row.capture_journal;
+        if (
+          !actual ||
+          actual.count !== expected.count ||
+          actual.bytes !== expected.bytes ||
+          Object.keys({ ...actual.by_kind, ...expected.by_kind }).some(
+            (key) => actual.by_kind[key] !== expected.by_kind[key],
+          )
+        )
+          throw Error("服务器原始日志账目不一致，不能封账");
+      }
       await deliveryOutbox.ledger({ ...row, sealed: true, closing: false });
       row.sealed = true;
       row.closing = false;
@@ -675,6 +713,13 @@ export class RemoteCapture {
     )
       throw Error("事件持久确认无效");
     return ack;
+  }
+  async eventInfo(scan: string, id: string) {
+    return (
+      await this.request(
+        `/events?scan_id=${encodeURIComponent(scan)}&event_id=${encodeURIComponent(id)}`,
+      )
+    ).json() as Promise<{ event: CaptureEvent; event_sha256: string }>;
   }
   async page(scan: string, after = 0, summary = false) {
     return (

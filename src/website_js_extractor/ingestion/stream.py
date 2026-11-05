@@ -198,6 +198,12 @@ class Ingest:
         self.content = {}
         self.gaps = []
         self.stats = Counter(events=len(events))
+        from website_js_extractor.ingestion.raw import recover_raw
+        recovered, self.raw_links, projections, issues, self.raw_statistics = recover_raw(events)
+        self.observed.extend(recovered)
+        self.events = projections + events
+        for issue in issues:
+            self.gap(issue['type'],issue['message'],source=issue.get('source'),request_id=issue.get('request_id'))
         self._consume()
 
     # ---- evidence normalization -------------------------------------------------
@@ -429,7 +435,7 @@ class Ingest:
                 if not isinstance(record, dict):
                     self.gap('stream_observed_invalid', 'ObservedRequest has no record object.', source=event.get('id'))
                 else:
-                    self.observed.append(record)
+                    self.observed.append({**record, **({'raw_event_ids':self.raw_links[record['request_id']]} if record.get('request_id') in self.raw_links else {})})
                 continue
             if kind == 'Debugger.scriptParsed':
                 self.stats['script_events'] += 1
@@ -450,6 +456,7 @@ class Ingest:
                 self.stats['network_events'] += 1
                 self._network(event, data)
                 continue
+            if kind == 'RawCdpEvent': continue
             self.stats['ignored_events'] += 1
         self._runtime_depths()
 
@@ -685,7 +692,7 @@ def _inventory_row(snapshot, assets, host, method, path, members, records):
                 status='matched' if members and records else 'static-only' if members else 'observed-only',
                 static_candidate_ids=candidate_ids, static_candidate_count=len(candidate_ids),
                 observed_request_ids=request_ids, observed_count=len(set(request_ids)) or len(records),
-                observed_request_count=len(records), observed_urls=sorted(
+                observed_request_count=len(records), raw_recovered_request_count=sum(record.get("recovery")=="raw-cdp" for record in records), observed_urls=sorted(
                     {str(item.get('request_url')) for item in records if item.get('request_url')}),
                 page_urls=sorted({str(item.get('page_url')) for item in records if item.get('page_url')}),
                 status_codes=sorted({item.get('status_code') for item in records
@@ -693,7 +700,7 @@ def _inventory_row(snapshot, assets, host, method, path, members, records):
                 contexts=sorted(contexts), js_files=js_files,
                 parameters=dict(static=static_parameters, observed_query=observed_query,
                                 observed_body_keys=sorted(set(body_keys))),
-                evidence=dict(static_candidate_ids=candidate_ids, observed_request_ids=request_ids))
+                evidence=dict(static_candidate_ids=candidate_ids, observed_request_ids=request_ids, raw_event_ids=sorted({identity for record in records for identity in record.get("raw_event_ids",[])})))
 
 
 def _write_inventory(output, report):
@@ -740,6 +747,7 @@ def ingest(args):
         print(f'Cannot create output: {error}', file=sys.stderr)
         return 2
     reader = None
+    ingest_state = None
     snapshot = None
     code = 0
     records, candidates, groups, other = [], [], [], []
@@ -760,6 +768,10 @@ def ingest(args):
             raise StreamError('No capture events are stored for this project.')
         task['id'] = scan
         events = reader.events(scan)
+        if any(event.get('kind')=='RawCdpEvent' for event in events):
+            with (output/'raw-notifications.jsonl').open('w',encoding='utf-8') as raw_output:
+                for event in events:
+                    if event.get('kind')=='RawCdpEvent': raw_output.write(json.dumps(event,ensure_ascii=True,allow_nan=False)+'\n')
         print(f'Ingesting {len(events)} capture event(s) for scan {scan}...', file=sys.stderr)
         ingest_state = Ingest(reader, scan, events, max_files=args.max_files,
                               max_asset_bytes=args.max_asset_mib*1024*1024,
@@ -788,8 +800,8 @@ def ingest(args):
             print(f'Analyzing {len(snapshot.assets)} captured assets with pinned jshound...', file=sys.stderr)
             records = analyze(snapshot, args.engine_root, args.timeout)
             candidates, groups, other = build_candidates(snapshot, records)
-            inventory, unresolved = build_inventory(snapshot, candidates)
-            task['phase'] = 'associate'
+        inventory, unresolved = build_inventory(snapshot, candidates)
+        task['phase'] = 'associate'
         statistics = dict(
             assets=len(snapshot.assets) if snapshot else 0,
             contexts=len(getattr(snapshot, 'capture_contexts', [])) if snapshot else 0,
@@ -847,6 +859,8 @@ def ingest(args):
                   analysis_manifest='analysis-manifest.json' if collection_manifest else None,
                   collection_summary=collection_manifest,
                   input_delivery=getattr(reader, 'delivery_selection', {}),
+                  raw_capture=getattr(ingest_state, 'raw_statistics', {}),
+                  raw_evidence_file='raw-notifications.jsonl' if (output/'raw-notifications.jsonl').exists() else None,
                   collection_checkpoint='collection.json' if (output/'collection.json').exists() else None,
                   engine_record_file='engine-records.json', other_engine_record_ids=other,
                   gaps=getattr(snapshot, 'gaps', []) if snapshot else [],

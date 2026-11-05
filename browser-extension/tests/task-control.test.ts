@@ -579,3 +579,72 @@ describe("background task identity and control ordering", () => {
     expect((await rpc("state")).result.scan.stats.pending).toBe(0);
   });
 });
+
+describe("durable raw notifications through background RPC", () => {
+  it("captures raw notifications before deriving a request and seals both without local body archives", async () => {
+    const { receiverFixture } = await import("./receiver-fixture");
+    const receiver = await receiverFixture();
+    try {
+      await loadBackground();
+      const started = await rpc("start", {
+        name: "raw notifications",
+        tab_scope: "selected",
+        tabs: [1],
+        config: {
+          ...config(),
+          collect_js: true,
+          raw_capture: true,
+          remote_capture: receiver.settings,
+        },
+      });
+      expect(started.ok).toBe(true);
+      const scan = started.result as Scan;
+      eventListener({ tabId: 1 }, "Network.requestWillBeSent", {
+        requestId: "raw-api",
+        type: "Fetch",
+        documentURL: "https://fixture.test/",
+        request: {
+          url: "https://fixture.test/api/raw",
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          hasPostData: true,
+          postData: '{"id":0,"flag":false}',
+        },
+        initiator: { type: "script", stack: { callFrames: [] } },
+      });
+      eventListener({ tabId: 1 }, "Network.responseReceived", {
+        requestId: "raw-api",
+        type: "Fetch",
+        response: { status: 200, headers: {}, mimeType: "text/plain" },
+      });
+      eventListener({ tabId: 1 }, "Network.loadingFinished", {
+        requestId: "raw-api",
+      });
+      expect((await rpc("stop", { id: scan.id })).ok).toBe(true);
+      const { RemoteCapture } = await import("../src/transport/client");
+      const client = new RemoteCapture(() => receiver.settings);
+      const events = (await client.page(scan.id)).events;
+      expect(
+        events.filter((event) => event.kind === "RawCdpEvent"),
+      ).toHaveLength(3);
+      expect(
+        events.filter((event) => event.kind === "ObservedRequest"),
+      ).toHaveLength(1);
+      const checkpoint = events.find(
+        (event) =>
+          event.kind === "TaskCheckpoint" && event.data.phase === "stop",
+      )!;
+      expect(checkpoint.data.scan.capture_journal).toMatchObject({
+        admitted: 3,
+        pending: 0,
+        handed_off: 3,
+      });
+      const { journalRows } = await import("../src/storage/capture-journal");
+      expect(await journalRows(scan.id)).toEqual([]);
+      const db = await import("../src/storage/tasks");
+      expect(await db.all("requests", scan.id)).toEqual([]);
+    } finally {
+      await receiver.close();
+    }
+  });
+});

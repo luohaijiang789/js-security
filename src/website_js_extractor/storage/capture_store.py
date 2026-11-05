@@ -38,6 +38,8 @@ class Receiver:
           CREATE INDEX IF NOT EXISTS scan_events ON events(project,scan,seq);
           CREATE TABLE IF NOT EXISTS delivery_streams(project TEXT, stream TEXT, scan TEXT,
             sealed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project,stream));
+          CREATE TABLE IF NOT EXISTS raw_receipts(project TEXT, stream TEXT, scan TEXT, capture_id TEXT, event_id TEXT, method TEXT, bytes INTEGER, digest TEXT, PRIMARY KEY(project,capture_id), UNIQUE(project,event_id));
+          CREATE INDEX IF NOT EXISTS raw_stream ON raw_receipts(project,stream);
           CREATE TABLE IF NOT EXISTS delivery_windows(project TEXT, stream TEXT, contiguous INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project,stream));
           CREATE TABLE IF NOT EXISTS deliveries(project TEXT, stream TEXT, sequence INTEGER,
             event_id TEXT, category TEXT, bytes INTEGER, object_id TEXT,
@@ -184,6 +186,12 @@ class Receiver:
             if 'analysis' in configuration:
                 from website_js_extractor.domain.settings import AnalysisSettings
                 AnalysisSettings.parse(configuration['analysis'])
+        raw_observation = None
+        if value['kind'] == 'RawCdpEvent' or category == 'raw_cdp':
+            if value['kind'] != 'RawCdpEvent' or category != 'raw_cdp' or value.get('transport') is None:
+                raise Invalid('Raw observations require raw category and delivery identity.')
+            from website_js_extractor.domain.raw import parse_raw
+            raw_observation = parse_raw(value)
         content = value.get('object_id')
         if content is not None:
             if not isinstance(content, str) or not HASH.fullmatch(content):
@@ -235,6 +243,9 @@ class Receiver:
                         self.db.execute('INSERT INTO delivery_streams VALUES(?,?,?,0)', (project, stream, value['scan_id']))
                     self.db.execute('INSERT INTO deliveries VALUES(?,?,?,?,?,?,?)',
                                     (project, stream, sequence, value['id'], category, len(raw), content))
+            if raw_observation is not None and not old:
+                self.db.execute('INSERT INTO raw_receipts VALUES(?,?,?,?,?,?,?,?)',
+                    (project, stream, value['scan_id'], value['id'][4:], value['id'], raw_observation['method'], value['data']['capture_bytes'], value['data']['capture_sha256']))
             if not old:
                 self.db.execute('INSERT INTO events(project,id,scan,payload,digest) VALUES(?,?,?,?,?)',
                                 (project, value['id'], value['scan_id'], payload, digest))
@@ -278,9 +289,25 @@ class Receiver:
                 (project, stream)).fetchone()[0]
             if first != 1 or last != count or count != expected['count'] or size != expected['bytes'] or categories != expected['categories'] or missing:
                 raise Invalid('Delivery manifest does not match durable events/objects.', 409)
+            raw_count, raw_bytes = self.db.execute('SELECT COUNT(*),COALESCE(SUM(bytes),0) FROM raw_receipts WHERE project=? AND stream=?',(project,stream)).fetchone()
+            raw_kinds = dict(self.db.execute('SELECT method,COUNT(*) FROM raw_receipts WHERE project=? AND stream=? GROUP BY method',(project,stream)))
+            raw_manifest = expected.get('capture_journal')
+            if raw_count or raw_manifest is not None:
+                if not isinstance(raw_manifest,dict) or set(raw_manifest)!={'count','bytes','by_kind'} or any(type(raw_manifest.get(key)) is not int or raw_manifest[key]<0 for key in ['count','bytes']) or not isinstance(raw_manifest['by_kind'],dict) or any(not isinstance(key,str) or type(value) is not int or value<1 for key,value in raw_manifest['by_kind'].items()):
+                    raise Invalid('Invalid raw capture manifest.')
+                actual = dict(count=raw_count, bytes=raw_bytes, by_kind=raw_kinds)
+                if raw_manifest != actual: raise Invalid('Raw capture journal does not match durable receipts.',409)
+            else: actual = None
             self.db.execute('UPDATE delivery_streams SET sealed=1 WHERE project=? AND stream=?', (project, stream))
         return dict(schema=SCHEMA, stream_id=stream, scan_id=row[0], count=count,
-                    categories=categories, bytes=size, sealed=True, durable=True)
+                    categories=categories, bytes=size, sealed=True, durable=True, **({'capture_journal': actual} if actual is not None else {}))
+
+    def event_info(self, project, scan, identity):
+        if not isinstance(identity,str) or not 0 < len(identity) <= 512: raise Invalid('Invalid event ID.')
+        with self.lock:
+            row=self.db.execute('SELECT payload,digest FROM events WHERE project=? AND scan=? AND id=?',(project,scan,identity)).fetchone()
+        if not row: raise Invalid('Unknown event in this scan.',404)
+        return dict(event=strict_json(row[0]),event_sha256=row[1])
 
     def page(self, project, scan, after=0, limit=50, summary=False):
         if not 0 <= after or not 1 <= limit <= 100:
@@ -302,7 +329,7 @@ class Receiver:
             for item in events:
                 data = item['data']
                 item['data'] = {key: data[key] for key in ['url', 'document_url', 'source_bytes', 'network_match',
-                                                          'observed_tab_url', 'target_id'] if key in data}
+                                                          'observed_tab_url', 'target_id', 'capture_bytes', 'capture_sha256'] if key in data}
                 if item['kind'] == 'ObservedRequest':
                     record = data.get('record', {})
                     item['data']['record'] = {key: record[key] for key in ['request_url', 'method', 'status_code',

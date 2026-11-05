@@ -1,3 +1,4 @@
+import { journalSnapshot } from "../storage/capture-journal";
 import { captureAccounting } from "../capture/accounting";
 import { RemoteCapture } from "../transport/client";
 import { removeJSScan } from "../storage/cleanup";
@@ -254,7 +255,42 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   )
     return;
   const config = current?.config;
-  const bytes = new TextEncoder().encode(JSON.stringify(params ?? {})).length;
+  let bytes: number;
+  try {
+    bytes = new TextEncoder().encode(JSON.stringify(params ?? {})).length;
+  } catch (error) {
+    gap(current, "cdp_serialization_failure", String(error));
+    current.state = "paused";
+    return;
+  }
+  const recordRaw =
+    !recorder.journalClosed &&
+    !!current.config.remote_capture &&
+    current.config.raw_capture === true &&
+    (current.state === "recording" ||
+      (method.startsWith("Network.") &&
+        ["paused", "draining"].includes(current.state) &&
+        (recorder.channels.has(
+          recorder.key(source, (params as any)?.requestId),
+        ) ||
+          recorder.journal.tracks(source, (params as any)?.requestId))));
+  const raw = recordRaw
+    ? recorder.journal.observe(
+        current,
+        recorder.connection,
+        source,
+        method,
+        params,
+        recorder.js.epoch(source),
+        recorder.targets.get(`${source.tabId}:${source.sessionId ?? "root"}`),
+      )
+    : Promise.resolve();
+  void raw.catch((error) => {
+    if (recorder.scan === current) {
+      gap(current, "raw_journal_persistence_failure", String(error));
+      current.state = "paused";
+    }
+  });
   const accounted =
     !!current.config.remote_capture && current.state === "recording";
   const audit = accounted
@@ -282,7 +318,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
   eventTail = eventTail
     .then(() => ready)
     .then(async () => {
-      await audit;
+      await Promise.all([audit, raw]);
       if (recorder.scan === current) {
         await recorder.event(source, method, params ?? {});
         if (accounted)
@@ -738,6 +774,8 @@ chrome.runtime.onMessage.addListener((message, sender, respond) => {
           const saved = await db.get<Scan>("scans", message.id);
           if (saved?.config.remote_capture) {
             const queue = new RemoteCapture(() => saved.config.remote_capture);
+            if ((await journalSnapshot(saved.id)).pending)
+              throw Error("仍有未移交的原始日志，先恢复补传，不能删除");
             await queue.restore(saved.id);
             if (queue.status(saved.id)?.pending || queue.failed)
               throw Error("该任务仍有未确认正文，先恢复补传，不能删除待传证据");

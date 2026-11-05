@@ -56,6 +56,7 @@ export type SlsCredentials = {
   security_token?: string;
 };
 export type Config = {
+  raw_capture?: boolean;
   analysis?: {
     max_js_depth: number;
     fetch_js: boolean;
@@ -100,6 +101,7 @@ export type Config = {
 };
 export const defaults = (): Config => ({
   collect_js: false,
+  raw_capture: true,
   analysis: { max_js_depth: 5, fetch_js: true, allowed_origins: [] },
   filter: {},
   retention: "matching",
@@ -260,6 +262,7 @@ export type Scan = {
   ended_at?: string;
   heartbeat: string;
   delivery?: DeliveryStatus;
+  capture_journal?: import("./evidence").JournalStatus;
   capture_accounting?: {
     scan_id: string;
     by_kind: Record<

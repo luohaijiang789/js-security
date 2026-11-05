@@ -17,9 +17,16 @@ export function descriptor(value: any) {
 }
 export async function evidenceDatabase() {
   return (opening ??= new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("js-security-delivery-outbox", 3);
+    const request = indexedDB.open("js-security-delivery-outbox", 4);
     request.onupgradeneeded = () => {
       const db = request.result;
+      if (!db.objectStoreNames.contains("capture_journal"))
+        db.createObjectStore("capture_journal", { keyPath: "id" }).createIndex(
+          "scan",
+          "scan_id",
+        );
+      if (!db.objectStoreNames.contains("journal_ledgers"))
+        db.createObjectStore("journal_ledgers", { keyPath: "scan_id" });
       if (!db.objectStoreNames.contains("capture_counters"))
         db.createObjectStore("capture_counters", { keyPath: "scan_id" });
       if (!db.objectStoreNames.contains("entries"))

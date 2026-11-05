@@ -1,6 +1,6 @@
 # 分类接收、持久待传与封账协议
 
-当前wire schema为`capture-stream-2`，支持`delivery-ledger-1`、`content-integrity-1`、`recursive-analysis-1`、`delivery-window-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
+当前wire schema为`capture-stream-2`，支持`delivery-ledger-1`、`content-integrity-1`、`recursive-analysis-1`、`delivery-window-1`、`raw-cdp-journal-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
 
 ## 地址与分类
 
@@ -12,13 +12,14 @@
 | js_source | Debugger源码观察及其服务端object_id |
 | page_context | 页面/执行上下文与代次 |
 | script_load | JS网络加载、重定向、initiator及可得异步栈 |
+| raw_cdp | 原始CDP通知JSON、独立摘要、接收时间/配置/连接身份 |
 | task | 任务开始、结束检查点、配置/统计/缺口 |
 
 事件保留id/scan_id/kind/category/time/tab_id/session_id/epoch/data/object_id/status。数据的零值、false、空值、Unicode与数组不删减；任务字段选择和捕获缺失另外表达。
 
 ## 临时待传
 
-数据库js-security-delivery-outbox当前版本3：entries保存未确认元数据，payloads保存对应完整事件/正文，ledgers保存传输计数，capture_counters保存按CDP事件种类的observed/dispatched/rejected计数。v1未确认数据升级时事务迁移；恢复只读entries索引，逐项取payloads，不把全部正文装进内存。采集计数不能重放原始CDP事件，持久化前崩溃仍可能丢失最后一小批计数，不能据此宣称全采集。事件快照、上传ID、接收地址作用域、连续序号与入队账目先提交，之后才联网；ACK后的条目删除与账目更新为同一严格事务。暂停/重启后先恢复补传，不将正文写入原requests/active档案。最多4096项/256MiB待确认数据，达到上限拒绝并记录Gap，不静默淘汰。
+数据库js-security-delivery-outbox当前版本4：entries保存未确认元数据，payloads保存对应完整事件/正文，ledgers保存传输计数，capture_counters保存按CDP事件种类的observed/dispatched/rejected计数，capture_journal和journal_ledgers保存未移交通知及账目。原子移交与崩溃重放见[原始日志](capture-journal.md)。v1未确认数据升级时事务迁移；恢复只读entries索引，逐项取payloads，不把全部正文装进内存。单纯采集计数不能重放原始CDP事件，启用原始日志后可重放已持久通知；持久化前崩溃仍可能丢失最后一小批计数，不能据此宣称全采集。事件快照、上传ID、接收地址作用域、连续序号与入队账目先提交，之后才联网；ACK后的条目删除与账目更新为同一严格事务。暂停/重启后先恢复补传，不将正文写入原requests/active档案。最多4096项/256MiB待确认数据，达到上限拒绝并记录Gap，不静默淘汰。
 
 并发窗口协议见[有界并发与分析可见性](delivery-window.md)。新版插件协商delivery-window-1后最多4项并发（大项最多3），接收端允许连续前缀后64项乱序持久接收。累计确认与连续到齐分别展示；有缺口不封账，分析只读取固定水位的连续前缀。
 
@@ -35,8 +36,9 @@
 | POST /uploads/{upload}/commit | bytes/url/kind/expected_sha256；完整校验后返回object_id/bytes/committed/durable |
 | POST /events | schema+event_json+event_sha256；大事件用event_object_id；身份/序号/对象引用原子持久 |
 | GET /events?scan_id=…&after=…&limit=…&summary=1 | 持久事件分页，next/has_more；摘要不代替原始事件 |
+| GET /events?scan_id=…&event_id=… | 当前任务下完整原始事件与摘要，跨任务404 |
 | GET /objects/{object_id} | 完整UTF-8正文；?status查询存在/长度 |
-| POST /streams/{stream}/seal | scan_id/count/categories/bytes；核对连续序号、分类、字节及事件/对象后封账 |
+| POST /streams/{stream}/seal | scan_id/count/categories/bytes与可选capture_journal；核对连续序号、分类、字节及事件/对象后封账 |
 | GET /analyses?scan_id=… | 最近20个固定输入作业，pending和状态 |
 | POST /analyses | scan_id；手动立即排队，返回202 |
 | GET /analyses/{run}/result | status及固定analysis.json；完成、部分、失败分开 |

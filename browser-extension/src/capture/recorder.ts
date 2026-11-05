@@ -1,3 +1,4 @@
+import { CaptureJournal } from "./journal";
 import { captureAccounting } from "./accounting";
 import { RemoteCapture } from "../transport/client";
 import { AssetIndex, hostOf, assetScope } from "../storage/assets";
@@ -81,6 +82,8 @@ export class Recorder {
   stacks: StackCapture;
   js: JSCapture;
   remote: RemoteCapture;
+  journal: CaptureJournal;
+  journalClosed = false;
   assets = new AssetIndex();
   observedByURL = new Map<string, Map<string, string[]>>();
   observedByCdpId = new Map<string, Map<string, string>>();
@@ -92,6 +95,12 @@ export class Recorder {
     this.stacks = new StackCapture(send);
     this.remote =
       remote ?? new RemoteCapture(() => this.scan?.config.remote_capture);
+    this.journal = new CaptureJournal(this.remote, (scan, error) => {
+      if (this.scan?.id === scan) {
+        this.scan.state = "paused";
+        gap(this.scan, "raw_journal_delivery_failure", String(error));
+      }
+    });
     this.js = new JSCapture(send, this.stacks, this.remote, this.assets);
   }
   async create(
@@ -108,6 +117,8 @@ export class Recorder {
       config.remote_capture ? assetScope(config.remote_capture) : "",
     );
     this.js = new JSCapture(this.send, this.stacks, this.remote, this.assets);
+    this.journalClosed = false;
+    this.journal.resetTracking();
     const time = now();
     this.scan = {
       id: uid(),
@@ -125,7 +136,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.10.0",
+      plugin: "0.11.0",
       stats: {
         observed: 0,
         pending: 0,
@@ -183,6 +194,7 @@ export class Recorder {
   }
   async interruptTab(tabId: number, reason: string) {
     this.js.forgetTab(tabId);
+    this.journal.forgetTab(tabId);
     this.unavailableTabs.add(tabId);
     for (const c of this.channels.values())
       if (c.source.tabId === tabId)
@@ -296,6 +308,7 @@ export class Recorder {
     }
     if (method === "Target.detachedFromTarget") {
       this.js.forget({ tabId: source.tabId, sessionId: p.sessionId });
+      this.journal.forget({ tabId: source.tabId, sessionId: p.sessionId });
       this.stacks.forget({ tabId: source.tabId, sessionId: p.sessionId });
       for (const c of this.channels.values())
         if (
@@ -1044,6 +1057,8 @@ export class Recorder {
       scan.heartbeat = now();
       if (scan.config.remote_capture) {
         scan.capture_accounting = await captureAccounting.snapshot(scan.id);
+        if (scan.config.raw_capture)
+          scan.capture_journal = await this.journal.snapshot(scan.id);
         scan.delivery = this.remote.status(scan.id) ?? scan.delivery;
         if (scan.delivery)
           scan.stats.persisted = this.remote.requestCount(scan.id);
@@ -1114,6 +1129,7 @@ export class Recorder {
       await this.remote.restore(this.scan.id);
       const before = this.remote.requestCount(this.scan.id);
       await this.remote.retry();
+      if (this.scan.config.raw_capture) await this.journal.replay(this.scan.id);
       this.scan.stats.persisted +=
         this.remote.requestCount(this.scan.id) - before;
       this.js.resetFailure();
@@ -1131,6 +1147,7 @@ export class Recorder {
       )
         g.end = now();
     gap(this.scan, "resume", "恢复采集；之前中断窗口不计入已采集范围");
+    this.journalClosed = false;
     this.scan.state = "recording";
     await this.flush();
   }
@@ -1145,6 +1162,8 @@ export class Recorder {
       JSON.stringify(config.remote_capture)
     )
       throw Error("任务中不能切换存储模式或远端地址，请新建任务");
+    if (!!this.scan.config.raw_capture !== !!config.raw_capture)
+      throw Error("任务中不能切换原始日志范围，请新建任务");
     this.scan.config = structuredClone(config);
     this.scan.versions.push({
       version: this.scan.versions.length + 1,
@@ -1187,9 +1206,14 @@ export class Recorder {
     await this.js.drain();
     if (this.scan.config.remote_capture) {
       try {
+        this.journalClosed = true;
+        if (this.scan.config.raw_capture)
+          await this.journal.drain(this.scan.id);
         await this.remote.drain();
         if (this.remote.failed)
           throw Error("仍有未确认数据，请恢复重试，不能标记已完成");
+        if (this.scan.config.raw_capture)
+          this.scan.capture_journal = await this.journal.snapshot(this.scan.id);
         this.scan.capture_accounting = await captureAccounting.snapshot(
           this.scan.id,
         );
@@ -1211,7 +1235,7 @@ export class Recorder {
         this.scan.state = "paused";
         gap(this.scan, "remote_upload_failure", String(error));
         await this.flush();
-        throw error;
+        throw Error("传输仍未确认：" + String(error));
       }
     }
     await this.flush();

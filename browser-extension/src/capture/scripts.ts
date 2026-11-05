@@ -147,6 +147,9 @@ export class JSCapture {
   private key(s: Source) {
     return `${s.tabId}:${s.sessionId ?? "root"}`;
   }
+  epoch(s: Source) {
+    return this.epochs.get(this.key(s));
+  }
   session(s: Source) {
     this.epochs.set(this.key(s), uid());
   }

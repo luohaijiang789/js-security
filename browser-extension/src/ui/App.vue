@@ -2560,6 +2560,7 @@ onUnmounted(() => {
         <template v-if="section === 'JS探索'">
           <JSCapturePanel
             :delivery="scan?.delivery"
+            :journal="scan?.capture_journal"
             :remote="scan?.config.remote_capture"
             :enabled="scan?.config.collect_js"
             :scan-id="scanId"
@@ -2644,6 +2645,10 @@ onUnmounted(() => {
           <label
             ><input v-model="draftConfig.collect_js" type="checkbox" /> 远端采集
             JS 和请求（未确认数据临时保存，支持重启补传）</label
+          >
+          <label v-if="draftConfig.collect_js"
+            ><input v-model="draftConfig.raw_capture" type="checkbox" />
+            原始事件日志与崩溃补传：完整上传原始通知，Filter/字段选择只影响整理视图。</label
           >
           <div
             v-if="draftConfig.collect_js && draftConfig.analysis"

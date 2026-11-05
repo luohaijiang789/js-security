@@ -1,3 +1,4 @@
+import { handoffJournal } from "../storage/capture-journal";
 import {
   descriptor,
   evidenceDatabase,
@@ -44,10 +45,14 @@ async function read(
 }
 export const deliveryOutbox = {
   async admit(entry: object, ledger: object) {
-    await evidenceWrite((tx) => {
-      put(tx, entry);
-      tx.objectStore("ledgers").put(ledger);
-    });
+    await evidenceWrite(
+      (tx) => {
+        handoffJournal(tx, entry);
+        put(tx, entry);
+        tx.objectStore("ledgers").put(ledger);
+      },
+      ["entries", "payloads", "ledgers", "capture_journal", "journal_ledgers"],
+    );
   },
   async update(entry: object) {
     await evidenceWrite((tx) => put(tx, entry));

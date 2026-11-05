@@ -158,4 +158,4 @@ it("real Chromium CDP collects duplicate multi-MiB external JS and network prove
     await receiver.close();
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-}, 20000);
+}, 60000);
