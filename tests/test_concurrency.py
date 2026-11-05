@@ -215,8 +215,9 @@ class ConcurrencyTest(unittest.TestCase):
     def test_wave_timeout_drains_workers_and_checkpoints_completed_bodies(self):
         self.routes['/1.js'] = {'body_wait': True}
         snapshot = self.seed(self.root/'timeout', 2)
-        fetcher = self.fetcher(deadline=.25, timeout=2)
-        ReferenceGraph(snapshot, default_engine_root(), concurrency=2, timeout=2).run(fetcher)
+        # Include real Node discovery startup under concurrent CI load in the deadline.
+        fetcher = self.fetcher(deadline=2, timeout=4)
+        ReferenceGraph(snapshot, default_engine_root(), concurrency=2, timeout=6).run(fetcher)
         self.assert_drained(fetcher)
         checkpoint = json.loads((snapshot.output/'collection.json').read_text())
         self.assertEqual(checkpoint['fetch_statistics']['active_requests'], 0)

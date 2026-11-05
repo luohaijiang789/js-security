@@ -48,7 +48,11 @@ it("retains every queued payload across an outage and a new client, then deletes
   const restarted = new RemoteCapture(() => receiver.settings);
   await restarted.restore(scan);
   await restarted.retry();
-  expect((await restarted.page(scan)).events).toEqual(sent);
+  expect(
+    (await restarted.page(scan)).events.sort(
+      (a, b) => a.transport!.sequence - b.transport!.sequence,
+    ),
+  ).toEqual(sent);
   expect(restarted.status(scan)).toMatchObject({
     admitted: 12,
     acknowledged: 12,
@@ -187,17 +191,26 @@ it("disk admission failure keeps the payload and retries persistence before send
   expect((await remote.seal(scan))?.count).toBe(1);
 });
 it("a syntactically valid but incorrect event digest never clears a durable payload", async () => {
-  const scan = crypto.randomUUID(); let corrupt = true;
-  const remote = new RemoteCapture(() => receiver.settings, undefined, async (input, init) => {
-    const response = await fetch(input, init);
-    if (String(input).endsWith('/events') && corrupt)
-      return Response.json({ ...await response.json(), event_sha256: 'f'.repeat(64) });
-    return response;
-  });
+  const scan = crypto.randomUUID();
+  let corrupt = true;
+  const remote = new RemoteCapture(
+    () => receiver.settings,
+    undefined,
+    async (input, init) => {
+      const response = await fetch(input, init);
+      if (String(input).endsWith("/events") && corrupt)
+        return Response.json({
+          ...(await response.json()),
+          event_sha256: "f".repeat(64),
+        });
+      return response;
+    },
+  );
   const original = event(scan, 1);
-  await expect(remote.send(original)).rejects.toThrow('确认无效');
+  await expect(remote.send(original)).rejects.toThrow("确认无效");
   expect((await deliveryOutbox.load(scope(), scan)).entries).toHaveLength(1);
-  corrupt = false; await remote.retry();
+  corrupt = false;
+  await remote.retry();
   expect((await deliveryOutbox.load(scope(), scan)).entries).toEqual([]);
   expect((await remote.page(scan)).events).toEqual([original]);
 });

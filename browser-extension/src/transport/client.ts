@@ -31,6 +31,7 @@ type Ledger = DeliveryStatus & {
   scan_id: string;
   scope: string;
   closing?: boolean;
+  acknowledged_ahead?: number[];
 };
 
 async function fingerprint(bytes: Uint8Array) {
@@ -44,7 +45,16 @@ async function fingerprint(bytes: Uint8Array) {
 }
 
 export class RemoteCapture {
-  private tail: Promise<unknown> = Promise.resolve();
+  private active = new Map<string, Promise<void>>();
+  private waiters = new Map<
+    string,
+    { resolve: (ack: DeliveryAck) => void; reject: (error: unknown) => void }
+  >();
+  private scheduling?: Promise<void>;
+  private reschedule = false;
+  private negotiation?: Promise<void>;
+  private negotiatedScope?: string;
+  private parallel = false;
   private pending = new Map<string, Delivery>();
   private ledgers = new Map<string, Ledger>();
   private retrying?: Promise<void>;
@@ -68,6 +78,8 @@ export class RemoteCapture {
         scope: this.scope(),
         admitted: 0,
         acknowledged: 0,
+        contiguous_sequence: 0,
+        acknowledged_ahead: [],
         pending: 0,
         rejected: 0,
         pending_bytes: 0,
@@ -105,6 +117,35 @@ export class RemoteCapture {
     const row = saved.ledgers[0] as Ledger;
     if (row.pending !== saved.entries.length)
       throw Error("待传元数据和正文数量不一致，不能视为恢复成功");
+    row.contiguous_sequence ??= row.acknowledged;
+    row.acknowledged_ahead ??= [];
+    const prefix = row.contiguous_sequence;
+    const ahead = row.acknowledged_ahead;
+    const pendingSequences = saved.entries.map(
+      (item) => item.event.transport?.sequence,
+    );
+    const remaining = [...ahead, ...pendingSequences];
+    if (
+      !Number.isSafeInteger(prefix) ||
+      prefix < 0 ||
+      prefix > row.admitted ||
+      prefix + ahead.length !== row.acknowledged ||
+      row.acknowledged + row.pending !== row.admitted ||
+      new Set(remaining).size !== remaining.length ||
+      remaining.some(
+        (sequence) =>
+          !Number.isSafeInteger(sequence) ||
+          sequence <= prefix ||
+          sequence > row.admitted,
+      ) ||
+      saved.entries.some(
+        (item) =>
+          item.scope !== row.scope ||
+          item.event.scan_id !== scan ||
+          item.event.transport?.stream_id !== row.stream_id,
+      )
+    )
+      throw Error("待传序号、已确认缺口与连续水位不一致，禁止猜测恢复");
     this.ledgers.set(scan, row);
     for (const item of saved.entries.sort(
       (a, b) => a.event.transport.sequence - b.event.transport.sequence,
@@ -116,8 +157,126 @@ export class RemoteCapture {
     this.requestsByScan.set(scan, row.categories.api_request ?? 0);
   }
   async drain() {
-    await this.admissionTail;
-    await this.tail;
+    for (;;) {
+      const admission = this.admissionTail;
+      await admission;
+      if (this.scheduling) await this.scheduling;
+      await Promise.all([...this.active.values()]);
+      if (
+        admission === this.admissionTail &&
+        !this.scheduling &&
+        !this.active.size
+      )
+        return;
+    }
+  }
+  private async negotiate() {
+    const scope = this.scope();
+    if (scope !== this.negotiatedScope) {
+      if (this.active.size)
+        throw Error("接收地址变化时仍有在途数据，不能切换传输能力");
+      this.negotiation = undefined;
+      this.parallel = false;
+      this.negotiatedScope = scope;
+    }
+    if (!this.negotiation) {
+      const operation = (async () => {
+        const health = await (await this.request("/health")).json();
+        this.parallel =
+          Array.isArray(health.capabilities) &&
+          health.capabilities.includes("delivery-window-1") &&
+          health.delivery_window === 64;
+      })();
+      this.negotiation = operation;
+      try {
+        await operation;
+      } catch (error) {
+        this.negotiation = undefined;
+        throw error;
+      }
+    } else await this.negotiation;
+  }
+  private rejectBlocked() {
+    for (const [key, waiter] of this.waiters) {
+      if (this.active.has(key)) continue;
+      waiter.reject(Error(this.failure || "本事件已持久保留，请恢复重传"));
+      this.waiters.delete(key);
+    }
+  }
+  private schedule() {
+    if (this.scheduling) {
+      this.reschedule = true;
+      return;
+    }
+    const operation = (async () => {
+      if (this.failed) {
+        this.rejectBlocked();
+        return;
+      }
+      await this.negotiate();
+      await this.admissionTail;
+      if (this.failed) {
+        this.rejectBlocked();
+        return;
+      }
+      const capacity = this.parallel ? 4 : 1;
+      while (this.active.size < capacity) {
+        const all = [...this.pending.values()].sort(
+          (a, b) => a.event.transport!.sequence - b.event.transport!.sequence,
+        );
+        const eligible = all.filter(
+          (entry) =>
+            !this.active.has(entry.key) &&
+            entry.event.transport!.sequence <=
+              (this.ledger(entry.event.scan_id).contiguous_sequence ?? 0) +
+                (this.parallel ? 64 : 1),
+        );
+        // Start the earliest gap first; reserve one lane for small events when using window mode.
+        const large = [...this.active.keys()].filter(
+          (key) => (this.pending.get(key)?.size ?? 0) > 1048576,
+        ).length;
+        const available = eligible.filter(
+          (entry) => !this.parallel || entry.size <= 1048576 || large < 3,
+        );
+        const earliest = all[0];
+        const entry =
+          available.find((item) => item === earliest) ??
+          available.find((item) => item.size <= 1048576) ??
+          available[0];
+        if (!entry) break;
+        const key = entry.key;
+        const work = this.attempt(key, entry)
+          .then(
+            (ack) => {
+              this.waiters.get(key)?.resolve(ack);
+              this.waiters.delete(key);
+            },
+            (error) => {
+              this.waiters.get(key)?.reject(error);
+              this.waiters.delete(key);
+            },
+          )
+          .finally(() => {
+            this.active.delete(key);
+            this.schedule();
+          });
+        this.active.set(key, work);
+      }
+      if (this.pending.size && !this.active.size) {
+        this.failure = "待传序号与连续水位不一致，不能跨越缺口发送";
+        this.rejectBlocked();
+      }
+    })().catch((error) => {
+      this.failure = String(error);
+      this.rejectBlocked();
+    });
+    this.scheduling = operation.finally(() => {
+      this.scheduling = undefined;
+      if (this.reschedule) {
+        this.reschedule = false;
+        this.schedule();
+      }
+    });
   }
   constructor(
     private settings: () => RemoteSettings | undefined,
@@ -136,7 +295,7 @@ export class RemoteCapture {
       const timer = setTimeout(() => controller.abort(), 5000);
       try {
         const response = await this.fetcher(
-          `${settings!.url.replace(/\/$/, "")}/v1/projects/${encodeURIComponent(settings!.project)}${path}`,
+          `${settings!.url.replace(/\/$/, "")}${path === "/health" ? path : `/v1/projects/${encodeURIComponent(settings!.project)}${path}`}`,
           {
             ...init,
             redirect: "error",
@@ -173,7 +332,7 @@ export class RemoteCapture {
         const ledger = this.ledger(copy.scan_id);
         if (ledger.scope !== this.scope())
           throw Error("任务接收地址发生变化，不能误投待传数据");
-        if (ledger.sealed || this.unsealed.has(copy.scan_id))
+        if (ledger.sealed || ledger.closing || this.unsealed.has(copy.scan_id))
           throw Error("传输流正在核对或已封账，不接纳新事件");
         const size =
           new TextEncoder().encode(JSON.stringify(copy)).length +
@@ -237,12 +396,8 @@ export class RemoteCapture {
           this.failure = `待传持久化失败，内容仍在内存，释放磁盘空间后恢复：${String(error)}`;
           throw Error(this.failure);
         }
-        const operation = this.tail.then(async () => {
-          if (this.failed) throw Error("本事件已持久保留，请恢复重传");
-          return this.attempt(key, entry);
-        });
-        this.tail = operation.catch(() => {});
-        void operation.then(resolve, reject);
+        this.waiters.set(key, { resolve, reject });
+        this.schedule();
       });
       this.admissionTail = admission.catch(() => {});
       void admission.catch(reject);
@@ -274,8 +429,14 @@ export class RemoteCapture {
       const ack = await this.deliver(entry);
       const commit = this.admissionTail.then(async () => {
         const ledger = this.ledger(entry.event.scan_id);
+        let prefix = ledger.contiguous_sequence ?? ledger.acknowledged;
+        const ahead = new Set(ledger.acknowledged_ahead ?? []);
+        ahead.add(entry.event.transport!.sequence);
+        while (ahead.delete(prefix + 1)) prefix++;
         const confirmed = {
           ...ledger,
+          contiguous_sequence: prefix,
+          acknowledged_ahead: [...ahead].sort((a, b) => a - b),
           pending: ledger.pending - 1,
           pending_bytes: ledger.pending_bytes - entry.size,
           acknowledged: ledger.acknowledged + 1,
@@ -315,15 +476,15 @@ export class RemoteCapture {
     }
   }
   async retry() {
-    await this.admissionTail;
     if (this.retrying) return this.retrying;
-    const operation = this.tail.then(async () => {
+    const operation = (async () => {
+      await this.drain();
       this.failure = "";
-      for (const [key, entry] of [...this.pending])
-        await this.attempt(key, entry);
+      this.schedule();
+      await this.drain();
+      if (this.failed) throw Error(this.failure);
       for (const scan of [...this.unsealed]) await this.sealRequest(scan);
-    });
-    this.tail = operation.catch(() => {});
+    })();
     this.retrying = operation;
     try {
       await operation;
@@ -337,6 +498,11 @@ export class RemoteCapture {
     if (this.failed || this.status(scan)!.pending)
       throw Error("仍有未确认事件，不能封账");
     const row = this.ledger(scan);
+    if (
+      row.contiguous_sequence !== row.admitted ||
+      row.acknowledged_ahead?.length
+    )
+      throw Error("已确认序号仍有缺口，不能封账");
     row.closing = true;
     await deliveryOutbox.ledger(row);
     this.unsealed.add(scan);
@@ -470,6 +636,7 @@ export class RemoteCapture {
       event_json: payload,
       event_sha256: expected,
     };
+    if (this.parallel) envelope.delivery_mode = "window-1";
     if (bytes.length > 1048576) {
       const object = await this.upload(
         payload,
@@ -480,6 +647,7 @@ export class RemoteCapture {
       );
       envelope = {
         schema: SCHEMA,
+        ...(this.parallel ? { delivery_mode: "window-1" } : {}),
         event_object_id: object.object_id,
         event_sha256: expected,
       };
@@ -499,7 +667,11 @@ export class RemoteCapture {
       (event.object_id !== undefined && ack.object_id !== event.object_id) ||
       ack.transport?.stream_id !== event.transport?.stream_id ||
       ack.transport?.sequence !== event.transport?.sequence ||
-      ack.transport?.event_bytes !== bytes.length
+      ack.transport?.event_bytes !== bytes.length ||
+      (this.parallel &&
+        (ack.transport?.window !== 64 ||
+          !Number.isSafeInteger(ack.transport.contiguous_sequence) ||
+          ack.transport.contiguous_sequence! < 0))
     )
       throw Error("事件持久确认无效");
     return ack;

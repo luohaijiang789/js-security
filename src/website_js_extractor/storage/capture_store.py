@@ -1,11 +1,15 @@
 """Durable append-only browser evidence, uploads, receipts and delivery ledgers."""
 import codecs
 import hashlib
+import json
 import sqlite3
 import threading
 from pathlib import Path
 from datetime import datetime, timezone
 from website_js_extractor.domain.protocol import (CHUNK_BYTES, OBJECT_BYTES, EVENT_BYTES, HASH, UPLOAD, CATEGORIES, SCHEMA, Invalid, strict_json, sha)
+
+
+from website_js_extractor.storage.delivery_window import WINDOW, MODE, advance, status, frozen_frontiers
 
 
 class Receiver:
@@ -34,6 +38,7 @@ class Receiver:
           CREATE INDEX IF NOT EXISTS scan_events ON events(project,scan,seq);
           CREATE TABLE IF NOT EXISTS delivery_streams(project TEXT, stream TEXT, scan TEXT,
             sealed INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project,stream));
+          CREATE TABLE IF NOT EXISTS delivery_windows(project TEXT, stream TEXT, contiguous INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(project,stream));
           CREATE TABLE IF NOT EXISTS deliveries(project TEXT, stream TEXT, sequence INTEGER,
             event_id TEXT, category TEXT, bytes INTEGER, object_id TEXT,
             PRIMARY KEY(project,stream,sequence), UNIQUE(project,event_id));
@@ -188,7 +193,10 @@ class Receiver:
                 raise Invalid('Event references an uncommitted object.', 409)
             if obj['bytes'] != value['data'].get('source_bytes'):
                 raise Invalid('Event source length mismatch.')
+        mode = envelope.get('delivery_mode')
+        if mode not in (None, MODE): raise Invalid('Invalid delivery mode.')
         transport = value.get('transport')
+        if mode and transport is None: raise Invalid('Window delivery requires a stream identity.')
         if transport is not None:
             if not isinstance(transport, dict) or set(transport) != {'stream_id', 'sequence'}:
                 raise Invalid('Invalid delivery identity.')
@@ -214,8 +222,15 @@ class Receiver:
                         raise Invalid('Delivery stream is sealed.', 409)
                     last = self.db.execute('SELECT COALESCE(MAX(sequence),0) FROM deliveries WHERE project=? AND stream=?',
                                            (project, stream)).fetchone()[0]
-                    if sequence != last + 1 or old:
-                        raise Invalid('Delivery sequence must be contiguous.', 409)
+                    window = self.db.execute('SELECT contiguous FROM delivery_windows WHERE project=? AND stream=?', (project, stream)).fetchone()
+                    if mode == MODE:
+                        prefix = window[0] if window else last
+                        if not prefix < sequence <= prefix + WINDOW or old:
+                            raise Invalid('Delivery is outside the bounded receive window.', 409)
+                        if not window:
+                            self.db.execute('INSERT INTO delivery_windows VALUES(?,?,?)', (project, stream, prefix))
+                    elif window or sequence != last + 1 or old:
+                        raise Invalid('Delivery sequence must be contiguous; window streams require window-1.', 409)
                     if not stream_row:
                         self.db.execute('INSERT INTO delivery_streams VALUES(?,?,?,0)', (project, stream, value['scan_id']))
                     self.db.execute('INSERT INTO deliveries VALUES(?,?,?,?,?,?,?)',
@@ -223,9 +238,17 @@ class Receiver:
             if not old:
                 self.db.execute('INSERT INTO events(project,id,scan,payload,digest) VALUES(?,?,?,?,?)',
                                 (project, value['id'], value['scan_id'], payload, digest))
+            if transport is not None and mode == MODE:
+                # Enabling window mode on an idempotent replay also supports old serial outboxes.
+                if not self.db.execute('SELECT 1 FROM delivery_windows WHERE project=? AND stream=?', (project, stream)).fetchone():
+                    last = self.db.execute('SELECT MAX(sequence) FROM deliveries WHERE project=? AND stream=?', (project, stream)).fetchone()[0]
+                    self.db.execute('INSERT INTO delivery_windows VALUES(?,?,?)', (project, stream, last))
+                advance(self.db, project, stream)
+                window_receipt = status(self.db, project, stream)
         receipt = dict(schema=SCHEMA, event_id=value['id'], event_sha256=digest, object_id=content, durable=True)
         if transport is not None:
             receipt['transport'] = dict(stream_id=stream, sequence=sequence, event_bytes=len(raw))
+            if mode == MODE: receipt['transport'].update(window_receipt)
         return receipt
 
     def seal(self, project, stream, expected):
@@ -295,6 +318,9 @@ class Receiver:
         """
         destination = Receiver(directory)
         references, count, total_bytes, after = set(), 0, 0, 0
+        deferred = 0
+        with self.lock:
+            frontiers = frozen_frontiers(self.db, project, scan, watermark)
         try:
             while True:
                 with self.lock:
@@ -303,6 +329,11 @@ class Receiver:
                 if not row: break
                 after = row[0]
                 value = strict_json(row[2])
+                transport = value.get('transport') or {}
+                frontier = frontiers.get(transport.get('stream_id'))
+                if frontier is not None and transport['sequence'] > frontier:
+                    deferred += 1
+                    continue
                 if value.get('object_id'): references.add(value['object_id'])
                 with destination.db:
                     destination.db.execute('INSERT INTO events(seq,project,id,scan,payload,digest) VALUES(?,?,?,?,?,?)',
@@ -322,7 +353,9 @@ class Receiver:
                         raise Invalid('Snapshot object integrity mismatch.', 409)
                     destination.db.execute('INSERT INTO bodies VALUES(?,?,?,?)', (project, identity, *info))
                 total_bytes += offset
-            return dict(project=project, scan=scan, watermark=watermark, events=count, objects=len(references), bytes=total_bytes)
+            manifest = dict(project=project, scan=scan, watermark=watermark, events=count, objects=len(references), bytes=total_bytes, delivery_frontiers=frontiers, deferred_events=deferred)
+            (Path(directory)/'selection.json').write_text(json.dumps(manifest), encoding='utf-8')
+            return manifest
         finally:
             destination.close()
 

@@ -125,9 +125,26 @@ class EventReader:
                 raise StreamError(f'Invalid event JSON at sequence {row["seq"]}: {error}') from error
             if not isinstance(value, dict):
                 raise StreamError(f'Event at sequence {row["seq"]} is not an object.')
+            transport = value.get('transport')
+            if transport is not None and (not isinstance(transport, dict) or not isinstance(transport.get('stream_id'), str) or type(transport.get('sequence')) is not int or transport['sequence'] < 1):
+                raise StreamError(f'Invalid event transport at receipt sequence {row["seq"]}.')
             value.setdefault('id', f'seq:{row["seq"]}')
             result.append(value)
-        return result
+        # Physical receipt order may differ from the browser's logical stream order.
+        table = self.db.execute("SELECT 1 FROM sqlite_master WHERE name='delivery_windows'").fetchone()
+        if table and rows:
+            from website_js_extractor.storage.delivery_window import frozen_frontiers
+            frontiers = frozen_frontiers(self.db, self.project, scan, rows[-1]['seq'])
+            result = [event for event in result if (event.get('transport') or {}).get('stream_id') not in frontiers
+                      or event['transport']['sequence'] <= frontiers[event['transport']['stream_id']]]
+        self.delivery_selection = dict(delivery_frontiers=frontiers if table and rows else {}, deferred_events=len(rows)-len(result))
+        selection = self.data_dir/'selection.json'
+        if selection.is_file(): self.delivery_selection = json.loads(selection.read_text())
+        streams = defaultdict(list)
+        for event in result:
+            if event.get('transport'): streams[event['transport']['stream_id']].append(event)
+        ordered = {key: iter(sorted(values, key=lambda event: event['transport']['sequence'])) for key, values in streams.items()}
+        return [next(ordered[event['transport']['stream_id']]) if event.get('transport') else event for event in result]
 
     def content_size(self, identity):
         row = self.db.execute('SELECT bytes FROM bodies WHERE project=? AND object_id=?',
@@ -520,6 +537,9 @@ class Ingest:
             str(item.get('time') or ''), item.get('request_id') or '', item.get('redirect_hop') or 0))
         snapshot.observed_requests = self.observed
         snapshot.stream_statistics = dict(self.stats)
+        selection = getattr(self.reader, 'delivery_selection', {})
+        if selection.get('deferred_events'):
+            snapshot.gap('delivery_sequence_pending', 'Later durable receipts are awaiting an earlier sequence; excluded from this frozen input.', incomplete=True, source=selection)
         snapshot.gaps.extend(self.gaps)
         copied = {}
         for identity, size in self.content.items():
@@ -826,6 +846,7 @@ def ingest(args):
                   fetch_events=getattr(snapshot, 'fetch_events', []), fetch_statistics=getattr(snapshot, 'fetch_statistics', None),
                   analysis_manifest='analysis-manifest.json' if collection_manifest else None,
                   collection_summary=collection_manifest,
+                  input_delivery=getattr(reader, 'delivery_selection', {}),
                   collection_checkpoint='collection.json' if (output/'collection.json').exists() else None,
                   engine_record_file='engine-records.json', other_engine_record_ids=other,
                   gaps=getattr(snapshot, 'gaps', []) if snapshot else [],

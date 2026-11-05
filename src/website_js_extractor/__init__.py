@@ -1,3 +1,3 @@
 """Website JS static analysis; file-level API evidence with a traceable reference graph."""
 
-__version__ = "0.7.0"
+__version__ = "0.8.0"

@@ -153,6 +153,7 @@ watch(
         已接纳 {{ delivery.admitted }} · 持久确认 {{ delivery.acknowledged }} ·
         待补传 {{ delivery.pending }} · 未接纳 {{ delivery.rejected }}
       </p>
+      <p v-if="delivery.contiguous_sequence !== undefined">连续到齐序号 {{ delivery.contiguous_sequence }} / {{ delivery.admitted }}；后到事件可以先确认，分析只读取连续到齐的前缀。</p>
       <p>
         {{
           delivery.sealed

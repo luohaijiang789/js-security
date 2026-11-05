@@ -30,6 +30,14 @@ tests/test_delivery.py覆盖服务端分类账/封账，test_jobs.py覆盖真实
 
 本轮新增：test_recursive_pipeline.py以真实本地HTTP链验证默认5层、循环/超层、显式CDN、离线缺口及分析前冻结；test_snapshot_export.py验证导出期间新增接收不受整库锁阻塞且固定水位不变；test_delivery.py验证坏块/完整摘要/事件摘要拒绝。插件evidence-db.test.ts验证v1待传迁移、索引不带正文、ACK清理；capture-accounting.test.ts验证突发批量持久计数及实例重建恢复；delivery-recovery.test.ts覆盖错误摘要回执拒绝。
 
-## 2026-11-05 本轮验证
+## 2026-11-05 架构重构验证
 
 后端完整回归97项通过；插件22个测试文件、187项通过（含真实HTTP、Chromium CDP和替代扩展API的UI），TypeScript/Vue构建通过。后端0.7.0 wheel构建与入口/必需资源检查通过，插件版本0.9.0；wire保持capture-stream-2。真实MV3 test:extension被当前Chromium企业策略阻止，未绕过；尚无目标环境长期压力/配额验收。
+
+## 2026-11-05 并发传输迭代
+
+新增test_delivery_window.py验证窗口以连续前缀为基准、乱序接收/封账、服务端重启与旧流升级、旧水位不能包含后来才连续的事件；test_jobs.py验证只有后到事件时等待前序，补齐后正常分析。parallel-delivery.test.ts覆盖大文件阻塞、小事件保留通道、64项窗口、部分ACK重启、串行回退、实际Recorder请求/响应、损坏账目拒绝恢复与跨接收端重新协商。真实CDP正文比较按逻辑序号核对全部字段及连续覆盖，不依赖HTTP回执完成顺序；并发收集超时用例为真实Node启动留出预算，仍核对已完成正文、缺口与全部工作线程清理。
+
+后端版本0.8.0，插件0.10.0；wheel包含新窗口状态模块和固定分析资源。MV3安装测试仍被企业策略阻止，未绕过，不能作为现场验收通过。
+
+本次最终回归：后端102项通过；插件23个测试文件、195项以`npm test -- --fileParallelism=false --maxWorkers=1`通过，Vue/TypeScript构建通过。测试使用单工作进程减少真实浏览器之间的资源竞争；这不限制生产上传的4路并发。后端wheel构建、安装包版本和资源检查通过。

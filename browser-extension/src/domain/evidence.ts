@@ -9,7 +9,7 @@ export type CaptureEvent = {
   session_id: string;
   epoch: string;
   data: Record<string, any>;
-  /** Receiver-assigned body identifier; never computed in the browser. */
+  /** Content-addressed body identifier, independently verified by sender and receiver. */
   object_id?: string;
   status: string;
   transport?: { stream_id: string; sequence: number };
@@ -28,12 +28,21 @@ export type DeliveryAck = {
   event_sha256?: string;
   object_id?: string | null;
   durable: true;
-  transport?: { stream_id: string; sequence: number; event_bytes: number };
+  transport?: {
+    stream_id: string;
+    sequence: number;
+    event_bytes: number;
+    window?: number;
+    contiguous_sequence?: number;
+    received_highest?: number;
+    missing_sequences?: number[];
+  };
 };
 export type DeliveryStatus = {
   stream_id: string;
   admitted: number;
   acknowledged: number;
+  contiguous_sequence?: number;
   pending: number;
   rejected: number;
   pending_bytes: number;

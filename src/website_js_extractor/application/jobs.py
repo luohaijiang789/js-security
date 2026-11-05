@@ -29,6 +29,10 @@ def terminate(process):
     process.wait()
 
 
+class WaitingForSequence(Exception):
+    pass
+
+
 class AnalysisJobs:
     def __init__(self, receiver, directory, *, debounce=2, deadline=180):
         self.receiver = receiver
@@ -101,6 +105,8 @@ class AnalysisJobs:
             incoming.mkdir(parents=True)
             seed_manifest = self.receiver.export_snapshot(incoming, project, scan, watermark)
             (root / 'manifest.json').write_text(json.dumps(dict(id=identity, **seed_manifest), ensure_ascii=True))
+            if not seed_manifest['events'] and seed_manifest.get('deferred_events'):
+                raise WaitingForSequence('Durable receipts are waiting for the first missing stream sequence.')
             command = [sys.executable, '-m', 'website_js_extractor.cli', 'ingest', '--data-dir', str(incoming),
                        '--project', project, '--scan', scan, '--out', str(output)]
             env = {**os.environ, 'PYTHONPATH': str(Path(__file__).resolve().parents[2])}
@@ -124,6 +130,8 @@ class AnalysisJobs:
             if status not in {'completed', 'completed_with_gaps', 'partial'} or process.returncode not in {0, 4}:
                 status = 'failed'
             error = None if status != 'failed' else 'Analysis failed; see server-side analysis log and report gaps.'
+        except WaitingForSequence as exc:
+            status, error = 'waiting_for_sequence', str(exc)
         except Exception as exc:
             status, error = 'failed', str(exc)[:2000]
         finally:

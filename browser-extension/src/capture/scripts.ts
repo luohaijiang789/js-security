@@ -344,7 +344,7 @@ export class JSCapture {
       gap(
         scan,
         "remote_upload_failure",
-        `${String(error)}；未取得远端持久确认，任务已暂停，无本地正文副本`,
+        `${String(error)}；未取得远端持久确认，任务已暂停，未确认内容保留在临时队列或内存中，恢复后重试`,
       );
     }
   }

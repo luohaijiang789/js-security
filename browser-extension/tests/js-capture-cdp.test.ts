@@ -94,7 +94,13 @@ it("real Chromium CDP collects duplicate multi-MiB external JS and network prove
       if (!page.has_more) break;
       cursor = page.next;
     }
-    expect(events).toEqual(expected);
+    // HTTP receipt and browser ACK completion can race; compare logical identities and all fields.
+    const logical = (a: CaptureEvent, b: CaptureEvent) =>
+      a.transport!.sequence - b.transport!.sequence;
+    expect(events.sort(logical)).toEqual(expected.sort(logical));
+    expect(events.map((event) => event.transport!.sequence)).toEqual(
+      Array.from({ length: events.length }, (_, i) => i + 1),
+    );
     const scripts = events.filter(
       (e) =>
         e.kind === "Debugger.scriptParsed" &&

@@ -29,7 +29,8 @@ npm run build
 2. 正文分块，发送端计算块/完整正文/事件SHA-256，服务端独立校验并持久ACK，插件逐项核对回执；事件按任务传输流连续编号，重复提交幂等。
 3. 仅在有效ACK后，以同一浏览器事务更新确认账目并删除临时正文。浏览器重启后点击恢复，先补传，再重新接入页面。
 4. 停止时后端核对连续序号、分类数量、事件字节数和对象存在性，封账成功才结束任务；核对不一致不显示完成。
-5. JS每个解析观察都读取正文，不再按项目+URL跳过。同URL换版不会漏读；服务端按完整内容去重、保留独立观察。
+5. 新接收端自动协商4路并发（大项最多3），保留小事件通道；64项乱序窗口内逐条确认，连续前缀到齐后进入分析，有缺口仍不能封账。旧接收端串行回退。
+6. JS每个解析观察都读取正文，不再按项目+URL跳过。同URL换版不会漏读；服务端按完整内容去重、保留独立观察。
 
 这保证“已接纳且成功持久化的待传数据可恢复补传，并能核对是否全部确认”，不等于Chrome一定提供了全部网站信息。暂停/未附加窗口、正文不可得、配额或队列超限、硬件损坏等明确列为缺口，不显示100%全站覆盖。默认待确认上限4096项/256MiB，JS单文件64MiB；超限暂停/记缺口，不静默截断。需要原值完整时选择完整保留，采集字段/Filter范围在任务配置可见。
 
@@ -54,4 +55,4 @@ legacy、旧独立JS插件、旧探索导入页、独占取源RPC与/v0配对服
 
 验证：`PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py'`；插件目录执行`npm test`。真实MV3现场检查使用`npm run test:extension`，企业策略禁止时不绕过。
 
-细节：[代码架构与目录](docs/code-architecture.md)、[架构](docs/architecture.md)、[传输协议](docs/protocol.md)、[模块](docs/modules.md)、[唯一计划](docs/plan.md)、[测试](docs/testing.md)、[第三方许可](THIRD_PARTY_NOTICES.md)。
+细节：[代码架构与目录](docs/code-architecture.md)、[架构](docs/architecture.md)、[传输协议](docs/protocol.md)、[并发窗口](docs/delivery-window.md)、[模块](docs/modules.md)、[唯一计划](docs/plan.md)、[测试](docs/testing.md)、[第三方许可](THIRD_PARTY_NOTICES.md)。

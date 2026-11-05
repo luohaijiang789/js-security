@@ -55,3 +55,28 @@ class AutomaticAnalysisTest(unittest.TestCase):
         self.assertTrue(any('/api/users' in row['path_template'] for row in report['api_inventory']))
         self.assertFalse((self.root/'analysis'/latest['id']/'input/capture.sqlite3').exists())
         self.assertTrue((self.root/'analysis'/latest['id']/'manifest.json').is_file())
+
+    def test_out_of_order_source_waits_for_context_sequence_before_analysis(self):
+        identity = upload(self.server.store, SOURCE)
+        source = script('window-script', identity, 'https://app.example.test/assets/app.js')
+        source['transport'] = dict(stream_id='window-test-stream', sequence=2)
+        payload = {**envelope(source), 'delivery_mode':'window-1'}
+        self.request('POST', '/events', payload)
+        def wait_status(statuses):
+            deadline = time.monotonic()+30
+            while time.monotonic()<deadline:
+                page = self.request('GET', '/analyses?scan_id='+SCAN)
+                if page['jobs'] and page['jobs'][0]['status'] in statuses: return page['jobs'][0]
+                time.sleep(.05)
+            self.fail(str(page))
+        waiting = wait_status({'waiting_for_sequence'})
+        self.assertIsNone(self.request('GET','/analyses/'+waiting['id']+'/result')['result'])
+        first = context('window-context',1,'https://app.example.test/home')
+        first['transport'] = dict(stream_id='window-test-stream', sequence=1)
+        self.request('POST','/events',{**envelope(first),'delivery_mode':'window-1'})
+        complete = wait_status({'completed','completed_with_gaps','partial'})
+        self.assertNotEqual(complete['id'], waiting['id'])
+        report = self.request('GET','/analyses/'+complete['id']+'/result')['result']
+        self.assertEqual(report['input_delivery']['delivery_frontiers'], {'window-test-stream':2})
+        self.assertEqual(report['input_delivery']['deferred_events'],0)
+        self.assertTrue(report['api_inventory'])

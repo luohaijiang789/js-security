@@ -1,6 +1,6 @@
 # 分类接收、持久待传与封账协议
 
-当前wire schema为`capture-stream-2`，支持`delivery-ledger-1`、`content-integrity-1`、`recursive-analysis-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
+当前wire schema为`capture-stream-2`，支持`delivery-ledger-1`、`content-integrity-1`、`recursive-analysis-1`、`delivery-window-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
 
 ## 地址与分类
 
@@ -19,6 +19,8 @@
 ## 临时待传
 
 数据库js-security-delivery-outbox当前版本3：entries保存未确认元数据，payloads保存对应完整事件/正文，ledgers保存传输计数，capture_counters保存按CDP事件种类的observed/dispatched/rejected计数。v1未确认数据升级时事务迁移；恢复只读entries索引，逐项取payloads，不把全部正文装进内存。采集计数不能重放原始CDP事件，持久化前崩溃仍可能丢失最后一小批计数，不能据此宣称全采集。事件快照、上传ID、接收地址作用域、连续序号与入队账目先提交，之后才联网；ACK后的条目删除与账目更新为同一严格事务。暂停/重启后先恢复补传，不将正文写入原requests/active档案。最多4096项/256MiB待确认数据，达到上限拒绝并记录Gap，不静默淘汰。
+
+并发窗口协议见[有界并发与分析可见性](delivery-window.md)。新版插件协商delivery-window-1后最多4项并发（大项最多3），接收端允许连续前缀后64项乱序持久接收。累计确认与连续到齐分别展示；有缺口不封账，分析只读取固定水位的连续前缀。
 
 每个事件附`transport={stream_id,sequence}`；每任务/服务器唯一流，序号从1连续增长。接收ACK包含schema、event_id、event_sha256、object_id、durable:true及transport的stream_id/sequence/event_bytes，客户端逐项校验。正文/事件SHA-256由浏览器先计算，服务端独立复算：块请求X-Chunk-SHA256，commit.expected_sha256，事件信封event_sha256。错误摘要返回422；客户端也拒绝格式合法但值不符的回执，保留待传。旧客户端可省略摘要，但不能据此声称端到端校验。
 
