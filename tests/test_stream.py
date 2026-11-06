@@ -132,6 +132,29 @@ class StreamIngestTest(unittest.TestCase):
         return main(['ingest', '--data-dir', str(self.data), '--out', str(self.out),
                      '--engine-root', str(ENGINE), '--timeout', '60'])
 
+    def test_context_lifetimes_keep_native_scripts_separate_and_ignore_old_unique_destruction(self):
+        from website_js_extractor.ingestion.stream import EventReader,Ingest
+        identity=upload(self.store,SOURCE)
+        for closing_kind in ['Runtime.executionContextDestroyed','Runtime.executionContextsCleared']:
+            with self.subTest(closing_kind=closing_kind):
+                old=context('old',1,'https://old.test/',origin='https://old.test')
+                old['data']['context']['uniqueId']='old'
+                new=context('new',1,'https://new.test/',origin='https://new.test')
+                new['data']['context']['uniqueId']='new'
+                closed=event(closing_kind,dict(executionContextId=1,executionContextUniqueId='old',target_id='T1'),'closed')
+                late=event('Runtime.executionContextDestroyed',dict(executionContextId=1,executionContextUniqueId='old',target_id='T1'),'late-old')
+                events=[old,script('before',identity,'https://cdn.test/app.js'),closed,
+                        script('gap',identity,'https://cdn.test/app.js'),new,late,
+                        script('after',identity,'https://cdn.test/app.js')]
+                original=json.dumps(events,sort_keys=True)
+                reader=EventReader(self.data)
+                try:
+                    snapshot=Ingest(reader,SCAN,events,max_files=10,max_asset_bytes=1024,max_total_bytes=10240).build_snapshot(self.out/closing_kind)
+                finally: reader.close()
+                self.assertEqual({a['request_base_url'] for a in snapshot.assets},{'https://old.test','https://new.test',None})
+                self.assertEqual(len(snapshot.assets),3)
+                self.assertEqual(json.dumps(events,sort_keys=True),original)
+
     def test_static_candidates_and_observed_requests_are_kept_separate(self):
         identity = upload(self.store, SOURCE)
         self.store_events([scan_event(), context('scan-1:ctx', 1, 'https://app.example.test/home'),

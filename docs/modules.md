@@ -10,7 +10,7 @@
 | 领域契约 | src/website_js_extractor/domain/；browser-extension/src/domain/ | 协议、配置、资产身份；默认5层与预算独立，严格校验 |
 | 分类接收与账目 | storage/capture_store.py、api/server.py | HTTP→独立摘要校验、不可变事件/对象、连续账目；仅持久后ACK，封账不符拒绝完成 |
 | 自动分析编排 | application/jobs.py | 已持久水位→选中证据导出、阶段状态、恢复排队、结果；不在ACK路径收集/分析 |
-| 输入适配 | ingestion/stream.py、ingestion/capture.py | 原始请求/JS观察→上下文隔离的统一快照，保留证据与缺口 |
+| 输入适配 | ingestion/stream.py、ingestion/capture.py、ingestion/contexts.py | 原始请求/JS观察→上下文生命周期隔离的统一快照，保留证据与缺口 |
 | 递归收集 | collection/graph.py、fetcher.py、pipeline.py | 种子→默认D1至D5的引用/正文/缺口→analysis-manifest.json；允许来源、循环、多父、超层和重定向校验 |
 | 静态核心与实测关联 | analysis/engine.py、worker.py、results.py | 冻结资产→jshound文件级API候选、API清单和导出；不合并真实次数/候选，不伪造精确调用位置 |
 | 工作台 | browser-extension/src/ui/ | 地址、深度/CDN策略、账目/作业/API清单→控制与证据视图 |

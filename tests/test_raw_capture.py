@@ -80,6 +80,81 @@ class RawCaptureTest(unittest.TestCase):
         self.assertNotIn({'name':'late','value':'ambiguous'},records[1]['response_headers'])
         self.assertIn('raw_redirect_headers_ambiguous',[g['type'] for g in issues])
         self.assertIn('raw_request_start_missing',[g['type'] for g in issues])
+        # A paused redirect is not recovered as a new request, but still prevents
+        # its ExtraInfo from being assigned to the previous recorded hop.
+        records,_,_,issues,_=recover_raw([events[0],raw_event(2,'Network.requestWillBeSent',redirect,state='paused'),events[2]])
+        self.assertEqual(len(records),1)
+        self.assertNotIn({'name':'late','value':'ambiguous'},records[0]['response_headers'])
+        self.assertIn('raw_redirect_headers_ambiguous',[g['type'] for g in issues])
+
+    def test_extra_headers_survive_early_arrival_and_later_primary_response(self):
+        for late in [False, True]:
+            with self.subTest(late=late):
+                methods=[('Network.requestWillBeSentExtraInfo',dict(requestId='req',headers={'Cookie':'proof','authorization':'wire'})),
+                         ('Network.requestWillBeSent',request()),
+                         ('Network.responseReceivedExtraInfo',dict(requestId='req',headers={'Set-Cookie':'proof','content-type':'wire'},headersText='HTTP/1.1 200 OK\r\nSet-Cookie: proof\r\n')),
+                         ('Network.responseReceived',dict(requestId='req',response=dict(status=200,headers={'Content-Type':'cached','X-Base':'kept'})))]
+                if late: methods=[methods[1],methods[0],methods[3],methods[2]]
+                events=[raw_event(n,method,params) for n,(method,params) in enumerate(methods,1)]
+                records,_,_,issues,_=recover_raw(events)
+                record=records[0]
+                self.assertEqual({h['name'].lower():h['value'] for h in record['request_headers']},
+                                 {'content-type':'application/json','authorization':'wire','cookie':'proof'})
+                self.assertEqual({h['name'].lower():h['value'] for h in record['response_headers']},
+                                 {'content-type':'wire','x-base':'kept','set-cookie':'proof'})
+                self.assertTrue(record['response_headers_raw'].endswith('Set-Cookie: proof\r\n'))
+                self.assertEqual(record['raw_event_ids'],[e['id'] for e in events])
+                self.assertNotIn('raw_request_start_missing',[g['type'] for g in issues])
+
+    def test_context_reuse_binds_raw_scripts_to_lifetimes_and_keeps_unproven_host_unknown(self):
+        from website_js_extractor.ingestion.stream import Ingest
+        from website_js_extractor.analysis.engine import analyze,default_engine_root
+        from website_js_extractor.analysis.results import build_candidates
+        from test_stream import upload,script
+        source=b"fetch('/api/current');"
+        identity=upload(self.store,source)
+        def ctx(n,host):
+            result=raw_event(n,'Runtime.executionContextCreated',dict(context=dict(id=1,origin='https://'+host,name='',uniqueId=host,auxData=dict(isDefault=True,frameId='F'))),target='T1')
+            observation=json.loads(result['data']['capture_json']);observation['observed_tab_url']='https://'+host+'/'
+            text=json.dumps(observation,ensure_ascii=False);encoded=text.encode()
+            result['data'].update(capture_json=text,capture_bytes=len(encoded),capture_sha256=hashlib.sha256(encoded).hexdigest())
+            return result
+        old=ctx(1,'old.test');clear=raw_event(3,'Runtime.executionContextsCleared',{},target='T1');new=ctx(4,'new.test')
+        def parsed(n,script_id):
+            return raw_event(n,'Debugger.scriptParsed',dict(scriptId=script_id,executionContextId=1,url='https://cdn.test/app.js'),target='T1')
+        def captured(label):
+            result=script(label,identity,'https://cdn.test/app.js',page_url='https://new.test/')
+            result.update(scan_id='scan',epoch='js-epoch');result['data']['scriptId']=label;result['data']['cdp']['scriptId']=label
+            return result
+        for proven in [True,False,'ambiguous']:
+            with self.subTest(proven=proven):
+                events=[old,clear,new,captured('new-script')]
+                if proven is True: events=[old,parsed(2,'old-script'),clear,new,parsed(5,'new-script'),captured('old-script'),captured('new-script')]
+                elif proven=='ambiguous': events=[old,parsed(2,'new-script'),clear,new,parsed(5,'new-script'),captured('new-script')]
+                # Content reads use the real durable receiver, while callback order is supplied explicitly.
+                from website_js_extractor.ingestion.stream import EventReader
+                reader=EventReader(self.root/'data')
+                try:
+                    snapshot=Ingest(reader,'scan',events,max_files=10,max_asset_bytes=1024,max_total_bytes=10240).build_snapshot(self.root/str(proven))
+                    candidates,_,_=build_candidates(snapshot,analyze(snapshot,default_engine_root(),60))
+                finally: reader.close()
+                hosts={asset['request_base_url'] for asset in snapshot.assets}
+                if proven is True:
+                    self.assertEqual(hosts,{'https://old.test','https://new.test'})
+                    self.assertEqual({c['url'] for c in candidates},{'https://old.test/api/current','https://new.test/api/current'})
+                else:
+                    self.assertEqual(hosts,{None})
+                    self.assertFalse(any('old.test' in (c.get('url') or '') for c in candidates))
+
+    def test_malformed_context_identities_remain_gaps_without_breaking_raw_recovery(self):
+        events=[raw_event(1,'Runtime.executionContextCreated',dict(context=dict(id=[]))),
+                raw_event(2,'Runtime.executionContextDestroyed',dict(executionContextId={})),
+                raw_event(3,'Debugger.scriptParsed',dict(scriptId=[],executionContextId=[])),
+                raw_event(4,'Debugger.scriptParsed',dict(scriptId='valid-script',executionContextId=[]))]
+        _,_,projections,issues,_=recover_raw(events)
+        self.assertEqual(len(projections),1)
+        self.assertEqual(projections[0]['status'],'source_unavailable')
+        self.assertEqual(sum(g['type']=='raw_projection_invalid' for g in issues),3)
 
     def test_pause_does_not_recover_new_requests_and_missing_sources_remain_explicit(self):
         events=[raw_event(1,'Network.requestWillBeSent',request(),state='paused'),raw_event(2,'Debugger.scriptParsed',dict(scriptId='lost',url='https://app.test/lost.js',executionContextId=1))]

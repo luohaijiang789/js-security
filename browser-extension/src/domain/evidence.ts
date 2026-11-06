@@ -39,6 +39,8 @@ export type DeliveryAck = {
   };
 };
 export type DeliveryStatus = {
+  /** Reserved in memory after a failed write; excluded from durable ledger totals. */
+  volatile_pending?: number;
   stream_id: string;
   admitted: number;
   acknowledged: number;

@@ -192,6 +192,8 @@ class Ingest:
         self.max_total_bytes = max_total_bytes
         self.task = {}
         self.contexts = {}
+        self.active_contexts = {}
+        self.seen_contexts = set()
         self.assets = {}
         self.loads = {}
         self.observed = []
@@ -201,7 +203,8 @@ class Ingest:
         from website_js_extractor.ingestion.raw import recover_raw
         recovered, self.raw_links, projections, issues, self.raw_statistics = recover_raw(events)
         self.observed.extend(recovered)
-        self.events = projections + events
+        replaced={identity for projection in projections for identity in projection.get("_replaces",[])}
+        self.events = projections + [event for event in events if event.get("id") not in replaced]
         for issue in issues:
             self.gap(issue['type'],issue['message'],source=issue.get('source'),request_id=issue.get('request_id'))
         self._consume()
@@ -219,12 +222,33 @@ class Ingest:
         value = event.get('data')
         return value if isinstance(value, dict) else {}
 
-    def _context_key(self, event, context_id):
+    def _context_base_key(self, event, context_id):
         data = self._data(event)
         return (str(event.get('scan_id') or self.scan), str(event.get('epoch') or ''),
                 str(event.get('tab_id') if event.get('tab_id') is not None else ''),
                 str(event.get('session_id') or 'root'), str(data.get('target_id') or ''),
                 str(context_id))
+
+    def _context_key(self, event, context_id):
+        key=self._context_base_key(event,context_id)
+        data=self._data(event)
+        generation=data.get('context_generation')
+        if generation is None:
+            current=self.active_contexts.get(key)
+            generation=current[0] if current else 'unavailable:'+str(event.get('id')) if key in self.seen_contexts else None
+        return (*key,generation) if generation else key
+
+    def _context_closed(self,event):
+        data=self._data(event)
+        if event['kind']=='Runtime.executionContextsCleared':
+            prefix=self._context_base_key(event,None)[:-1]
+            for key in list(self.active_contexts):
+                if key[:-1]==prefix: self.active_contexts.pop(key)
+        else:
+            key=self._context_base_key(event,data.get('executionContextId'))
+            current=self.active_contexts.get(key)
+            unique=data.get('executionContextUniqueId')
+            if current and (not unique or not current[2] or unique==current[2]): self.active_contexts.pop(key)
 
     def _plugin_gaps(self, scan):
         for item in scan.get('gaps') or []:
@@ -239,6 +263,16 @@ class Ingest:
         if not isinstance(context_id, (int, str)) or isinstance(context_id, bool):
             self.gap('stream_context_invalid', 'Execution context has no usable id.', source=event.get('id'))
             return
+        data=self._data(event)
+        base_key=self._context_base_key(event,context_id)
+        signature=digest(context)
+        current=self.active_contexts.get(base_key)
+        generation=data.get('context_generation')
+        if generation is None:
+            if current and current[1]==signature: generation=current[0]
+            elif base_key in self.seen_contexts or base_key in self.contexts: generation='context:'+str(event.get('id'))
+        self.active_contexts[base_key]=(generation,signature,context.get('uniqueId'))
+        self.seen_contexts.add(base_key)
         aux = context.get('auxData') if isinstance(context.get('auxData'), dict) else {}
         origin = context.get('origin')
         base = _url(origin) if origin not in (None, '', 'null') else None
@@ -451,6 +485,7 @@ class Ingest:
                 continue
             if kind in CONTEXT_KINDS:
                 self.stats['context_events'] += 1
+                self._context_closed(event)
                 continue
             if kind in NETWORK_KINDS:
                 self.stats['network_events'] += 1

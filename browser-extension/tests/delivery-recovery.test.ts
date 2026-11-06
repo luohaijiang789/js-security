@@ -190,6 +190,81 @@ it("disk admission failure keeps the payload and retries persistence before send
   expect((await deliveryOutbox.load(scope(), scan)).entries).toEqual([]);
   expect((await remote.seal(scan))?.count).toBe(1);
 });
+it("freezes concurrent admissions after a disk failure without persisting a phantom ledger item", async () => {
+  const scan = crypto.randomUUID();
+  const remote = new RemoteCapture(() => receiver.settings);
+  const failure = vi
+    .spyOn(deliveryOutbox, "admit")
+    .mockRejectedValueOnce(Error("disk quota"));
+  let outcomes;
+  try {
+    outcomes = await Promise.allSettled([
+      remote.send(event(scan, 1)),
+      remote.send(event(scan, 2)),
+    ]);
+  } finally {
+    failure.mockRestore();
+  }
+  expect(outcomes.every((outcome) => outcome.status === "rejected")).toBe(true);
+  expect(remote.status(scan)).toMatchObject({
+    pending: 1,
+    volatile_pending: 1,
+  });
+  expect((await deliveryOutbox.descriptors(scope(), scan)).ledgers).toEqual([]);
+  await expect(
+    new RemoteCapture(() => receiver.settings).restore(scan),
+  ).resolves.toBeUndefined();
+  await remote.retry();
+  await remote.send(event(scan, 2));
+  expect((await remote.seal(scan))?.count).toBe(2);
+});
+
+it("an older in-flight ACK cannot persist the reservation of a later failed admission", async () => {
+  const scan = crypto.randomUUID();
+  let release!: () => void, started!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const arrived = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  const remote = new RemoteCapture(
+    () => receiver.settings,
+    undefined,
+    async (input, init) => {
+      const response = await fetch(input, init);
+      if (String(input).endsWith("/events")) {
+        started();
+        await held;
+      }
+      return response;
+    },
+  );
+  const first = remote.send(event(scan, 1));
+  await arrived;
+  const failure = vi
+    .spyOn(deliveryOutbox, "admit")
+    .mockRejectedValueOnce(Error("temporary disk failure"));
+  try {
+    await expect(remote.send(event(scan, 2))).rejects.toThrow("仍在内存");
+  } finally {
+    failure.mockRestore();
+    release();
+  }
+  await first;
+  const saved = await deliveryOutbox.descriptors(scope(), scan);
+  expect(saved.ledgers[0]).toMatchObject({
+    admitted: 1,
+    acknowledged: 1,
+    pending: 0,
+  });
+  expect(saved.entries).toEqual([]);
+  await expect(
+    new RemoteCapture(() => receiver.settings).restore(scan),
+  ).resolves.toBeUndefined();
+  await remote.retry();
+  expect((await remote.seal(scan))?.count).toBe(2);
+});
 it("a syntactically valid but incorrect event digest never clears a durable payload", async () => {
   const scan = crypto.randomUUID();
   let corrupt = true;

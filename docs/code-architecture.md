@@ -22,6 +22,7 @@ src/website_js_extractor/
     stream.py
     capture.py
     raw.py
+    contexts.py            # 原始回调顺序、上下文生命周期与源JS绑定
   collection/             # 只发现/获取静态资源，不输出API结论
     graph.py
     fetcher.py

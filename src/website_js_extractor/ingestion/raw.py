@@ -1,6 +1,6 @@
 """Recover notification-only evidence without issuing commands against expired CDP IDs."""
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from urllib.parse import parse_qsl, urlsplit
 from website_js_extractor.domain.raw import parse_raw
 from website_js_extractor.domain.protocol import Invalid, strict_json
@@ -12,6 +12,12 @@ def mapping(value):
 
 def pairs(headers):
     return [dict(name=str(name),value=str(value)) for name,value in headers.items()] if isinstance(headers,dict) else []
+
+
+def merge_headers(base,extra):
+    # Header names are case-insensitive; ExtraInfo wins conflicts, base-only fields remain visible.
+    names={header['name'].lower() for header in extra}
+    return [header for header in base if header['name'].lower() not in names] + extra
 
 
 def parse_body(text):
@@ -49,37 +55,24 @@ def recover_raw(events):
     raw.sort(key=lambda item: (item[1]['connection'],item[1]['sequence']))
     derived = {e['data']['record']['request_id']:e['data']['record'] for e in events
                if e.get('kind')=='ObservedRequest' and isinstance(e.get('data',{}).get('record'),dict) and e['data']['record'].get('request_id')}
-    contexts, scripts = set(), set()
-    for event in events:
-        data=event.get('data') or {}
-        scope=(event.get('tab_id'),event.get('session_id'),event.get('epoch'))
-        if event.get('kind')=='Runtime.executionContextCreated': contexts.add((*scope,mapping(data.get('context')).get('id')))
-        if event.get('kind')=='Debugger.scriptParsed': scripts.add((*scope,data.get('scriptId') or data.get('script_id') or mapping(data.get('cdp')).get('scriptId')))
+    from website_js_extractor.ingestion.contexts import project_contexts
+    projections, context_issues = project_contexts(events,raw)
+    issues.extend(context_issues)
+    extras=defaultdict(list)
+    starts=Counter()
+    order={event['id']:index for index,(event,_) in enumerate(raw)}
     channels=defaultdict(list)
     for event,observation in raw:
         method,p=observation['method'],observation['params']
         source=observation['source']; tab,session=source['tabId'],source.get('sessionId','root')
-        epoch=observation.get('js_epoch')
-        if method in {'Runtime.executionContextCreated','Debugger.scriptParsed'}:
-            identity_value=mapping(p.get('context')).get('id') if method.startswith('Runtime.') else p.get('scriptId')
-            if (method.startswith('Runtime.') and type(identity_value) is not int) or (method.startswith('Debugger.') and not isinstance(identity_value,str)):
-                issues.append(dict(type='raw_projection_invalid',message='Raw context/script identity has an unsupported shape; original notification retained.',source=event['id']))
-                continue
-            identity=(tab,session,epoch,identity_value)
-            known=contexts if method.startswith('Runtime.') else scripts
-            if identity not in known:
-                known.add(identity)
-                projected={**event,'id':event['id']+':projection','kind':method,'epoch':epoch or observation['connection'],
-                           'category':'page_context' if method.startswith('Runtime.') else 'js_source',
-                           'status':'captured' if method.startswith('Runtime.') else 'source_unavailable',
-                           'data':{**p,'observed_tab_url':observation.get('observed_tab_url'),'target_id':observation.get('target_id'),
-                                       'error':'Raw notification survived; Debugger source response was not durably captured.'}}
-                projections.append(projected)
-            continue
         if not method.startswith('Network.') or not isinstance(p.get('requestId'),str): continue
         key=(observation['connection'],tab,session,p['requestId'])
         hops=channels[key]
+        if method in {'Network.requestWillBeSentExtraInfo','Network.responseReceivedExtraInfo'}:
+            extras[key].append((event,method,p))
+            continue
         if method=='Network.requestWillBeSent':
+            starts[key]+=1
             request=p.get('request')
             if not isinstance(request,dict): continue
             if hops and isinstance(p.get('redirectResponse'),dict):
@@ -115,16 +108,25 @@ def recover_raw(events):
             issues.append(dict(type='raw_request_start_missing',message='Terminal/extra notification has no persisted request start; original event retained.',source=event['id']))
             continue
         record=hops[-1];record['raw_event_ids'].append(event['id'])
-        if method in {'Network.requestWillBeSentExtraInfo','Network.responseReceivedExtraInfo'}:
-            if len(hops)>1:
-                issues.append(dict(type='raw_redirect_headers_ambiguous',message='Late extra headers cannot be assigned to a redirect hop safely.',source=event['id']))
-            elif method=='Network.requestWillBeSentExtraInfo': record['request_headers']=pairs(p.get('headers'))
-            else: record['response_headers']=pairs(p.get('headers'));record['response_headers_raw']=p.get('headersText')
-        elif method=='Network.responseReceived':
+        if method=='Network.responseReceived':
             response=mapping(p.get('response'))
             record.update(status_code=response.get('status'),response_headers=pairs(response.get('headers')),response_metadata=response)
         elif method=='Network.loadingFinished': record['request_state']='complete'
         elif method=='Network.loadingFailed': record.update(request_state='failed',error=p.get('errorText'))
+    for key,items in extras.items():
+        hops=channels[key]
+        for event,method,p in items:
+            if not hops:
+                issues.append(dict(type='raw_request_start_missing',message='ExtraInfo has no persisted request start; original event retained.',source=event['id']))
+            elif starts[key]>1:
+                issues.append(dict(type='raw_redirect_headers_ambiguous',message='ExtraInfo cannot be assigned to a unique redirect hop safely.',source=event['id']))
+            else:
+                record=hops[0]
+                field='request_headers' if method=='Network.requestWillBeSentExtraInfo' else 'response_headers'
+                record[field]=merge_headers(record[field],pairs(p.get('headers')))
+                if method=='Network.responseReceivedExtraInfo' and isinstance(p.get('headersText'),str): record['response_headers_raw']=p['headersText']
+                record['raw_event_ids'].append(event['id'])
+        for record in hops: record['raw_event_ids'].sort(key=lambda identity:order[identity])
     recovered,linked=[],{}
     for hops in channels.values():
         for record in hops:

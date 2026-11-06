@@ -97,7 +97,19 @@ export class RemoteCapture {
   }
   status(scan: string): DeliveryStatus | undefined {
     const row = this.ledgers.get(scan);
-    return row ? structuredClone(row) : undefined;
+    if (!row) return undefined;
+    const volatile = [...this.pending.values()].filter(
+      (entry) => entry.event.scan_id === scan && !entry.persisted,
+    );
+    return {
+      ...structuredClone(row),
+      admitted: row.admitted + volatile.length,
+      pending: row.pending + volatile.length,
+      pending_bytes:
+        row.pending_bytes +
+        volatile.reduce((sum, entry) => sum + entry.size, 0),
+      volatile_pending: volatile.length,
+    };
   }
   isSealed(scan: string) {
     return this.ledgers.get(scan)?.sealed === true;
@@ -340,6 +352,8 @@ export class RemoteCapture {
     const copy = structuredClone(event);
     return new Promise((resolve, reject) => {
       const admission = this.admissionTail.then(async () => {
+        if ([...this.pending.values()].some((entry) => !entry.persisted))
+          throw Error("仍有未持久化的待传数据，先恢复写盘后再接纳新事件");
         const ledger = this.ledger(copy.scan_id);
         if (ledger.scope !== this.scope())
           throw Error("任务接收地址发生变化，不能误投待传数据");
@@ -382,22 +396,11 @@ export class RemoteCapture {
           },
           eventUpload: { id: crypto.randomUUID().replace(/-/g, ""), offset: 0 },
         };
-        const admitted = {
-          ...ledger,
-          admitted: ledger.admitted + 1,
-          pending: ledger.pending + 1,
-          pending_bytes: ledger.pending_bytes + size,
-        };
-        // Keep a recoverable in-memory reference even if disk quota/write fails.
-        Object.assign(ledger, admitted);
+        // Reserve a stable identity in memory, but never include it in durable ledger totals yet.
         event.transport = structuredClone(copy.transport);
         this.pending.set(key, entry);
         try {
-          await deliveryOutbox.admit(
-            { ...this.saved(entry), persisted: true },
-            admitted,
-          );
-          entry.persisted = true;
+          await this.persistAdmission(entry);
           // The durable payload is authoritative; keep only the descriptor until this upload runs.
           entry.source = undefined;
           entry.payload = undefined;
@@ -414,6 +417,23 @@ export class RemoteCapture {
       this.admissionTail = admission.catch(() => {});
       void admission.catch(reject);
     });
+  }
+  private async persistAdmission(entry: Delivery) {
+    const ledger = this.ledger(entry.event.scan_id);
+    if (entry.event.transport!.sequence !== ledger.admitted + 1)
+      throw Error("未持久化条目的预留序号与已持久账目不一致");
+    const admitted = {
+      ...ledger,
+      admitted: ledger.admitted + 1,
+      pending: ledger.pending + 1,
+      pending_bytes: ledger.pending_bytes + entry.size,
+    };
+    await deliveryOutbox.admit(
+      { ...this.saved(entry), persisted: true },
+      admitted,
+    );
+    Object.assign(ledger, admitted);
+    entry.persisted = true;
   }
   private async attempt(key: string, entry: Delivery): Promise<DeliveryAck> {
     if (entry.ack) return entry.ack;
@@ -432,11 +452,11 @@ export class RemoteCapture {
       if (entry.scope !== this.scope())
         throw Error("接收地址不匹配，禁止跨服务器重传");
       if (!entry.persisted) {
-        await deliveryOutbox.admit(
-          { ...this.saved(entry), persisted: true },
-          this.ledger(entry.event.scan_id),
+        const admission = this.admissionTail.then(() =>
+          this.persistAdmission(entry),
         );
-        entry.persisted = true;
+        this.admissionTail = admission.catch(() => {});
+        await admission;
       }
       if (entry.event.kind === "RawCdpEvent" && !this.rawSupported)
         throw Error("后端不支持原始日志，请更新后端后恢复补传");

@@ -210,6 +210,40 @@ it("rolls back both sides of a mismatched handoff without deleting journal evide
   expect((await restored.seal(s.id))?.capture_journal?.count).toBe(1);
 });
 
+it("replays every durable raw row after concurrent handoff admission fails and the worker restarts", async () => {
+  const s = scan(),
+    rows = [row(s), row(s)];
+  await storage.appendJournal(rows);
+  const remote = new RemoteCapture(() => receiver.settings);
+  const failure = vi
+    .spyOn(deliveryOutbox, "admit")
+    .mockRejectedValueOnce(Error("temporary disk failure"));
+  try {
+    const outcomes = await Promise.allSettled(
+      rows.map((item) => remote.send(item.event, undefined, item.id)),
+    );
+    expect(outcomes.every((outcome) => outcome.status === "rejected")).toBe(
+      true,
+    );
+  } finally {
+    failure.mockRestore();
+  }
+  expect(await storage.journalSnapshot(s.id)).toMatchObject({
+    admitted: 2,
+    pending: 2,
+    handed_off: 0,
+  });
+  const restarted = new RemoteCapture(() => receiver.settings);
+  await restarted.restore(s.id);
+  await new CaptureJournal(restarted).replay(s.id);
+  expect(
+    (await restarted.page(s.id)).events
+      .map((item) => item.data.capture_json)
+      .sort(),
+  ).toEqual(rows.map((item) => item.event.data.capture_json).sort());
+  expect((await restarted.seal(s.id))?.capture_journal?.count).toBe(2);
+});
+
 it("retains an admission-failed memory batch and persists it exactly once on retry", async () => {
   const s = scan(),
     remote = new RemoteCapture(() => receiver.settings),
