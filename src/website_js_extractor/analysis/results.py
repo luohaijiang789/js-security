@@ -87,16 +87,19 @@ def build_candidates(snapshot, records):
         method = record.get('method')
         if not isinstance(method, str) or method not in {'GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS', 'CONNECT', 'TRACE'}:
             method = None
+        sites=envelope.get('send_sites') or []
         candidate = dict(id=request_id, source='site-js-static', engine_record_id=envelope['id'],
                          asset_id=envelope['asset_id'], context_id=asset['context_id'] if asset else None,
                          js_depth=asset.get('js_depth') if asset else None,
                          url=url, url_expression=record['template'], host=host, path=path, method=method,
-                         sink=record['sink'], evidence_status='file-level' if asset else 'unmapped',
-                         confidence='candidate', send_site=None, call_context=None,
+                         sink=record['sink'], evidence_status='ast-send-site' if sites else 'file-level' if asset else 'unmapped',
+                         confidence='candidate', send_site=sites[0] if len(sites)==1 else None, send_sites=sites, call_context=None,
                          parameters=parameter_rows(record), parameter_status='partial_or_unknown',
                          conditions=record.get('condition'), engine_group=envelope['group'])
         candidates.append(candidate)
-        snapshot.gap('precise_location_unavailable', 'Upstream record may be merged; original send position and call context are not available.', asset_id=envelope['asset_id'], request_id=request_id)
+        if not sites:
+            snapshot.gap('precise_location_unavailable', 'Upstream record may be merged; original send position is not verified.', asset_id=envelope['asset_id'], request_id=request_id)
+        snapshot.gap('call_context_unavailable', 'Lexical source location does not prove runtime callers, instance binding or processed request variants.', asset_id=envelope['asset_id'], request_id=request_id)
         if not asset:
             snapshot.gap('source_unmapped', 'Could not associate engine file with an imported asset.', request_id=request_id, incomplete=True)
         if not host:

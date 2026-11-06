@@ -2,7 +2,12 @@ import type { Quality } from "../domain/model";
 import { stackFrames } from "../requests/privacy";
 
 type Source = chrome.debugger.DebuggerSession;
-type Send = (source: Source, method: string, params?: object) => Promise<any>;
+type Send = (
+  source: Source,
+  method: string,
+  params?: object,
+  binding?: Record<string, any>,
+) => Promise<any>;
 export const STACK_LIMITS = {
   synchronous: 200,
   asynchronous: 32,
@@ -113,6 +118,7 @@ export class StackCapture {
   async capture(
     source: Source,
     raw: any,
+    binding: Record<string, any> = {},
   ): Promise<{ stack: unknown; quality: Quality }> {
     if (!raw)
       return {
@@ -182,7 +188,16 @@ export class StackCapture {
           seen.add(identity);
           try {
             const result = await bounded(
-              this.send(route, "Debugger.getStackTrace", { stackTraceId: id }),
+              Object.keys(binding).length
+                ? this.send(
+                    route,
+                    "Debugger.getStackTrace",
+                    { stackTraceId: id },
+                    binding,
+                  )
+                : this.send(route, "Debugger.getStackTrace", {
+                    stackTraceId: id,
+                  }),
               until - Date.now(),
             );
             if (result?.stackTrace)

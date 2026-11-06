@@ -238,7 +238,10 @@ class AnalyzerTest(unittest.TestCase):
         fields = {(p['carrier'], p['path'].lower() if p['carrier'] == 'Header' else p['path']) for p in candidate['parameters']}
         self.assertTrue({('Query', 'mode'), ('Body', 'userId'), ('Body', 'context.source'), ('Header', 'x-tenant')} <= fields)
         self.assertIsNone(report['statistics']['unique_send_sites'])
-        self.assertIsNone(candidate['send_site'])
+        self.assertEqual(candidate['send_site']['lexical_context']['name'],'neverCalled')
+        self.assertEqual(candidate['send_site']['offset_unit'],'utf16')
+        self.assertEqual(candidate['send_site']['source_sha256'],report['assets'][0]['sha256'])
+        self.assertIsNone(candidate['call_context'])
         raw = json.loads((self.out/'engine-records.json').read_text())
         self.assertTrue(any('query_schema' in row['raw'] for row in raw))
 

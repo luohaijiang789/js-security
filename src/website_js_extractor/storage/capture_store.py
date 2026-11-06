@@ -187,8 +187,9 @@ class Receiver:
                 from website_js_extractor.domain.settings import AnalysisSettings
                 AnalysisSettings.parse(configuration['analysis'])
         raw_observation = None
-        if value['kind'] == 'RawCdpEvent' or category == 'raw_cdp':
-            if value['kind'] != 'RawCdpEvent' or category != 'raw_cdp' or value.get('transport') is None:
+        from website_js_extractor.domain.raw import RAW_KINDS
+        if value['kind'] in RAW_KINDS or category == 'raw_cdp':
+            if value['kind'] not in RAW_KINDS or category != 'raw_cdp' or value.get('transport') is None:
                 raise Invalid('Raw observations require raw category and delivery identity.')
             from website_js_extractor.domain.raw import parse_raw
             raw_observation = parse_raw(value)

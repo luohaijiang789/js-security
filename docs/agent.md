@@ -1,6 +1,20 @@
 # 后端Agent设计
 
-本文件为新目标设计，当前无Agent运行时代码、模型配置或实测效果。Agent属于后端，不打包进插件，不要求用户在插件填写模型密钥。确定性提取保持可独立运行。
+已实现后端手动运行首版：`application/agent.py`提供模型适配、受限工具循环、预算、取消、结构建议核验与独立报告，CLI为`website-js-extractor agent`。默认关闭；尚未配置或验收真实模型。Agent不打包进插件，确定性提取可独立运行。下面的跨函数wrapper/实例/字段加工工具仍是后续目标，当前不会把模型建议直接提升为API事实。
+
+## 当前可运行入口
+
+```bash
+website-js-extractor agent --run-dir data/capture/analysis/RUN/result \
+  --out work/agent-RUN.json --base-url http://127.0.0.1:8000/v1 \
+  --model YOUR_MODEL --api-key-env BLACKBOX_MODEL_KEY --allow-source-send
+```
+
+run-dir必须含最终analysis.json、有效analysis-manifest.json和匹配哈希的snapshot；out必须新建且位于冻结输入外。接口采用OpenAI兼容Chat Completions JSON输出，凭证只从指定环境变量读取。未传allow-source-send时不调用模型。服务器接收/自动静态作业不会自动启动Agent，也不会因为安装了这段代码就外发真实数据。
+
+当前工具为list_candidates、inspect_candidate、read_source和verify_proposal，源码读取按资产ID/UTF16范围限制，不接收任意路径；拒绝符号链接与正文哈希变化。结构化URL/方法/Host说明只有匹配既有候选与AST位置才accepted；自然语言始终为模型解释。wrapper_mapping即使位置匹配也仅partial，跨函数/实例关系未证明。结果保存输入manifest/report哈希、模型、步骤摘要、建议与核验原因，事实文件保持不变。
+
+预算上限10轮、60秒、累计源码64KiB、消息上下文128KiB、每轮模型输出32KiB。超时/预算/无效工具/模型离线/取消有明确状态；模型调用采用有界等待，不阻塞接收ACK。受控provider和真实本地HTTP协议测试已实现，不代表真实模型效果已验收。
 
 ## 1. 要解决什么
 

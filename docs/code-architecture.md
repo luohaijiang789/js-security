@@ -18,11 +18,13 @@ src/website_js_extractor/
     server.py
   application/            # 作业与分阶段编排
     jobs.py
+    agent.py              # 默认关闭、只读冻结输入的模型工具循环
   ingestion/              # 浏览器证据转统一分析输入
     stream.py
     capture.py
     raw.py
     contexts.py            # 原始回调顺序、上下文生命周期与源JS绑定
+    commands.py            # 命令配对、正文/父栈/源JS恢复
   collection/             # 只发现/获取静态资源，不输出API结论
     graph.py
     fetcher.py
@@ -31,6 +33,7 @@ src/website_js_extractor/
   analysis/               # 锁定引擎、位置与结果适配
     engine.py
     worker.py
+    sites.js              # 使用固定Babel核验直接调用位置与词法绑定
     engine-lock.json
     results.py
   cli.py / __main__.py
@@ -90,4 +93,4 @@ AnalysisSettings采用统一校验：默认max_js_depth=5，种子已有JS作为
 - 正反例覆盖5层/超层、循环、多父、CDN允许范围、错误正文、同URL换版、快照新增事件、摘要不符和崩溃恢复。
 - 回归全部后端/插件测试、构建、打包；真实MV3策略限制单独记录。只有代码/自动化/冻结样本具备的项才标已实现，不以目录重排代替能力交付。
 
-已实现metadata/payload分离和v1待传迁移；采集计数与任务检查点可审计已观察/分发/拒绝数量；新增原始通知日志、原子移交、崩溃重放与后端恢复（见capture-journal.md），CDP命令结果完整日志仍未实现。已实现有界并发上传与小事件通道（见delivery-window.md）；采集/收尾仍有串行阶段，磁盘配额策略及真实Chrome压力验收仍是下一阶段，不以本次目录迁移替代。
+已实现metadata/payload分离和v1待传迁移；采集计数与任务检查点可审计已观察/分发/拒绝数量；原始通知与四类证据读取命令日志支持原子移交、崩溃重放与后端恢复（见capture-journal.md）。已实现有界并发上传与小事件通道（见delivery-window.md）；采集/收尾仍有串行阶段，长期容量治理、会话租约及真实Chrome压力验收仍需补足。

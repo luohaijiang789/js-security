@@ -1,8 +1,9 @@
 """Recover notification-only evidence without issuing commands against expired CDP IDs."""
 import json
+import copy
 from collections import Counter, defaultdict
 from urllib.parse import parse_qsl, urlsplit
-from website_js_extractor.domain.raw import parse_raw
+from website_js_extractor.domain.raw import parse_raw, RAW_KINDS
 from website_js_extractor.domain.protocol import Invalid, strict_json
 
 
@@ -38,7 +39,7 @@ def parse_body(text):
 def recover_raw(events):
     raw, issues, projections = [], [], []
     for event in events:
-        if event.get('kind') != 'RawCdpEvent': continue
+        if event.get('kind') not in RAW_KINDS: continue
         try:
             observation=parse_raw(event)
             try: json.dumps(observation,ensure_ascii=False).encode('utf-8')
@@ -56,7 +57,14 @@ def recover_raw(events):
     derived = {e['data']['record']['request_id']:e['data']['record'] for e in events
                if e.get('kind')=='ObservedRequest' and isinstance(e.get('data',{}).get('record'),dict) and e['data']['record'].get('request_id')}
     from website_js_extractor.ingestion.contexts import project_contexts
-    projections, context_issues = project_contexts(events,raw)
+    from website_js_extractor.ingestion.commands import recover_commands, enrich_requests
+    commands, sources, command_issues = recover_commands(events,raw)
+    issues.extend(command_issues)
+    source_ids={source['id'] for source in sources}
+    projected_input=[event for event in events if event.get('id') not in source_ids]+sources
+    projections, context_issues = project_contexts(projected_input,raw)
+    projected_ids={projection['id'] for projection in projections}
+    projections.extend(source for source in sources if source['id'] not in projected_ids)
     issues.extend(context_issues)
     extras=defaultdict(list)
     starts=Counter()
@@ -64,6 +72,7 @@ def recover_raw(events):
     channels=defaultdict(list)
     for event,observation in raw:
         method,p=observation['method'],observation['params']
+        if event.get('kind')!='RawCdpEvent': continue
         source=observation['source']; tab,session=source['tabId'],source.get('sessionId','root')
         if not method.startswith('Network.') or not isinstance(p.get('requestId'),str): continue
         key=(observation['connection'],tab,session,p['requestId'])
@@ -134,4 +143,11 @@ def recover_raw(events):
             else:
                 recovered.append(record)
                 issues.append(dict(type='raw_recovered_request',message='Recovered request/response/initiator evidence from raw notifications; unavailable command results remain missing.',source=record['raw_event_ids'],request_id=record['request_id']))
-    return recovered,linked,projections,issues,dict(events=sum(event.get("kind")=="RawCdpEvent" for event in events),projectable_events=len(raw),recovered_requests=len(recovered),linked_requests=len(linked))
+    derived_copies={identity:copy.deepcopy(record) for identity,record in derived.items()}
+    issues.extend(enrich_requests(recovered+list(derived_copies.values()),commands,parse_body))
+    for event in events:
+        record=(event.get('data') or {}).get('record')
+        if event.get('kind')=='ObservedRequest' and isinstance(record,dict) and record.get('request_id') in derived_copies:
+            updated=derived_copies[record['request_id']]
+            if updated!=record: projections.append({**event,'data':{**event['data'],'record':updated},'_replaces':[event['id']]})
+    return recovered,linked,projections,issues,dict(events=sum(event.get("kind") in RAW_KINDS for event in events),notifications=sum(event.get('kind')=='RawCdpEvent' for event in events),command_results=sum(event.get('kind')=='RawCdpCommandResult' for event in events),projectable_events=len(raw),recovered_requests=len(recovered),linked_requests=len(linked))

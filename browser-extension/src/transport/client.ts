@@ -59,6 +59,7 @@ export class RemoteCapture {
   private negotiatedScope?: string;
   private parallel = false;
   private rawSupported = false;
+  private commandsSupported = false;
   private pending = new Map<string, Delivery>();
   private ledgers = new Map<string, Ledger>();
   private retrying?: Promise<void>;
@@ -201,6 +202,9 @@ export class RemoteCapture {
         this.rawSupported =
           Array.isArray(health.capabilities) &&
           health.capabilities.includes("raw-cdp-journal-1");
+        this.commandsSupported =
+          Array.isArray(health.capabilities) &&
+          health.capabilities.includes("raw-cdp-commands-1");
         this.parallel =
           Array.isArray(health.capabilities) &&
           health.capabilities.includes("delivery-window-1") &&
@@ -460,6 +464,11 @@ export class RemoteCapture {
       }
       if (entry.event.kind === "RawCdpEvent" && !this.rawSupported)
         throw Error("后端不支持原始日志，请更新后端后恢复补传");
+      if (
+        entry.event.kind.startsWith("RawCdpCommand") &&
+        !this.commandsSupported
+      )
+        throw Error("后端不支持命令结果日志，请更新后端后恢复补传");
       const ack = await this.deliver(entry);
       const commit = this.admissionTail.then(async () => {
         const ledger = this.ledger(entry.event.scan_id);

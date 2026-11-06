@@ -40,6 +40,15 @@ def parser():
     ingest.add_argument('--max-js-depth', type=int, default=None, help='Override task depth; default is 5.')
     ingest.add_argument('--offline', action='store_true', help='Discover dependencies without downloading missing JS.')
     ingest.add_argument('--allow-origin', action='append', default=[], help='Additional exact JS/CDN origin.')
+    agent = commands.add_parser('agent', help='Opt-in model tool loop over a frozen analysis run; never modifies API facts.')
+    agent.add_argument('--run-dir', type=Path, required=True)
+    agent.add_argument('--out', type=Path, required=True)
+    agent.add_argument('--base-url', required=True, help='Explicit OpenAI-compatible API base, e.g. http://localhost:8000/v1.')
+    agent.add_argument('--model', required=True)
+    agent.add_argument('--api-key-env', help='Environment variable containing the model credential; never copied into output.')
+    agent.add_argument('--allow-source-send', action='store_true', help='Explicitly authorize sending candidate metadata and requested source fragments.')
+    agent.add_argument('--max-steps', type=int, default=10)
+    agent.add_argument('--timeout', type=float, default=60)
     run = commands.add_parser('analyze')
     inputs = run.add_mutually_exclusive_group(required=True)
     inputs.add_argument('--har', type=Path)
@@ -73,6 +82,9 @@ def _interrupt(signum, frame):
 
 def main(argv=None):
     args = parser().parse_args(argv)
+    if args.command == 'agent':
+        from website_js_extractor.application.agent import agent_cli
+        return agent_cli(args)
     if args.command == 'serve':
         from website_js_extractor.api.server import main as receive
         options = ['--port', str(args.port), '--host', args.host, '--data-dir', str(args.data_dir)]

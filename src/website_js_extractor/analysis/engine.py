@@ -159,9 +159,18 @@ def analyze(snapshot, engine_root, timeout):
                     asset['analysis_status'] = 'context_read'
                 else:
                     snapshot.gap('not_analyzed', 'Asset was imported but not reported as parsed by the engine.', asset_id=asset['id'], incomplete=True)
+        site_index={}
+        for audit in data['parse_audit']:
+            asset=source_asset(audit['file'],mapping)
+            if asset and asset.get('kind')=='js':
+                for site in audit.get('sites',[]):
+                    key=(asset['id'],site['sink'],site['method'],site['template'])
+                    site_index.setdefault(key,[]).append({**site,'asset_id':asset['id'],'source_sha256':asset['sha256']})
         for index, record in enumerate(data['records']):
             if not isinstance(record, dict):
                 raise RuntimeError('Engine record must be an object.')
             asset = source_asset(record.get('_file'), mapping)
-            results.append(dict(id=f'engine-{number}-{index}', group=number, asset_id=asset['id'] if asset else None, raw=record))
+            # Exact literal/sink/method match only; merged or dynamic records stay candidates.
+            sites=site_index.get((asset['id'],record.get('sink'),record.get('method'),record.get('template')),[]) if asset else []
+            results.append(dict(id=f'engine-{number}-{index}', group=number, asset_id=asset['id'] if asset else None, raw=record, send_sites=sites))
     return results

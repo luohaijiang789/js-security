@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "API与JS采集",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "minimum_chrome_version": "125",
   "description": "统一收集API、JS和上下文，未确认数据可恢复补传，由服务器核对并分析。",
   "permissions": [

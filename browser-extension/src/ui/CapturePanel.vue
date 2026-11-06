@@ -132,7 +132,7 @@ function download(text: string, name: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 async function details(row: CaptureEvent, save = false) {
-  if (row.kind !== "RawCdpEvent") {
+  if (row.category !== "raw_cdp") {
     preview.value = JSON.stringify(row, null, 2);
     return;
   }
@@ -249,7 +249,7 @@ watch(
           }}
         </p>
         <p v-if="analysis?.raw_capture?.events">
-          原始通知 {{ analysis.raw_capture.events }} · 恢复请求
+          原始日志 {{ analysis.raw_capture.events }} · 恢复请求
           {{ analysis.raw_capture.recovered_requests }} · 已关联整理记录
           {{ analysis.raw_capture.linked_requests }}；未取得正文仍显示缺口。
         </p>
@@ -373,7 +373,7 @@ watch(
             <td>
               <button @click="details(row)">详情</button
               ><button
-                v-if="row.kind === 'RawCdpEvent'"
+                v-if="row.category === 'raw_cdp'"
                 @click="details(row, true)"
               >
                 下载原始通知</button

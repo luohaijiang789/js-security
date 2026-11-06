@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "blackbox-backend"
-version = "0.9.0"
+version = "0.10.0"
 description = "Browser evidence receiver, delivery reconciliation and recursive JS collection and unified API analysis"
 requires-python = ">=3.10"
 dependencies = []
@@ -17,5 +17,5 @@ website-js-extractor = "website_js_extractor.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-"website_js_extractor.analysis" = ["engine-lock.json"]
+"website_js_extractor.analysis" = ["engine-lock.json", "*.js"]
 "website_js_extractor.collection" = ["*.js"]

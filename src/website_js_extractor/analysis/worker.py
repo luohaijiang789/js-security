@@ -7,6 +7,8 @@ import sys
 AUDIT = r'''
 const fs=require('fs');
 const parser=require(process.argv[1]).parser;
+const babel=require(process.argv[1]);
+const collectSites=require(process.argv[2]);
 const files=JSON.parse(fs.readFileSync(0,'utf8'));
 const results=[];
 for (const file of files) {
@@ -39,7 +41,9 @@ for (const file of files) {
       }
     }
   }
-  results.push({file,status:!ast?'failed':ast.errors.length?'partial':'parsed',
+  let sites=[];
+  if (ast && !ast.errors.length) sites=collectSites(ast,source,babel);
+  results.push({file,status:!ast?'failed':ast.errors.length?'partial':'parsed',sites,
     errors:ast?ast.errors.map(e=>e.message):[last],warnings});
 }
 process.stdout.write(JSON.stringify(results));
@@ -51,7 +55,7 @@ def main():
     sys.path.insert(0, str(engine_root))
     import jshound
     records, paths = jshound.analyze_with_paths(str(corpus))
-    audit = subprocess.run(['node', '-e', AUDIT, str(engine_root/'jshound/js/babel.js')],
+    audit = subprocess.run(['node', '-e', AUDIT, str(engine_root/'jshound/js/babel.js'), str(Path(__file__).with_name('sites.js'))],
                            input=json.dumps(paths), text=True, capture_output=True, check=True)
     result = dict(records=records, read_paths=paths, parse_audit=json.loads(audit.stdout))
     output.write_text(json.dumps(result, ensure_ascii=False, indent=2), encoding='utf-8')

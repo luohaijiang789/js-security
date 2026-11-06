@@ -230,7 +230,8 @@ it("pause drains in-flight reads and a new connection never reuses queued script
       "Debugger.scriptParsed",
       parsed(String(i)),
     );
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  for (let i = 0; i < 100 && pending.length < 4; i++)
+    await new Promise((resolve) => setTimeout(resolve, 5));
   expect(pending).toHaveLength(4); // Four reads in flight, one admitted but queued.
   recorder.js.session({ tabId: 1 });
   const paused = recorder.pause();

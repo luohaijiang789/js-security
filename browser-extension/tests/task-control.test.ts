@@ -635,10 +635,16 @@ describe("durable raw notifications through background RPC", () => {
           event.kind === "TaskCheckpoint" && event.data.phase === "stop",
       )!;
       expect(checkpoint.data.scan.capture_journal).toMatchObject({
-        admitted: 3,
+        admitted: 5,
         pending: 0,
-        handed_off: 3,
+        handed_off: 5,
       });
+      expect(
+        events.filter((event) => event.kind === "RawCdpCommandStarted"),
+      ).toHaveLength(1);
+      expect(
+        events.filter((event) => event.kind === "RawCdpCommandResult"),
+      ).toHaveLength(1);
       const { journalRows } = await import("../src/storage/capture-journal");
       expect(await journalRows(scan.id)).toEqual([]);
       const db = await import("../src/storage/tasks");

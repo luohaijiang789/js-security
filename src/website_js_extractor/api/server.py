@@ -72,7 +72,7 @@ def make_server(directory, token=DEFAULT_CODE, project='default', host='127.0.0.
                 origin = self.headers.get('Origin')
                 if self.command == 'GET' and self.path in {'/', '/health'}:
                     return self.reply(200, dict(status='ok', service='blackbox-receiver', project=project,
-                                                schema=SCHEMA, capabilities=['delivery-ledger-1', 'content-integrity-1', 'recursive-analysis-1', 'delivery-window-1', 'raw-cdp-journal-1'], delivery_window=64))
+                                                schema=SCHEMA, capabilities=['delivery-ledger-1', 'content-integrity-1', 'recursive-analysis-1', 'delivery-window-1', 'raw-cdp-journal-1', 'raw-cdp-commands-1'], delivery_window=64))
                 if origins is not None and origin and origin not in origins:
                     raise Invalid('Origin denied.', 403)
                 if not hmac.compare_digest(self.headers.get('Authorization', ''), 'Bearer ' + token):

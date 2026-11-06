@@ -1,6 +1,6 @@
 # 分类接收、持久待传与封账协议
 
-当前wire schema为`capture-stream-2`，支持`delivery-ledger-1`、`content-integrity-1`、`recursive-analysis-1`、`delivery-window-1`、`raw-cdp-journal-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
+当前wire schema为`capture-stream-2`，支持`delivery-ledger-1`、`content-integrity-1`、`recursive-analysis-1`、`delivery-window-1`、`raw-cdp-journal-1`、`raw-cdp-commands-1`能力，旧无transport事件仍可离线导入；新插件要求ACK包含传输序号，旧接收器不能冒充完成。旧/v0配对服务已删除。
 
 ## 地址与分类
 
@@ -12,7 +12,7 @@
 | js_source | Debugger源码观察及其服务端object_id |
 | page_context | 页面/执行上下文与代次 |
 | script_load | JS网络加载、重定向、initiator及可得异步栈 |
-| raw_cdp | 原始CDP通知JSON、独立摘要、接收时间/配置/连接身份 |
+| raw_cdp | 原始CDP通知及四类命令发起/结果JSON、独立摘要、接收时间/配置/连接身份 |
 | task | 任务开始、结束检查点、配置/统计/缺口 |
 
 事件保留id/scan_id/kind/category/time/tab_id/session_id/epoch/data/object_id/status。数据的零值、false、空值、Unicode与数组不删减；任务字段选择和捕获缺失另外表达。
@@ -49,7 +49,7 @@
 
 ## 分析与输出
 
-默认静默2秒/最长10秒触发固定批次；任务结束立即排队。每run保留project/scan、水位种子manifest、资产analysis-manifest、引擎锁版本、原始输出和analysis.json。当前结果schema仍0.5，使用文件级候选；confirmed_api_groups/精确调用数未实现时保持null。
+默认静默2秒/最长10秒触发固定批次；任务结束立即排队。每run保留project/scan、水位种子manifest、资产analysis-manifest、引擎锁版本、原始输出和analysis.json。当前结果schema仍0.5，保留文件级候选，部分直接调用有AST核验位置；confirmed_api_groups/精确调用数未实现时保持null。
 
 输出analysis.json、api_inventory.json/csv、observed_requests.json/csv、candidates/parameters/assets/references/gaps.csv及正文证据；Excel未实现。静态/实测匹配状态matched/static-only/observed-only只是保守关联，不证明同一次运行调用。
 

@@ -57,6 +57,14 @@ export class CaptureJournal {
     params: any,
     js_epoch?: string,
     target_id?: string,
+    command?: {
+      phase: "started" | "result";
+      command_id: string;
+      binding: Record<string, any>;
+      result?: any;
+      error?: string;
+      context_valid?: boolean;
+    },
   ) {
     const observation = {
       connection,
@@ -71,6 +79,7 @@ export class CaptureJournal {
         scan.tabs.find((tab) => tab.id === source.tabId)?.url ?? null,
       js_epoch: js_epoch ?? null,
       target_id: target_id ?? null,
+      ...(command ? { command } : {}),
     };
     const capture_json = JSON.stringify(observation),
       bytes = new TextEncoder().encode(capture_json);
@@ -78,7 +87,11 @@ export class CaptureJournal {
     const event = {
       id,
       scan_id: scan.id,
-      kind: "RawCdpEvent",
+      kind: command
+        ? command.phase === "started"
+          ? "RawCdpCommandStarted"
+          : "RawCdpCommandResult"
+        : "RawCdpEvent",
       category: "raw_cdp",
       time: observation.observed_at,
       tab_id: source.tabId,

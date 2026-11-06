@@ -84,6 +84,97 @@ export class Recorder {
   remote: RemoteCapture;
   journal: CaptureJournal;
   journalClosed = false;
+  private commands = new Set<Promise<any>>();
+  /** Persist command intent before issuing it and result before exposing it to consumers. */
+  command = (
+    source: Source,
+    method: string,
+    params?: object,
+    binding: Record<string, any> = {},
+  ): Promise<any> => {
+    const operation = this.captureCommand(source, method, params, binding);
+    this.commands.add(operation);
+    void operation.then(
+      () => this.commands.delete(operation),
+      () => this.commands.delete(operation),
+    );
+    return operation;
+  };
+  private async captureCommand(
+    source: Source,
+    method: string,
+    params: object | undefined,
+    binding: Record<string, any>,
+  ) {
+    const scan = this.scan;
+    if (
+      !scan?.config.remote_capture ||
+      !scan.config.raw_capture ||
+      ![
+        "Network.getRequestPostData",
+        "Network.getResponseBody",
+        "Debugger.getScriptSource",
+        "Debugger.getStackTrace",
+      ].includes(method)
+    )
+      return this.send(source, method, params);
+    if (this.journalClosed) throw Error("原始日志已关闭，不能启动新的证据读取");
+    source = structuredClone(source);
+    params = structuredClone(params ?? {});
+    const connection = this.connection,
+      epoch = binding.js_epoch ?? this.js.epoch(source),
+      target =
+        binding.target_id ??
+        this.targets.get(`${source.tabId}:${source.sessionId ?? "root"}`),
+      command_id = uid(),
+      frozen = structuredClone(binding);
+    const record = async (
+      phase: "started" | "result",
+      result?: any,
+      error?: string,
+      context_valid?: boolean,
+    ) => {
+      try {
+        await this.journal.observe(
+          scan,
+          connection,
+          source,
+          method,
+          params,
+          epoch,
+          target,
+          {
+            phase,
+            command_id,
+            binding: frozen,
+            ...(error === undefined ? { result } : { error }),
+            ...(context_valid === undefined ? {} : { context_valid }),
+          },
+        );
+      } catch (failure) {
+        scan.state = "paused";
+        gap(scan, "command_journal_persistence_failure", String(failure));
+        throw failure;
+      }
+    };
+    await record("started");
+    let result;
+    try {
+      result = await this.send(source, method, params);
+    } catch (error) {
+      await record("result", undefined, String(error));
+      throw error;
+    }
+    await record(
+      "result",
+      result,
+      undefined,
+      this.scan === scan &&
+        this.connection === connection &&
+        this.js.epoch(source) === epoch,
+    );
+    return result;
+  }
   assets = new AssetIndex();
   observedByURL = new Map<string, Map<string, string[]>>();
   observedByCdpId = new Map<string, Map<string, string>>();
@@ -92,7 +183,6 @@ export class Recorder {
     public send: (s: Source, m: string, p?: object) => Promise<any>,
     remote?: RemoteCapture,
   ) {
-    this.stacks = new StackCapture(send);
     this.remote =
       remote ?? new RemoteCapture(() => this.scan?.config.remote_capture);
     this.journal = new CaptureJournal(this.remote, (scan, error) => {
@@ -101,7 +191,13 @@ export class Recorder {
         gap(this.scan, "raw_journal_delivery_failure", String(error));
       }
     });
-    this.js = new JSCapture(send, this.stacks, this.remote, this.assets);
+    this.stacks = new StackCapture(this.command);
+    this.js = new JSCapture(
+      this.command,
+      this.stacks,
+      this.remote,
+      this.assets,
+    );
   }
   async create(
     name: string,
@@ -116,7 +212,12 @@ export class Recorder {
     await this.assets.load(
       config.remote_capture ? assetScope(config.remote_capture) : "",
     );
-    this.js = new JSCapture(this.send, this.stacks, this.remote, this.assets);
+    this.js = new JSCapture(
+      this.command,
+      this.stacks,
+      this.remote,
+      this.assets,
+    );
     this.journalClosed = false;
     this.journal.resetTracking();
     const time = now();
@@ -136,7 +237,7 @@ export class Recorder {
         { version: 1, effective_at: time, config: structuredClone(config) },
       ],
       browser: navigator.userAgent,
-      plugin: "0.11.0",
+      plugin: "0.12.0",
       stats: {
         observed: 0,
         pending: 0,
@@ -496,7 +597,7 @@ export class Recorder {
       const h: Hop = { record: r, requestExtra: true };
       this.rememberInitiatorCandidate(source, p, r);
       h.stack = this.stacks
-        .capture(source, p.initiator?.stack)
+        .capture(source, p.initiator?.stack, { request_id: r.request_id })
         .then((result) => {
           if (!h.done && this.scan === scan) {
             r.initiator_stack = result.stack;
@@ -643,7 +744,12 @@ export class Recorder {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
-        this.send(source, "Network.getRequestPostData", { requestId: id }),
+        this.command(
+          source,
+          "Network.getRequestPostData",
+          { requestId: id },
+          { request_id: r.request_id },
+        ),
         new Promise<never>((_, rej) => {
           timer = setTimeout(() => rej(Error("正文读取超时")), 1500);
         }),
@@ -680,7 +786,12 @@ export class Recorder {
     let timer: ReturnType<typeof setTimeout> | undefined;
     try {
       const result = await Promise.race([
-        this.send(source, "Network.getResponseBody", { requestId: id }),
+        this.command(
+          source,
+          "Network.getResponseBody",
+          { requestId: id },
+          { request_id: r.request_id },
+        ),
         new Promise<never>((_, reject) => {
           timer = setTimeout(() => reject(Error("响应正文读取超时")), 1500);
         }),
@@ -1207,6 +1318,7 @@ export class Recorder {
     if (this.scan.config.remote_capture) {
       try {
         this.journalClosed = true;
+        await Promise.allSettled([...this.commands]);
         if (this.scan.config.raw_capture)
           await this.journal.drain(this.scan.id);
         await this.remote.drain();

@@ -30,8 +30,8 @@ it("real Chromium CDP collects duplicate multi-MiB external JS and network prove
   );
   const expected: CaptureEvent[] = [];
   const deliver = remote.send.bind(remote);
-  remote.send = async (event, source) => {
-    const ack = await deliver(event, source);
+  remote.send = async (event, source, journalId) => {
+    const ack = await deliver(event, source, journalId);
     // Snapshot after delivery so the receiver-assigned object_id is included.
     expected.push(JSON.parse(JSON.stringify(event)));
     return ack;

@@ -373,7 +373,8 @@ it("keeps the production Recorder request and response path moving during a stal
       "https://site.test/api/fast",
     );
     expect(observed?.data.record.response_body.raw).toBe("ok");
-    expect(remote.status(scan.id)?.pending).toBe(1);
+    // Both the exact raw source result and its derived JS observation are retained.
+    expect(remote.status(scan.id)?.pending).toBe(2);
     release.release();
     await recorder.js.drain();
     await recorder.stop();

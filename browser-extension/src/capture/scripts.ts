@@ -139,7 +139,12 @@ export class JSCapture {
     } else this.tail = this.tail.then(run);
   }
   constructor(
-    private send: (s: Source, m: string, p?: object) => Promise<any>,
+    private send: (
+      s: Source,
+      m: string,
+      p?: object,
+      binding?: Record<string, any>,
+    ) => Promise<any>,
     private stacks: StackCapture,
     private remote: RemoteCapture,
     private assets: AssetIndex,
@@ -292,7 +297,19 @@ export class JSCapture {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
           const result = await Promise.race([
-            this.send(s, "Debugger.getScriptSource", { scriptId: p.scriptId }),
+            this.send(
+              s,
+              "Debugger.getScriptSource",
+              { scriptId: p.scriptId },
+              {
+                js_epoch: epoch,
+                target_id: targetId,
+                script: { ...p },
+                source_event_id: id,
+                observed_tab_url: tabURL,
+                received_at: receivedAt,
+              },
+            ),
             new Promise<never>((_, reject) => {
               timer = setTimeout(() => reject(Error("读取JS超时")), 5000);
             }),

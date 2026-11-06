@@ -2648,7 +2648,7 @@ onUnmounted(() => {
           >
           <label v-if="draftConfig.collect_js"
             ><input v-model="draftConfig.raw_capture" type="checkbox" />
-            原始事件日志与崩溃补传：完整上传原始通知，Filter/字段选择只影响整理视图。</label
+            原始事件日志与崩溃补传：完整上传原始通知及已读取的正文、JS源码和父栈，Filter/字段选择只影响整理视图。</label
           >
           <div
             v-if="draftConfig.collect_js && draftConfig.analysis"

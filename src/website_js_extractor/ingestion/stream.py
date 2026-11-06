@@ -27,6 +27,7 @@ from website_js_extractor.analysis.engine import LOCK, analyze, default_engine_r
 from website_js_extractor.analysis.results import build_candidates, write_report
 
 from website_js_extractor.domain.protocol import SCHEMA
+from website_js_extractor.domain.raw import RAW_KINDS
 TASK_KINDS = {'TaskStarted', 'TaskCheckpoint'}
 CONTEXT_KINDS = {'Runtime.executionContextCreated', 'Runtime.executionContextDestroyed',
                  'Runtime.executionContextsCleared'}
@@ -198,11 +199,15 @@ class Ingest:
         self.loads = {}
         self.observed = []
         self.content = {}
+        self.inline_sources = {}
         self.gaps = []
         self.stats = Counter(events=len(events))
         from website_js_extractor.ingestion.raw import recover_raw
         recovered, self.raw_links, projections, issues, self.raw_statistics = recover_raw(events)
         self.observed.extend(recovered)
+        for projection in projections:
+            if isinstance(projection.get('_source_text'),str):
+                self.inline_sources[projection['object_id']]=projection['_source_text'].encode('utf-8')
         replaced={identity for projection in projections for identity in projection.get("_replaces",[])}
         self.events = projections + [event for event in events if event.get("id") not in replaced]
         for issue in issues:
@@ -357,7 +362,7 @@ class Ingest:
         if not isinstance(identity, str) or not re.fullmatch(r'[0-9a-f]{64}', identity):
             self.gap('stream_source_missing', 'Script event has no object_id.', source=event.get('id'))
             return
-        size = self.reader.content_size(identity)
+        size = len(self.inline_sources[identity]) if identity in self.inline_sources else self.reader.content_size(identity)
         if size is None:
             self.gap('stream_content_missing', 'Script content was not durably committed by the receiver.',
                      source=identity)
@@ -380,6 +385,8 @@ class Ingest:
                            observed_tab_url=data.get('observed_tab_url'),
                            stack=data.get('stackTrace') or data.get('loading_stack'),
                            source_map_url=data.get('sourceMapURL'), cdp=data.get('cdp'))
+        if data.get('recovery'): observation['recovery']=data['recovery']
+        if data.get('command_event_ids'): observation['command_event_ids']=data['command_event_ids']
         script_key = (context['id'], identity, url or '')
         asset = self.assets.get(script_key)
         if asset is None:
@@ -491,7 +498,7 @@ class Ingest:
                 self.stats['network_events'] += 1
                 self._network(event, data)
                 continue
-            if kind == 'RawCdpEvent': continue
+            if kind in RAW_KINDS: continue
             self.stats['ignored_events'] += 1
         self._runtime_depths()
 
@@ -587,7 +594,11 @@ class Ingest:
         for identity, size in self.content.items():
             target = output/'snapshot'/(identity + '.js')
             try:
-                actual = self.reader.copy_content(identity, target)
+                if identity in self.inline_sources:
+                    target.parent.mkdir(parents=True,exist_ok=True)
+                    target.write_bytes(self.inline_sources[identity])
+                    actual=len(self.inline_sources[identity])
+                else: actual = self.reader.copy_content(identity, target)
             except (StreamError, OSError) as error:
                 snapshot.gap('stream_content_read_failed', str(error)[:2000], incomplete=True, source=identity)
                 continue
@@ -735,7 +746,9 @@ def _inventory_row(snapshot, assets, host, method, path, members, records):
                 contexts=sorted(contexts), js_files=js_files,
                 parameters=dict(static=static_parameters, observed_query=observed_query,
                                 observed_body_keys=sorted(set(body_keys))),
-                evidence=dict(static_candidate_ids=candidate_ids, observed_request_ids=request_ids, raw_event_ids=sorted({identity for record in records for identity in record.get("raw_event_ids",[])})))
+                evidence=dict(static_candidate_ids=candidate_ids, observed_request_ids=request_ids,
+                              raw_event_ids=sorted({identity for record in records for identity in record.get("raw_event_ids",[])}),
+                              command_event_ids=sorted({identity for record in records for identity in record.get('command_event_ids',[])})))
 
 
 def _write_inventory(output, report):
@@ -803,10 +816,10 @@ def ingest(args):
             raise StreamError('No capture events are stored for this project.')
         task['id'] = scan
         events = reader.events(scan)
-        if any(event.get('kind')=='RawCdpEvent' for event in events):
+        if any(event.get('kind') in RAW_KINDS for event in events):
             with (output/'raw-notifications.jsonl').open('w',encoding='utf-8') as raw_output:
                 for event in events:
-                    if event.get('kind')=='RawCdpEvent': raw_output.write(json.dumps(event,ensure_ascii=True,allow_nan=False)+'\n')
+                    if event.get('kind') in RAW_KINDS: raw_output.write(json.dumps(event,ensure_ascii=True,allow_nan=False)+'\n')
         print(f'Ingesting {len(events)} capture event(s) for scan {scan}...', file=sys.stderr)
         ingest_state = Ingest(reader, scan, events, max_files=args.max_files,
                               max_asset_bytes=args.max_asset_mib*1024*1024,

@@ -94,7 +94,7 @@ flowchart TD
 
 ## 6. jshound 对照起点
 
-本轮仅静态阅读锁定版本 `f34f9c5dcfa0f30816a66881ea9a8d8573c24f05`，没有运行效果验收。下面是已定位的代码入口，不表示已满足上述全部设计。
+锁定版本为 `f34f9c5dcfa0f30816a66881ea9a8d8573c24f05`，已接入真实统一分析和受控自动化验收。自有sites.js复用其Babel解析/词法绑定，对直接fetch、sendBeacon和Axios默认导入的字面量调用补充精确UTF16范围、源码哈希及所在函数；不会把词法函数当运行时调用链。动态封装、实例与请求加工仍待核验，未执行独立盲测效果验收。
 
 | 代码位置 | 本轮观察 | 下一步核验 |
 | --- | --- | --- |
@@ -103,4 +103,4 @@ flowchart TD
 | `jshound/analyze.py::js_files`、`_build_module_index` | 有目录资产枚举和跨文件模块索引逻辑 | 内部模块、跨文件 wrapper、调用者和实例隔离 |
 | `jshound/js/static_ast.js` | JS 静态分析入口之一 | 用冻结样本核验四项信息及请求加工能力 |
 
-参考源码见 [jshound](../references/repos/jshound)。下一步先按“直接、依赖自发、多层调用、请求加工”四类建立人工预期，再对固定输入运行基线；实现顺序见[黑盒二计划](plan.md)。
+参考源码见 [jshound](../references/repos/jshound)。下一步用“直接、依赖自发、多层调用、请求加工”四类独立冻结样本核验召回/误报和绑定精度；实现顺序见[黑盒二计划](plan.md)。
